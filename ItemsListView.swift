@@ -3,9 +3,6 @@ import UIKit
 
 // MARK: - Thumbnail cache
 
-/// Shared, observable cache for primary attachment IDs.
-/// Each item's ID maps to its primary attachment ID once fetched.
-/// An empty string means "confirmed no photo."
 @MainActor
 class ThumbnailStore: ObservableObject {
     @Published private(set) var cache: [String: String] = [:]
@@ -34,6 +31,23 @@ class ThumbnailStore: ObservableObject {
     func isLoaded(for itemId: String) -> Bool { cache[itemId] != nil }
 }
 
+// MARK: - Sort order
+
+enum ItemSortOrder: String, CaseIterable, Identifiable {
+    case newestFirst, oldestFirst, nameAZ, nameZA, locationAZ, quantityDesc
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .newestFirst:  return "Newest first"
+        case .oldestFirst:  return "Oldest first"
+        case .nameAZ:       return "Name A–Z"
+        case .nameZA:       return "Name Z–A"
+        case .locationAZ:   return "Location A–Z"
+        case .quantityDesc: return "Quantity ↓"
+        }
+    }
+}
+
 // MARK: - ItemsListView
 
 struct ItemsListView: View {
@@ -44,9 +58,12 @@ struct ItemsListView: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var query: String = ""
+    @State private var lastLoadedAt: Date? = nil
 
-    // View mode
+    // View options
     @State private var viewMode: ViewMode = .list
+    @State private var tileColumns = 2
+    @State private var sortOrder: ItemSortOrder = .newestFirst
 
     // Filters
     @State private var showFilters = false
@@ -82,6 +99,8 @@ struct ItemsListView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task { await load() }
+            .onAppear { Task { await load() } }
+            .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
             .navigationDestination(for: ItemDetailRoute.self) { route in
                 ItemDetailView(itemId: route.id, onChange: { Task { await load(force: true) } })
                     .environmentObject(store)
@@ -102,8 +121,7 @@ struct ItemsListView: View {
             }
             .sheet(isPresented: $showBulkEdit) {
                 BulkEditSheet(itemIds: Array(selectedIds)) {
-                    selectMode = false
-                    selectedIds = []
+                    selectMode = false; selectedIds = []
                     Task { await load(force: true) }
                 }
                 .environmentObject(store).environmentObject(theme)
@@ -120,6 +138,7 @@ struct ItemsListView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) { BrandMark() }
         ToolbarItemGroup(placement: .topBarTrailing) {
+            // Filter toggle
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
             } label: {
@@ -128,18 +147,38 @@ struct ItemsListView: View {
                       : "line.3.horizontal.decrease.circle")
                 .foregroundStyle(hasActiveFilters ? theme.current.accentColor : .primary)
             }
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewMode = viewMode == .list ? .tile : .list
+
+            // Options: sort + view mode + columns
+            Menu {
+                Picker("Sort by", selection: $sortOrder) {
+                    ForEach(ItemSortOrder.allCases) { o in Text(o.label).tag(o) }
+                }
+                .pickerStyle(.inline)
+
+                Divider()
+
+                Picker("View", selection: $viewMode) {
+                    Label("List", systemImage: "list.bullet").tag(ViewMode.list)
+                    Label("Tiles", systemImage: "square.grid.2x2").tag(ViewMode.tile)
+                }
+                .pickerStyle(.inline)
+
+                if viewMode == .tile {
+                    Divider()
+                    Picker("Columns", selection: $tileColumns) {
+                        Text("2 columns").tag(2)
+                        Text("3 columns").tag(3)
+                        Text("4 columns").tag(4)
+                    }
+                    .pickerStyle(.inline)
                 }
             } label: {
-                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                Image(systemName: "ellipsis.circle")
             }
+
+            // Select / Done
             Button {
-                withAnimation {
-                    selectMode.toggle()
-                    if !selectMode { selectedIds = [] }
-                }
+                withAnimation { selectMode.toggle(); if !selectMode { selectedIds = [] } }
             } label: {
                 Text(selectMode ? "Done" : "Select").font(.callout)
             }
@@ -156,48 +195,31 @@ struct ItemsListView: View {
                 label: filterLocationId.flatMap { store.pathString(forLocationId: $0) } ?? "Location",
                 icon: "mappin.circle.fill",
                 isActive: filterLocationId != nil,
-                onTap: {
-                    if filterLocationId != nil { filterLocationId = nil }
-                    else { showLocationFilterPicker = true }
-                },
+                onTap: { if filterLocationId != nil { filterLocationId = nil } else { showLocationFilterPicker = true } },
                 onLongPress: { showLocationFilterPicker = true }
             )
             filterChip(
                 label: filterTagIds.isEmpty ? "Tags" : "\(filterTagIds.count) tag\(filterTagIds.count == 1 ? "" : "s")",
                 icon: "tag.fill",
                 isActive: !filterTagIds.isEmpty,
-                onTap: {
-                    if !filterTagIds.isEmpty { filterTagIds = [] }
-                    else { showTagFilterPicker = true }
-                },
+                onTap: { if !filterTagIds.isEmpty { filterTagIds = [] } else { showTagFilterPicker = true } },
                 onLongPress: { showTagFilterPicker = true }
             )
             Spacer()
             if hasActiveFilters {
-                Button("Clear") {
-                    filterLocationId = nil
-                    filterTagIds = []
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                Button("Clear") { filterLocationId = nil; filterTagIds = [] }
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
 
     private func filterChip(label: String, icon: String, isActive: Bool,
-                            onTap: @escaping () -> Void,
-                            onLongPress: @escaping () -> Void) -> some View {
+                            onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
         Button { onTap() } label: {
             HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .foregroundStyle(isActive ? .white : theme.current.accentColor)
-                    .font(.caption)
-                Text(label)
-                    .font(.caption.weight(.medium))
-                    .lineLimit(1)
-                if isActive {
-                    Image(systemName: "xmark").font(.caption2)
-                }
+                Image(systemName: icon).foregroundStyle(isActive ? .white : theme.current.accentColor).font(.caption)
+                Text(label).font(.caption.weight(.medium)).lineLimit(1)
+                if isActive { Image(systemName: "xmark").font(.caption2) }
             }
             .padding(.horizontal, 10).padding(.vertical, 6)
             .background(isActive ? theme.current.accentColor : Color.secondary.opacity(0.15))
@@ -215,14 +237,12 @@ struct ItemsListView: View {
         if !store.isAuthenticated {
             notSignedIn
         } else if isLoading && allItems.isEmpty {
-            Spacer()
-            ProgressView("Loading items…")
-            Spacer()
+            Spacer(); ProgressView("Loading items…"); Spacer()
         } else if let loadError, allItems.isEmpty {
             errorState(loadError)
         } else if allItems.isEmpty {
             emptyState
-        } else if filteredItems.isEmpty {
+        } else if sortedFilteredItems.isEmpty {
             noResultsState
         } else {
             switch viewMode {
@@ -234,10 +254,11 @@ struct ItemsListView: View {
 
     private var listView: some View {
         List {
-            ForEach(filteredItems) { item in
+            ForEach(sortedFilteredItems) { item in
                 itemListRow(item)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
             }
         }
         .listStyle(.plain)
@@ -249,14 +270,12 @@ struct ItemsListView: View {
     private var tileView: some View {
         ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12)],
-                spacing: 12
+                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
+                spacing: 10
             ) {
-                ForEach(filteredItems) { item in
-                    itemTile(item)
-                }
+                ForEach(sortedFilteredItems) { item in itemTile(item) }
             }
-            .padding(16)
+            .padding(12)
             .padding(.bottom, 80)
         }
         .scrollContentBackground(.hidden)
@@ -265,7 +284,7 @@ struct ItemsListView: View {
         .refreshable { await load(force: true) }
     }
 
-    // MARK: - Row (list view)
+    // MARK: - Row
 
     @ViewBuilder
     private func itemListRow(_ item: HBItem) -> some View {
@@ -274,35 +293,29 @@ struct ItemsListView: View {
             Group {
                 if selectMode {
                     ItemListRowContent(item: item, thumbStore: thumbStore)
-                        .contentShape(Rectangle())
-                        .onTapGesture { toggleSelection(item) }
+                        .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
                 } else {
                     NavigationLink(value: ItemDetailRoute(id: item.id)) {
                         ItemListRowContent(item: item, thumbStore: thumbStore)
-                    }
-                    .buttonStyle(.plain)
+                    }.buttonStyle(.plain)
                 }
             }
             .background {
                 RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
                 RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                            lineWidth: isSelected ? 2 : 1)
-            )
-
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                        lineWidth: isSelected ? 2 : 1))
             if selectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
-                    .font(.title3)
-                    .padding(10)
+                    .font(.title3).padding(10)
             }
         }
     }
 
-    // MARK: - Tile (tile view)
+    // MARK: - Tile
 
     @ViewBuilder
     private func itemTile(_ item: HBItem) -> some View {
@@ -310,52 +323,40 @@ struct ItemsListView: View {
         ZStack(alignment: .topTrailing) {
             Group {
                 if selectMode {
-                    ItemTileContent(item: item, thumbStore: thumbStore)
-                        .contentShape(Rectangle())
-                        .onTapGesture { toggleSelection(item) }
+                    ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns)
+                        .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
                 } else {
                     NavigationLink(value: ItemDetailRoute(id: item.id)) {
-                        ItemTileContent(item: item, thumbStore: thumbStore)
-                    }
-                    .buttonStyle(.plain)
+                        ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns)
+                    }.buttonStyle(.plain)
                 }
             }
             .background {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
+                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
             }
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                            lineWidth: isSelected ? 2 : 1)
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 14))
-
+            .overlay(RoundedRectangle(cornerRadius: 12)
+                .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                        lineWidth: isSelected ? 2 : 1))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
             if selectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
-                    .font(.title3)
-                    .padding(8)
+                    .font(.body).padding(6)
             }
         }
     }
 
-    // MARK: - Bulk action bar
+    // MARK: - Bulk bar
 
     private var bulkActionBar: some View {
         HStack(spacing: 12) {
-            Text("\(selectedIds.count) selected")
-                .font(.callout.weight(.medium))
+            Text("\(selectedIds.count) selected").font(.callout.weight(.medium))
             Spacer()
-            Button("Edit") { showBulkEdit = true }
-                .buttonStyle(.glassProminent)
-                .controlSize(.small)
-            Button("Deselect All") { selectedIds = [] }
-                .buttonStyle(.glass)
-                .controlSize(.small)
+            Button("Edit") { showBulkEdit = true }.buttonStyle(.glassProminent).controlSize(.small)
+            Button("Deselect All") { selectedIds = [] }.buttonStyle(.glass).controlSize(.small)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.ultraThinMaterial)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Color.primary.opacity(0.1)), alignment: .top)
     }
@@ -367,8 +368,7 @@ struct ItemsListView: View {
             Image(systemName: "link.circle").font(.system(size: 48)).foregroundStyle(.secondary)
             Text("Not connected").font(.title3.weight(.semibold))
             Text("Open Settings to enter your Homebox server URL and sign in.")
-                .font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).padding(.horizontal, 32)
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
         }
     }
 
@@ -376,8 +376,7 @@ struct ItemsListView: View {
         VStack(spacing: 12) {
             Image(systemName: "shippingbox").font(.system(size: 48)).foregroundStyle(.secondary)
             Text("No items yet").font(.title3.weight(.semibold))
-            Text("Add your first item from the Add tab.")
-                .font(.callout).foregroundStyle(.secondary)
+            Text("Add your first item from the Add tab.").font(.callout).foregroundStyle(.secondary)
         }
     }
 
@@ -386,14 +385,8 @@ struct ItemsListView: View {
             Spacer()
             Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(.secondary)
             Text("No matches").font(.title3.weight(.semibold))
-            Text("Try adjusting your search or filters.")
-                .font(.callout).foregroundStyle(.secondary)
-            Button("Clear filters") {
-                filterLocationId = nil
-                filterTagIds = []
-                query = ""
-            }
-            .buttonStyle(.glass)
+            Text("Try adjusting your search or filters.").font(.callout).foregroundStyle(.secondary)
+            Button("Clear filters") { filterLocationId = nil; filterTagIds = []; query = "" }.buttonStyle(.glass)
             Spacer()
         }
     }
@@ -402,53 +395,49 @@ struct ItemsListView: View {
         VStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundStyle(.orange)
             Text("Couldn't load items").font(.title3.weight(.semibold))
-            Text(message).font(.callout).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center).padding(.horizontal, 24)
-            Button("Try again") { Task { await load(force: true) } }
-                .buttonStyle(.glass)
+            Text(message).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+            Button("Try again") { Task { await load(force: true) } }.buttonStyle(.glass)
         }
     }
 
-    // MARK: - Filtering
+    // MARK: - Filtering & sorting
 
-    private var filteredItems: [HBItem] {
+    private var sortedFilteredItems: [HBItem] {
         var items = allItems
         if let locId = filterLocationId {
             items = items.filter { $0.location?.id == locId }
         }
-        if !filterTagIds.isEmpty {
-            items = items.filter { item in
-                guard let labels = item.labels else { return false }
-                return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
-            }
-        }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
             items = items.filter {
-                $0.name.lowercased().contains(q) ||
-                ($0.description ?? "").lowercased().contains(q)
+                $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
             }
         }
-        return items
+        switch sortOrder {
+        case .newestFirst:  return items.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
+        case .oldestFirst:  return items.sorted { ($0.createdAt ?? "") < ($1.createdAt ?? "") }
+        case .nameAZ:       return items.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        case .nameZA:       return items.sorted { $0.name.lowercased() > $1.name.lowercased() }
+        case .locationAZ:   return items.sorted { ($0.location?.name ?? "").lowercased() < ($1.location?.name ?? "").lowercased() }
+        case .quantityDesc: return items.sorted { ($0.quantity ?? 1) > ($1.quantity ?? 1) }
+        }
     }
 
     private func toggleSelection(_ item: HBItem) {
-        if selectedIds.contains(item.id) { selectedIds.remove(item.id) }
-        else { selectedIds.insert(item.id) }
+        if selectedIds.contains(item.id) { selectedIds.remove(item.id) } else { selectedIds.insert(item.id) }
     }
 
     private func load(force: Bool = false) async {
         guard let client = store.client else { return }
-        if !force && !allItems.isEmpty { return }
+        let stale = lastLoadedAt.map { Date().timeIntervalSince($0) > 60 } ?? true
+        if !force && !allItems.isEmpty && !stale { return }
         isLoading = true; loadError = nil
         do {
-            let resp = try await client.listItems(pageSize: 1000)
-            let pulled = resp.items.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
-            allItems = pulled
-            store.updateCachedItemTotal(resp.total ?? pulled.count)
-        } catch {
-            loadError = error.localizedDescription
-        }
+            let resp = try await client.listItems(labelIds: Array(filterTagIds), pageSize: 1000)
+            allItems = resp.items
+            store.updateCachedItemTotal(resp.total ?? resp.items.count)
+            lastLoadedAt = Date()
+        } catch { loadError = error.localizedDescription }
         isLoading = false
     }
 }
@@ -462,15 +451,15 @@ private struct ItemListRowContent: View {
     @ObservedObject var thumbStore: ThumbnailStore
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
+        HStack(alignment: .center, spacing: 10) {
             thumbnailView
-                .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.name).font(.body.weight(.medium)).lineLimit(2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name).font(.body.weight(.medium)).lineLimit(1)
                 if let path = breadcrumb {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 3) {
                         Image(systemName: "mappin.and.ellipse").font(.caption2)
                         Text(path).font(.caption).monospaced().lineLimit(1)
                     }
@@ -481,11 +470,9 @@ private struct ItemListRowContent: View {
                 }
             }
             Spacer(minLength: 0)
-            Text("×\(item.quantityInt)")
-                .font(.caption.monospacedDigit().weight(.medium))
-                .foregroundStyle(.secondary)
+            Text("×\(item.quantityInt)").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
         }
-        .padding(12)
+        .padding(.horizontal, 10).padding(.vertical, 8)
         .task(id: item.id) {
             guard let client = store.client else { return }
             thumbStore.loadIfNeeded(item.id, client: client)
@@ -496,27 +483,22 @@ private struct ItemListRowContent: View {
     private var thumbnailView: some View {
         if !thumbStore.isLoaded(for: item.id) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.10))
+                RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.10))
                 ProgressView().controlSize(.small)
             }
         } else if let attId = thumbStore.attachmentId(for: item.id) {
-            AuthImage(itemId: item.id, attachmentId: attId)
-                .scaledToFill()
+            AuthImage(itemId: item.id, attachmentId: attId).scaledToFill()
         } else {
             ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.12))
-                Text("\(item.quantityInt)")
-                    .font(.title3.weight(.semibold).monospacedDigit())
+                RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.12))
+                Text("\(item.quantityInt)").font(.callout.weight(.semibold).monospacedDigit())
                     .foregroundStyle(theme.current.accentColor)
             }
         }
     }
 
     private var breadcrumb: String? {
-        if let id = item.location?.id {
-            let path = store.pathString(forLocationId: id)
-            if !path.isEmpty { return path }
-        }
+        if let id = item.location?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
         return item.location?.name
     }
 }
@@ -528,36 +510,30 @@ private struct ItemTileContent: View {
     @EnvironmentObject var theme: ThemeManager
     let item: HBItem
     @ObservedObject var thumbStore: ThumbnailStore
+    let columns: Int
+
+    private var thumbHeight: CGFloat { columns <= 2 ? 108 : columns == 3 ? 80 : 62 }
+    private var namePad: CGFloat { columns <= 3 ? 8 : 6 }
+    private var nameFont: Font { columns <= 2 ? .callout.weight(.semibold) : .caption.weight(.semibold) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
-                thumbnailView
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 115)
-                    .clipped()
-
+                thumbnailView.frame(maxWidth: .infinity).frame(height: thumbHeight).clipped()
                 Text("×\(item.quantityInt)")
                     .font(.caption2.monospacedDigit().weight(.semibold))
-                    .padding(.horizontal, 6).padding(.vertical, 3)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(Capsule().fill(.ultraThinMaterial))
-                    .padding(6)
+                    .padding(5)
             }
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.name)
-                    .font(.callout.weight(.semibold))
-                    .lineLimit(2)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name).font(nameFont).lineLimit(columns <= 3 ? 2 : 1)
                     .fixedSize(horizontal: false, vertical: true)
-                if let path = breadcrumb {
-                    Text(path)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .monospaced()
+                if columns <= 3, let path = breadcrumb {
+                    Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(1).monospaced()
                 }
             }
-            .padding(10)
+            .padding(namePad)
         }
         .task(id: item.id) {
             guard let client = store.client else { return }
@@ -568,28 +544,21 @@ private struct ItemTileContent: View {
     @ViewBuilder
     private var thumbnailView: some View {
         if !thumbStore.isLoaded(for: item.id) {
-            ZStack {
-                theme.current.accentColor.opacity(0.10)
-                ProgressView().controlSize(.small)
-            }
+            ZStack { theme.current.accentColor.opacity(0.10); ProgressView().controlSize(.small) }
         } else if let attId = thumbStore.attachmentId(for: item.id) {
-            AuthImage(itemId: item.id, attachmentId: attId)
-                .scaledToFill()
+            AuthImage(itemId: item.id, attachmentId: attId).scaledToFill()
         } else {
             ZStack {
                 theme.current.accentColor.opacity(0.10)
                 Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 34))
+                    .font(.system(size: columns <= 2 ? 30 : columns == 3 ? 22 : 16))
                     .foregroundStyle(theme.current.accentColor.opacity(0.35))
             }
         }
     }
 
     private var breadcrumb: String? {
-        if let id = item.location?.id {
-            let path = store.pathString(forLocationId: id)
-            if !path.isEmpty { return path }
-        }
+        if let id = item.location?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
         return item.location?.name
     }
 }
@@ -617,65 +586,43 @@ struct BulkEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    Text("\(itemIds.count) item\(itemIds.count == 1 ? "" : "s") selected")
-                        .foregroundStyle(.secondary)
-                }
+                Section { Text("\(itemIds.count) item\(itemIds.count == 1 ? "" : "s") selected").foregroundStyle(.secondary) }
 
                 Section("Change location") {
-                    Toggle("Apply to all selected", isOn: $applyLocation)
-                        .tint(theme.current.accentColor)
+                    Toggle("Apply to all selected", isOn: $applyLocation).tint(theme.current.accentColor)
                     if applyLocation {
-                        Button {
-                            showLocationPicker = true
-                        } label: {
+                        Button { showLocationPicker = true } label: {
                             HStack {
                                 Image(systemName: "mappin.and.ellipse")
                                 Text(locationId.flatMap { store.pathString(forLocationId: $0) } ?? "Pick location")
                                     .foregroundStyle(locationId == nil ? .secondary : .primary)
                                 Spacer()
                                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                            }.contentShape(Rectangle())
+                        }.buttonStyle(.plain)
                     }
                 }
 
                 Section("Change tags") {
-                    Toggle("Apply to all selected", isOn: $applyTags)
-                        .tint(theme.current.accentColor)
+                    Toggle("Apply to all selected", isOn: $applyTags).tint(theme.current.accentColor)
                     if applyTags {
-                        Button {
-                            showTagPicker = true
-                        } label: {
+                        Button { showTagPicker = true } label: {
                             HStack {
                                 Image(systemName: "tag")
                                 Text(tagIds.isEmpty ? "Pick tags" : "\(tagIds.count) tag\(tagIds.count == 1 ? "" : "s")")
                                     .foregroundStyle(tagIds.isEmpty ? .secondary : .primary)
                                 Spacer()
                                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-                            }
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                            }.contentShape(Rectangle())
+                        }.buttonStyle(.plain)
                     }
                 }
 
                 if isSaving {
-                    Section {
-                        HStack(spacing: 8) {
-                            ProgressView().controlSize(.small)
-                            Text("Updating \(progress) of \(itemIds.count)…").font(.callout)
-                        }
-                    }
+                    Section { HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Updating \(progress) of \(itemIds.count)…").font(.callout) } }
                 }
-
                 if let errorMsg {
-                    Section {
-                        Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red).font(.callout)
-                    }
+                    Section { Label(errorMsg, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout) }
                 }
             }
             .scrollContentBackground(.hidden)
@@ -685,20 +632,12 @@ struct BulkEditSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Apply") { Task { await save() } }
-                        .bold()
-                        .disabled(isSaving || (!applyLocation && !applyTags)
-                                  || (applyLocation && locationId == nil))
+                    Button("Apply") { Task { await save() } }.bold()
+                        .disabled(isSaving || (!applyLocation && !applyTags) || (applyLocation && locationId == nil))
                 }
             }
-            .sheet(isPresented: $showLocationPicker) {
-                LocationPickerSheet(selectedId: $locationId)
-                    .environmentObject(store).environmentObject(theme)
-            }
-            .sheet(isPresented: $showTagPicker) {
-                TagPickerSheet(selectedIds: $tagIds)
-                    .environmentObject(store).environmentObject(theme)
-            }
+            .sheet(isPresented: $showLocationPicker) { LocationPickerSheet(selectedId: $locationId).environmentObject(store).environmentObject(theme) }
+            .sheet(isPresented: $showTagPicker) { TagPickerSheet(selectedIds: $tagIds).environmentObject(store).environmentObject(theme) }
         }
     }
 
@@ -708,23 +647,18 @@ struct BulkEditSheet: View {
         for id in itemIds {
             do {
                 let detail = try await client.getItem(id: id)
-                var update = HBItemUpdate(
-                    from: detail,
-                    overrideLocationId: applyLocation ? locationId : nil,
-                    overrideTagIds: applyTags ? Array(tagIds) : nil
-                )
+                var update = HBItemUpdate(from: detail, overrideLocationId: applyLocation ? locationId : nil,
+                                         overrideTagIds: applyTags ? Array(tagIds) : nil)
                 if applyLocation, let locId = locationId { update.locationId = locId }
                 try await client.updateItem(update)
                 progress += 1
             } catch {
                 errorMsg = "Error on item \(progress + 1): \(error.localizedDescription)"
-                isSaving = false
-                return
+                isSaving = false; return
             }
         }
         isSaving = false
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        onComplete()
-        dismiss()
+        onComplete(); dismiss()
     }
 }

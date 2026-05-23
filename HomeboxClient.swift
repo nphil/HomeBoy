@@ -316,13 +316,14 @@ struct HomeboxClient {
     // MARK: Items
 
     /// `GET /v1/items` — paginated list of items, optionally filtered.
-    func listItems(query: String? = nil, locationIds: [String] = [], page: Int = 1, pageSize: Int = 500) async throws -> HBItemListResponse {
+    func listItems(query: String? = nil, locationIds: [String] = [], labelIds: [String] = [], page: Int = 1, pageSize: Int = 500) async throws -> HBItemListResponse {
         var items: [URLQueryItem] = [
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pageSize", value: String(pageSize)),
         ]
         if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
         for id in locationIds { items.append(URLQueryItem(name: "locations", value: id)) }
+        for id in labelIds { items.append(URLQueryItem(name: "labels", value: id)) }
         let data = try await request("v1/items", method: "GET", query: items)
         do { return try JSONDecoder().decode(HBItemListResponse.self, from: data) }
         catch { throw HBError.decode(error) }
