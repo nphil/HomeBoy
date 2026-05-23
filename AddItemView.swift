@@ -20,24 +20,23 @@ struct AddItemView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                ThemeBackground()
-                ScrollView {
-                    VStack(spacing: 16) {
-                        countChip
-                        nameAndQuantityCard
-                        locationCard
-                        optionalCard
-                        addButton
-                        if let justAdded {
-                            successPill(justAdded)
-                        }
+            ScrollView {
+                VStack(spacing: 16) {
+                    countChip
+                    nameAndQuantityCard
+                    locationCard
+                    optionalCard
+                    addButton
+                    if let justAdded {
+                        successPill(justAdded)
                     }
-                    .padding(16)
-                    .padding(.bottom, 60)
                 }
-                .scrollDismissesKeyboard(.interactively)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 80)
             }
+            .background(ThemeBackground().ignoresSafeArea())
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
