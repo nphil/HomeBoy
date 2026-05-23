@@ -1,59 +1,40 @@
 import SwiftUI
-import UIKit
 
 struct SettingsView: View {
-    @EnvironmentObject var store: CatalogStore
+    @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
-    @State private var shareItem: ShareItem?
-    @State private var confirmClear = false
+
+    @State private var password: String = ""
+    @State private var isLoggingIn = false
+    @State private var loginError: String?
+    @State private var confirmLogout = false
+    @FocusState private var focused: Field?
+
+    enum Field { case server, username, password }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Export") {
-                    Button {
-                        exportCSV()
-                    } label: {
-                        Label("Export CSV (Homebox format)", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(store.items.isEmpty)
-                    Text("Produces a CSV with HB.name, HB.quantity, HB.location, HB.description, HB.labels. Locations are joined with ' / '.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-
-                Section("Queue") {
-                    LabeledContent("Items in queue", value: "\(store.items.count)")
-                    Button(role: .destructive) {
-                        confirmClear = true
-                    } label: {
-                        Label("Clear all items", systemImage: "trash")
-                    }
-                    .disabled(store.items.isEmpty)
+                if store.isAuthenticated {
+                    signedInSection
+                    serverSection
+                } else {
+                    serverSection
+                    loginSection
                 }
 
                 Section("Theme") {
                     HStack(spacing: 0) {
                         ForEach(AppTheme.allCases) { t in
-                            ThemeSwatch(
-                                theme: t,
-                                isSelected: theme.current == t,
-                                onTap: { theme.set(t) }
-                            )
-                            .frame(maxWidth: .infinity)
+                            ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
+                                .frame(maxWidth: .infinity)
                         }
                     }
                     .padding(.vertical, 8)
                 }
 
-                Section("Homebox (coming soon)") {
-                    LabeledContent("Server URL", value: "—")
-                    LabeledContent("API token", value: "—")
-                    Text("Direct push to your self-hosted Homebox will appear here in a future build.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-
                 Section("About") {
-                    LabeledContent("Version", value: "0.1")
+                    LabeledContent("Version", value: "0.2")
                     Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
                 }
             }
@@ -64,35 +45,118 @@ struct SettingsView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { BrandMark() }
             }
-            .sheet(item: $shareItem) { item in
-                ShareSheet(activityItems: [item.url])
-            }
-            .alert("Clear all items?", isPresented: $confirmClear) {
+            .alert("Sign out?", isPresented: $confirmLogout) {
                 Button("Cancel", role: .cancel) {}
-                Button("Clear", role: .destructive) { store.clearAll() }
+                Button("Sign out", role: .destructive) {
+                    store.logout()
+                    password = ""
+                }
             } message: {
-                Text("This removes all \(store.items.count) items from the queue. Export first if you need them.")
+                Text("You'll need to enter your password again to reconnect.")
             }
         }
     }
 
-    private func exportCSV() {
-        guard let url = CSVExporter.write(items: store.items) else { return }
-        shareItem = ShareItem(url: url)
+    // MARK: - Sections
+
+    private var signedInSection: some View {
+        Section("Signed in") {
+            LabeledContent("Server") { Text(displayServer).font(.callout.monospaced()) }
+            LabeledContent("User",   value: store.savedUsername)
+            HStack {
+                if store.isLoadingLocations {
+                    ProgressView().controlSize(.small)
+                    Text("Loading locations…").foregroundStyle(.secondary)
+                } else {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                    Text("\(store.locations.count) locations cached")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("Refresh") {
+                    Task {
+                        do { try await store.refreshLocations() }
+                        catch { loginError = error.localizedDescription }
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+            Button(role: .destructive) {
+                confirmLogout = true
+            } label: {
+                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+        }
     }
-}
 
-struct ShareItem: Identifiable {
-    let id = UUID()
-    let url: URL
-}
-
-struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    private var serverSection: some View {
+        Section("Server") {
+            TextField("homebox.example.com", text: $store.serverURLString)
+                .focused($focused, equals: .server)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .keyboardType(.URL)
+                .submitLabel(.next)
+                .onSubmit { focused = .username }
+            Text("Just the host (https:// is added automatically) or a full URL. No trailing slash.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
     }
 
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
+    private var loginSection: some View {
+        Section("Sign in") {
+            TextField("Email or username", text: $store.savedUsername)
+                .focused($focused, equals: .username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .submitLabel(.next)
+                .onSubmit { focused = .password }
+            SecureField("Password", text: $password)
+                .focused($focused, equals: .password)
+                .submitLabel(.go)
+                .onSubmit { performLogin() }
+
+            if let loginError {
+                Label(loginError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+
+            Button {
+                performLogin()
+            } label: {
+                HStack {
+                    if isLoggingIn { ProgressView().controlSize(.small) }
+                    Text(isLoggingIn ? "Signing in…" : "Sign in")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .disabled(isLoggingIn || !canSubmit)
+        }
+    }
+
+    private var canSubmit: Bool {
+        store.serverURL != nil &&
+        !store.savedUsername.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !password.isEmpty
+    }
+
+    private var displayServer: String {
+        store.serverURL?.host ?? store.serverURLString
+    }
+
+    private func performLogin() {
+        loginError = nil
+        isLoggingIn = true
+        Task {
+            do {
+                try await store.login(username: store.savedUsername, password: password)
+                password = ""
+            } catch {
+                loginError = error.localizedDescription
+            }
+            isLoggingIn = false
+        }
+    }
 }

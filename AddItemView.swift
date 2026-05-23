@@ -2,33 +2,39 @@ import SwiftUI
 import UIKit
 
 struct AddItemView: View {
-    @EnvironmentObject var store: CatalogStore
+    @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
 
     @State private var name = ""
     @State private var quantity = 1
-    @State private var loc1 = ""
-    @State private var loc2 = ""
-    @State private var loc3 = ""
-    @State private var details = ""
-    @State private var labels = ""
-    @State private var showOptional = false
+    @State private var description = ""
+    @State private var selectedLocationId: String?
+    @State private var lockLocation = false
+    @State private var showLocationPicker = false
+    @State private var isSubmitting = false
     @State private var justAdded: String? = nil
+    @State private var submitError: String?
 
-    enum Field: Hashable { case name, qty, loc1, loc2, loc3, details, labels }
+    enum Field: Hashable { case name, description }
     @FocusState private var focused: Field?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    countChip
-                    nameAndQuantityCard
-                    locationCard
-                    optionalCard
-                    addButton
-                    if let justAdded {
-                        successPill(justAdded)
+                    if !store.isAuthenticated {
+                        notConfiguredCard
+                    } else {
+                        nameAndQuantityCard
+                        locationCard
+                        descriptionCard
+                        addButton
+                        if let submitError {
+                            errorPill(submitError)
+                        }
+                        if let justAdded {
+                            successPill(justAdded)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -42,33 +48,44 @@ struct AddItemView: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { BrandMark() }
                 ToolbarItemGroup(placement: .keyboard) {
-                    recentChipsForFocused
                     Spacer()
                     Button("Done") { focused = nil }
                         .font(.callout.weight(.semibold))
                 }
             }
+            .sheet(isPresented: $showLocationPicker) {
+                LocationPickerSheet(selectedId: $selectedLocationId)
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
             .onAppear {
-                // Auto-focus name on first appear so you can start typing immediately.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    if focused == nil { focused = .name }
+                if store.isAuthenticated, focused == nil {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        focused = .name
+                    }
                 }
             }
         }
     }
 
-    // MARK: - Subviews
+    // MARK: - Cards
 
-    private var countChip: some View {
-        HStack {
-            Image(systemName: "tray.full.fill")
-                .font(.caption)
-            Text("\(store.items.count) \(store.items.count == 1 ? "item" : "items") in queue")
-                .font(.callout)
-            Spacer()
+    private var notConfiguredCard: some View {
+        GlassCard {
+            VStack(spacing: 10) {
+                Image(systemName: "link.circle")
+                    .font(.system(size: 32))
+                    .foregroundStyle(theme.current.accentColor)
+                Text("Connect to Homebox")
+                    .font(.title3.weight(.semibold))
+                Text("Open the Settings tab to enter your server URL and sign in. New items will save directly to your Homebox.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
         }
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 4)
     }
 
     private var nameAndQuantityCard: some View {
@@ -83,9 +100,8 @@ struct AddItemView: View {
                         .textFieldStyle(.plain)
                         .focused($focused, equals: .name)
                         .submitLabel(.next)
-                        .onSubmit { focused = .loc1 }
+                        .onSubmit { focused = .description }
                         .font(.title3)
-                        .autocorrectionDisabled(false)
                         .textInputAutocapitalization(.sentences)
                 }
                 HStack(spacing: 12) {
@@ -102,76 +118,57 @@ struct AddItemView: View {
 
     private var locationCard: some View {
         GlassCard(title: "Location") {
-            VStack(spacing: 12) {
-                locationField(level: 0, value: $loc1, placeholder: "e.g. Garage", field: .loc1, next: .loc2, label: "Location")
-                locationField(level: 1, value: $loc2, placeholder: "Sublocation (optional)", field: .loc2, next: .loc3, label: "Sublocation")
-                locationField(level: 2, value: $loc3, placeholder: "Sub-sublocation (optional)", field: .loc3, next: nil, label: "Sub-sublocation")
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    showLocationPicker = true
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
+                            .font(.title3)
+                            .foregroundStyle(theme.current.accentColor)
+                        VStack(alignment: .leading, spacing: 2) {
+                            if let id = selectedLocationId {
+                                Text(store.pathString(forLocationId: id))
+                                    .font(.body.weight(.medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(2)
+                            } else {
+                                Text("Tap to choose location")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.tertiary)
+                    }
+                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                HStack(spacing: 8) {
+                    Toggle(isOn: $lockLocation) { Text("Keep location after adding").font(.caption) }
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .tint(theme.current.accentColor)
+                }
             }
         }
     }
 
-    private func locationField(level: Int, value: Binding<String>, placeholder: String, field: Field, next: Field?, label: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                LockToggle(locked: $store.locks[level], label: label)
-                Spacer()
-            }
-            TextField(placeholder, text: value)
-                .textFieldStyle(.plain)
-                .focused($focused, equals: field)
-                .submitLabel(next == nil ? .done : .next)
-                .onSubmit {
-                    if let next {
-                        focused = next
-                    } else {
-                        submit()
-                    }
-                }
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled(false)
-                .padding(.vertical, 6)
-                .overlay(alignment: .bottom) {
-                    Rectangle()
-                        .fill(theme.current.accentColor.opacity(focused == field ? 0.6 : 0.18))
-                        .frame(height: focused == field ? 2 : 1)
-                }
-        }
-    }
-
-    private var optionalCard: some View {
-        GlassCard {
-            DisclosureGroup(isExpanded: $showOptional) {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("DESCRIPTION")
-                            .font(.caption.weight(.semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                        TextField("Notes about the item", text: $details, axis: .vertical)
-                            .focused($focused, equals: .details)
-                            .lineLimit(1...4)
-                    }
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("LABELS  ·  semicolon-separated")
-                            .font(.caption.weight(.semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                        TextField("tools; power; cordless", text: $labels)
-                            .focused($focused, equals: .labels)
-                            .autocorrectionDisabled(true)
-                            .textInputAutocapitalization(.never)
-                    }
-                }
-                .padding(.top, 8)
-            } label: {
-                HStack {
-                    Image(systemName: "text.alignleft")
-                    Text("More details")
-                        .font(.callout.weight(.medium))
-                    Spacer()
-                }
-                .foregroundStyle(.primary)
-            }
+    private var descriptionCard: some View {
+        GlassCard(title: "Description (optional)") {
+            TextField("Notes about the item", text: $description, axis: .vertical)
+                .focused($focused, equals: .description)
+                .lineLimit(1...4)
+                .textInputAutocapitalization(.sentences)
         }
     }
 
@@ -179,24 +176,30 @@ struct AddItemView: View {
         Button {
             submit()
         } label: {
-            Label("Add to queue", systemImage: "plus.circle.fill")
-                .font(.title3.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
+            HStack {
+                if isSubmitting { ProgressView().controlSize(.small) }
+                Label(isSubmitting ? "Adding…" : "Add to Homebox", systemImage: "plus.circle.fill")
+                    .font(.title3.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
         }
         .buttonStyle(.glassProminent)
-        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+        .disabled(isSubmitting || !canSubmit)
+    }
+
+    private var canSubmit: Bool {
+        !name.trimmingCharacters(in: .whitespaces).isEmpty &&
+        store.itemTypeId != nil
     }
 
     @ViewBuilder
     private func successPill(_ text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "checkmark.circle.fill")
-            Text("Added \(text)")
-                .font(.callout)
+            Text("Added \(text)").font(.callout)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14).padding(.vertical, 8)
         .background(Capsule().fill(.ultraThinMaterial))
         .overlay(Capsule().stroke(Color.green.opacity(0.5), lineWidth: 1))
         .foregroundStyle(.primary)
@@ -204,68 +207,64 @@ struct AddItemView: View {
     }
 
     @ViewBuilder
-    private var recentChipsForFocused: some View {
-        let level: Int? = {
-            switch focused {
-            case .loc1: return 0
-            case .loc2: return 1
-            case .loc3: return 2
-            default: return nil
-            }
-        }()
-        if let level {
-            let recents = store.recentLocations(level: level)
-            if !recents.isEmpty {
-                RecentChips(values: recents) { v in
-                    switch level {
-                    case 0: loc1 = v
-                    case 1: loc2 = v
-                    case 2: loc3 = v
-                    default: break
-                    }
-                }
-            }
+    private func errorPill(_ text: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+            Text(text).font(.callout).multilineTextAlignment(.leading)
         }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
+        .foregroundStyle(.primary)
     }
 
-    // MARK: - Actions
+    // MARK: - Submit
 
     private func submit() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            focused = .name
+        guard !trimmedName.isEmpty else { focused = .name; return }
+        guard let client = store.client, let itemTypeId = store.itemTypeId else {
+            submitError = "Not signed in. Open Settings to log in."
             return
         }
-        let item = CatalogItem(
+        submitError = nil
+        isSubmitting = true
+        let payload = HBCreateEntityRequest(
             name: trimmedName,
-            quantity: max(1, quantity),
-            location1: loc1.trimmingCharacters(in: .whitespaces),
-            location2: loc2.trimmingCharacters(in: .whitespaces),
-            location3: loc3.trimmingCharacters(in: .whitespaces),
-            details: details.trimmingCharacters(in: .whitespacesAndNewlines),
-            labels: labels.trimmingCharacters(in: .whitespacesAndNewlines)
+            entityTypeId: itemTypeId,
+            parentId: selectedLocationId,
+            quantity: Double(quantity),
+            description: description.isEmpty ? nil : description
         )
-        store.add(item)
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
-        showSuccessPill("\"\(trimmedName)\"")
-        resetForm()
+        Task {
+            do {
+                _ = try await client.createEntity(payload)
+                await MainActor.run {
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    showSuccessPill("\"\(trimmedName)\"")
+                    resetForm(trimmedName: trimmedName)
+                }
+            } catch {
+                await MainActor.run {
+                    submitError = error.localizedDescription
+                    UINotificationFeedbackGenerator().notificationOccurred(.error)
+                }
+            }
+            await MainActor.run { isSubmitting = false }
+        }
     }
 
-    private func resetForm() {
+    private func resetForm(trimmedName: String) {
         name = ""
         quantity = 1
-        details = ""
-        labels = ""
-        if !store.locks[0] { loc1 = "" }
-        if !store.locks[1] { loc2 = "" }
-        if !store.locks[2] { loc3 = "" }
+        description = ""
+        if !lockLocation { selectedLocationId = nil }
         focused = .name
     }
 
     private func showSuccessPill(_ text: String) {
-        withAnimation(.easeOut(duration: 0.15)) {
-            justAdded = text
-        }
+        withAnimation(.easeOut(duration: 0.15)) { justAdded = text }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             withAnimation(.easeIn(duration: 0.3)) {
                 if justAdded == text { justAdded = nil }

@@ -1,115 +1,138 @@
 import Foundation
 import SwiftUI
 
-struct CatalogItem: Identifiable, Codable, Equatable {
-    var id: UUID = UUID()
-    var name: String
-    var quantity: Int
-    var location1: String
-    var location2: String
-    var location3: String
-    var details: String
-    var labels: String   // semicolon-separated, matches Homebox HB.labels
-    var createdAt: Date = Date()
-
-    var locationPath: String {
-        [location1, location2, location3]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: " / ")
-    }
-}
-
+/// State container for everything Homebox-related: auth, cached entity types,
+/// cached location tree. Replaces the old local-queue `CatalogStore`.
 @MainActor
-final class CatalogStore: ObservableObject {
-    @Published private(set) var items: [CatalogItem] = []
-    @Published var locks: [Bool] = [false, false, false] {
-        didSet { saveLocks() }
+final class HomeboxStore: ObservableObject {
+    // MARK: - Auth + config (persisted)
+
+    @Published var serverURLString: String {
+        didSet { UserDefaults.standard.set(serverURLString, forKey: Keys.serverURL) }
+    }
+    @Published private(set) var token: String? {
+        didSet {
+            if let token { Keychain.set(token, key: Keys.token) }
+            else { Keychain.delete(Keys.token) }
+        }
+    }
+    @Published var savedUsername: String {
+        didSet { UserDefaults.standard.set(savedUsername, forKey: Keys.username) }
+    }
+    @Published private(set) var itemTypeId: String? {
+        didSet { UserDefaults.standard.set(itemTypeId, forKey: Keys.itemTypeId) }
     }
 
-    private let itemsFile: URL = {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        return dir.appendingPathComponent("catalog-items.json")
-    }()
-    private let locksKey = "homebox.locks"
+    // MARK: - In-memory caches
+
+    @Published var locations: [HBEntity] = []
+    @Published var entityTypes: [HBEntityType] = []
+    @Published private(set) var isLoadingLocations = false
+    @Published var lastError: String?
+
+    var isAuthenticated: Bool { token != nil && serverURL != nil }
+
+    var serverURL: URL? {
+        let trimmed = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        // Auto-prefix scheme if user typed just a host.
+        let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        return URL(string: withScheme)
+    }
+
+    var client: HomeboxClient? {
+        guard let serverURL else { return nil }
+        return HomeboxClient(serverURL: serverURL, token: token)
+    }
+
+    private enum Keys {
+        static let serverURL = "homebox.serverURL"
+        static let username  = "homebox.username"
+        static let token     = "homebox.token"
+        static let itemTypeId = "homebox.itemTypeId"
+    }
 
     init() {
-        load()
-        if let saved = UserDefaults.standard.array(forKey: locksKey) as? [Bool], saved.count == 3 {
-            locks = saved
-        }
+        serverURLString = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
+        savedUsername   = UserDefaults.standard.string(forKey: Keys.username) ?? ""
+        token           = Keychain.get(Keys.token)
+        itemTypeId      = UserDefaults.standard.string(forKey: Keys.itemTypeId)
     }
 
-    func add(_ item: CatalogItem) {
-        items.append(item)
-        save()
+    // MARK: - Auth
+
+    /// Logs in, stores the token, then fetches entity types and locations.
+    func login(username: String, password: String) async throws {
+        guard let url = serverURL else { throw HBError.badURL }
+        let resp = try await HomeboxClient.login(serverURL: url, username: username, password: password)
+        token = resp.token
+        savedUsername = username
+        try await bootstrap()
     }
 
-    func update(_ item: CatalogItem) {
-        guard let i = items.firstIndex(where: { $0.id == item.id }) else { return }
-        items[i] = item
-        save()
+    func logout() {
+        token = nil
+        itemTypeId = nil
+        locations = []
+        entityTypes = []
     }
 
-    func delete(_ item: CatalogItem) {
-        items.removeAll { $0.id == item.id }
-        save()
-    }
-
-    func delete(at offsets: IndexSet) {
-        items.remove(atOffsets: offsets)
-        save()
-    }
-
-    func clearAll() {
-        items.removeAll()
-        save()
-    }
-
-    /// Returns previously-used values for a given location level (0 = L1, 1 = L2, 2 = L3),
-    /// most-recent first, deduplicated.
-    func recentLocations(level: Int) -> [String] {
-        var seen = Set<String>()
-        var result: [String] = []
-        for item in items.reversed() {
-            let v: String
-            switch level {
-            case 0: v = item.location1
-            case 1: v = item.location2
-            case 2: v = item.location3
-            default: return []
-            }
-            let trimmed = v.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty, !seen.contains(trimmed) {
-                seen.insert(trimmed)
-                result.append(trimmed)
+    /// Loads entity types (to discover the Item type ID) and the location tree.
+    func bootstrap() async throws {
+        guard let client else { throw HBError.notConfigured }
+        let types = try await client.entityTypes()
+        await MainActor.run {
+            self.entityTypes = types
+            // Pick the first non-location type as "Item". If multiple item types
+            // exist, the user could override later — for now keep it simple.
+            if let item = types.first(where: { !$0.isLocation }) {
+                self.itemTypeId = item.id
             }
         }
-        return result
+        try await refreshLocations()
     }
 
-    // MARK: - Persistence
+    func refreshLocations() async throws {
+        guard let client else { throw HBError.notConfigured }
+        await MainActor.run { self.isLoadingLocations = true }
+        defer { Task { @MainActor in self.isLoadingLocations = false } }
 
-    private func save() {
-        do {
-            let data = try JSONEncoder().encode(items)
-            try data.write(to: itemsFile, options: .atomic)
-        } catch {
-            print("CatalogStore save error: \(error)")
+        // Pull all entities and filter for locations client-side. Homebox doesn't
+        // expose an entityTypeId filter on GET /v1/entities, so we fetch and split.
+        // For most home inventories this fits in a single page (we ask for 1000).
+        let page = try await client.entities(pageSize: 1000)
+        let locs = page.items.filter { $0.isLocation }
+        await MainActor.run { self.locations = locs }
+    }
+
+    // MARK: - Helpers
+
+    /// Returns locations ordered by depth-first traversal of the tree, each
+    /// paired with its depth, suitable for an indented picker.
+    func locationsAsTree() -> [(entity: HBEntity, depth: Int)] {
+        let byParent = Dictionary(grouping: locations) { $0.parent?.id ?? "" }
+        var out: [(HBEntity, Int)] = []
+
+        func walk(parentId: String, depth: Int) {
+            let kids = (byParent[parentId] ?? []).sorted { $0.name.lowercased() < $1.name.lowercased() }
+            for k in kids {
+                out.append((k, depth))
+                walk(parentId: k.id, depth: depth + 1)
+            }
         }
+        walk(parentId: "", depth: 0)
+        return out
     }
 
-    private func load() {
-        guard FileManager.default.fileExists(atPath: itemsFile.path) else { return }
-        do {
-            let data = try Data(contentsOf: itemsFile)
-            items = try JSONDecoder().decode([CatalogItem].self, from: data)
-        } catch {
-            print("CatalogStore load error: \(error)")
+    /// Builds a "A / B / C" path string for a given location id by walking ancestors.
+    func pathString(forLocationId id: String?) -> String {
+        guard let id, let loc = locations.first(where: { $0.id == id }) else { return "" }
+        var parts = [loc.name]
+        var current: HBParentRef? = loc.parent
+        while let p = current {
+            parts.insert(p.name, at: 0)
+            current = p.parent
         }
-    }
-
-    private func saveLocks() {
-        UserDefaults.standard.set(locks, forKey: locksKey)
+        return parts.joined(separator: " / ")
     }
 }

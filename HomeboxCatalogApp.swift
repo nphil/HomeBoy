@@ -3,7 +3,7 @@ import UIKit
 
 @main
 struct HomeboxCatalogApp: App {
-    @StateObject private var store = CatalogStore()
+    @StateObject private var store = HomeboxStore()
     @StateObject private var theme = ThemeManager()
 
     init() {
