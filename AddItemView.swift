@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import PhotosUI
+import FoundationModels
 
 struct AddItemView: View {
     @EnvironmentObject var store: HomeboxStore
@@ -16,6 +17,12 @@ struct AddItemView: View {
     @State private var selectedTagIds: Set<String> = []
     @State private var photo: UIImage?
     @State private var pickerItem: PhotosPickerItem?
+
+    // Tag suggestions
+    @State private var availableTags: [HBTag] = []
+    @State private var suggestedTagIds: [String] = []
+    @State private var isSuggestingTags = false
+    @State private var suggestionTask: Task<Void, Never>? = nil
 
     // Sheet flags
     @State private var showLocationPicker = false
@@ -71,6 +78,8 @@ struct AddItemView: View {
                     }
                 }
             }
+            .task { await loadTags() }
+            .onChange(of: name) { _, newName in scheduleSuggestion(for: newName) }
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
             }
@@ -82,6 +91,7 @@ struct AddItemView: View {
     private var addForm: some View {
         VStack(alignment: .leading, spacing: 12) {
             nameField
+            tagSuggestionRow
             locationRow
             compactOptionals
             descriptionField
@@ -350,9 +360,90 @@ struct AddItemView: View {
         }
     }
 
+    // MARK: - Tag suggestions
+
+    @ViewBuilder
+    private var tagSuggestionRow: some View {
+        let chips = availableTags.filter { suggestedTagIds.contains($0.id) && !selectedTagIds.contains($0.id) }
+        if isSuggestingTags || !chips.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.caption2).foregroundStyle(theme.current.accentColor)
+                if isSuggestingTags {
+                    ProgressView().controlSize(.mini)
+                    Text("Suggesting tags…").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(chips) { tag in
+                                Button {
+                                    selectedTagIds.insert(tag.id)
+                                    suggestedTagIds.removeAll { $0 == tag.id }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Circle().fill(Color(hex: tag.color ?? "")).frame(width: 8, height: 8)
+                                        Text(tag.name).font(.caption.weight(.medium))
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 5)
+                                    .background(Capsule().fill(.ultraThinMaterial))
+                                    .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.35), lineWidth: 1))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+            .transition(.opacity.combined(with: .scale(scale: 0.97)))
+        }
+    }
+
+    private func loadTags() async {
+        guard let client = store.client else { return }
+        if let tags = try? await client.listTags() { availableTags = tags }
+    }
+
+    private func scheduleSuggestion(for itemName: String) {
+        suggestionTask?.cancel()
+        suggestedTagIds = []
+        guard itemName.count >= 4, !availableTags.isEmpty else { return }
+        suggestionTask = Task {
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            guard !Task.isCancelled else { return }
+            await suggestTags(for: itemName)
+        }
+    }
+
+    private func suggestTags(for itemName: String) async {
+        guard SystemLanguageModel.default.isAvailable else { return }
+        let tagList = availableTags.map(\.name).joined(separator: ", ")
+        let prompt = "Home inventory item: '\(itemName)'. Available tags: \(tagList). List the 1–3 most relevant tag names, comma-separated. Reply with only tag names or 'none'."
+        await MainActor.run { isSuggestingTags = true }
+        do {
+            let session = LanguageModelSession()
+            let response = try await session.respond(to: prompt)
+            let names = "\(response.content)"
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { $0 != "none" }
+            let matched = availableTags.filter { names.contains($0.name.lowercased()) }.map(\.id)
+            await MainActor.run { suggestedTagIds = matched; isSuggestingTags = false }
+        } catch {
+            await MainActor.run { isSuggestingTags = false }
+        }
+    }
+
     private func resetForm() {
         name = ""; quantity = 1; description = ""
         photo = nil; pickerItem = nil
+        suggestedTagIds = []; suggestionTask?.cancel()
         if !lockTags { selectedTagIds = [] }
         if !lockLocation { selectedLocationId = nil }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { nameFocused = true }

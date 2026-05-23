@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import NaturalLanguage
 
 // MARK: - Thumbnail cache (plain class — rows update via local @State, not @Published)
 
@@ -435,8 +436,18 @@ struct ItemsListView: View {
         }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
-            items = items.filter {
+            let textMatches = items.filter {
                 $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
+            }
+            if textMatches.isEmpty && q.count >= 3,
+               let embedding = NLEmbedding.sentenceEmbedding(for: .english) {
+                items = items
+                    .map { ($0, embedding.distance(between: q, and: $0.name.lowercased(), distanceType: .cosine)) }
+                    .filter { $0.1 < 0.75 }
+                    .sorted { $0.1 < $1.1 }
+                    .map { $0.0 }
+            } else {
+                items = textMatches
             }
         }
         return items
