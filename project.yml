@@ -1,0 +1,46 @@
+# xcodegen project spec.
+# Run `xcodegen generate` (locally or in CI) to produce HomeboxCatalog.xcodeproj.
+name: HomeboxCatalog
+options:
+  bundleIdPrefix: com.homeboxcatalog
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGN_IDENTITY: ""
+
+targets:
+  HomeboxCatalog:
+    type: application
+    platform: iOS
+    sources:
+      - path: .
+        excludes:
+          - "**/*.md"
+          - "project.yml"
+          - ".github/**"
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Catalog
+        CFBundleShortVersionString: "0.1"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.homeboxcatalog.app
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_PREVIEWS: "YES"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

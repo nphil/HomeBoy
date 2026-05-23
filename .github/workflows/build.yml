@@ -1,0 +1,108 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build unsigned IPA
+    runs-on: macos-15
+
+    env:
+      SCHEME: HomeboxCatalog
+      PROJECT: HomeboxCatalog.xcodeproj
+      ARCHIVE_PATH: build/HomeboxCatalog.xcarchive
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using: $LATEST"
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Resolve Swift packages
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project "$PROJECT" \
+            -scheme "$SCHEME"
+
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            SKIP_INSTALL=NO \
+            INSTALL_PATH="/Applications" \
+            | xcpretty || exit ${PIPESTATUS[0]}
+
+      - name: Package into IPA
+        run: |
+          APP_PATH=$(find "$ARCHIVE_PATH" \
+            -name "*.app" \
+            ! -name "*.xctest" \
+            ! -path "*/SwiftSupport/*" \
+            2>/dev/null | head -1)
+
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ .app not found in archive. Listing archive contents:"
+            find "$ARCHIVE_PATH" -maxdepth 6 2>/dev/null || echo "(archive missing entirely)"
+            exit 1
+          fi
+
+          echo "✅ Found app at: $APP_PATH"
+          mkdir -p Payload
+          cp -r "$APP_PATH" Payload/
+          zip -r HomeboxCatalog.ipa Payload/
+          echo "IPA size: $(du -sh HomeboxCatalog.ipa | cut -f1)"
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false"             >> "$GITHUB_OUTPUT"
+            echo "title=${GITHUB_REF#refs/tags/}"   >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest"         >> "$GITHUB_OUTPUT"
+            echo "prerelease=true"    >> "$GITHUB_OUTPUT"
+            echo "title=Latest build" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Delete previous "latest" release
+        if: steps.tag.outputs.tag == 'latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+
+      - name: Publish release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          gh release create "${{ steps.tag.outputs.tag }}" \
+            HomeboxCatalog.ipa \
+            --title "${{ steps.tag.outputs.title }}" \
+            --notes "Unsigned IPA — sideload with AltStore. Built from \`$SHORT_SHA\` on $(date -u +'%Y-%m-%d %H:%M UTC')" \
+            ${{ steps.tag.outputs.prerelease == 'true' && '--prerelease' || '' }}
