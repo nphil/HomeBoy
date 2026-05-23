@@ -1,8 +1,17 @@
 # Homebox Catalog (iOS)
 
-Rapid-input iPhone app for cataloguing items for [Homebox](https://hay-kot.github.io/homebox/). Items go into a local queue, then you export a Homebox-format CSV (and, later, push directly to a self-hosted Homebox instance).
+Rapid-input iPhone app for cataloguing items directly into a self-hosted [Homebox](https://homebox.software/) v0.25.x instance. 
 
 Target: iOS 26 · Liquid Glass UI · sideloaded via AltStore (no App Store).
+
+## Features
+
+- **Direct API Integration**: Connects straight to your Homebox server (v0.25.x). All items, locations, and tags are fetched and updated live.
+- **Full CRUD Support**: Create, read, update, and delete items, locations, and tags directly from the app.
+- **Photo Attachments**: Capture photos using the camera or select from the photo library, automatically downscaled and uploaded.
+- **Sticky Fields**: "Keep location" and "Keep tags" toggles preserve your context across submissions, making rapid cataloguing easy.
+- **Bulk Editing**: Select multiple items at once to move them or change their tags.
+- **Theming**: Choose from 30 themes ported from the Homebox web app.
 
 ## Build
 
@@ -17,15 +26,3 @@ Target: iOS 26 · Liquid Glass UI · sideloaded via AltStore (no App Store).
 2. Download `HomeboxCatalog.ipa` from the `latest` release.
 3. AirDrop or share-sheet it to AltStore on your iPhone.
 4. AltStore signs it with your Apple ID and installs it.
-
-## Design notes
-
-- **Local queue first.** Items live on the device until you choose to export. This means you can catalogue in basements, garages, and storage units without wifi.
-- **Sticky locations.** Long-press the lock chip on any location field to make that value persist after you add an item. Catalogue a whole shelf without retyping the location.
-- **Keyboard-first.** Return key on the last field adds the item. Recent values appear above the keyboard for one-tap fill.
-- **Native Liquid Glass.** Uses iOS 26 `.glass`, `.glassProminent`, `.ultraThinMaterial`. No custom button styles — the system ones are correct.
-
-## Future
-
-- Direct push to a self-hosted Homebox instance (server URL + API token in settings).
-- Photo attachments (requires API path).
