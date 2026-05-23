@@ -6,80 +6,79 @@ struct AddItemView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
 
+    // Step state
+    enum Step { case name, ready }
+    @State private var step: Step = .name
+
+    // Fields
     @State private var name = ""
     @State private var quantity = 1
     @State private var description = ""
     @State private var selectedLocationId: String?
     @State private var lockLocation = false
+    @State private var selectedTagIds: Set<String> = []
+    @State private var photo: UIImage?
+    @State private var pickerItem: PhotosPickerItem?
+
+    // Sheet flags
     @State private var showLocationPicker = false
+    @State private var showTagPicker = false
+    @State private var showCamera = false
+
+    // Submission
     @State private var isSubmitting = false
     @State private var justAdded: String? = nil
     @State private var submitError: String?
 
-    // Photo capture / pick
-    @State private var photo: UIImage?
-    @State private var showCamera = false
-    @State private var pickerItem: PhotosPickerItem?
-
-    // Tags
-    @State private var selectedTagIds: Set<String> = []
-    @State private var showTagPicker = false
-
-    enum Field: Hashable { case name, description }
-    @FocusState private var focused: Field?
+    @FocusState private var nameFocused: Bool
+    @FocusState private var descFocused: Bool
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    if !store.isAuthenticated {
-                        notConfiguredCard
-                    } else {
-                        nameAndQuantityCard
-                        locationCard
-                        tagsCard
-                        photoCard
-                        descriptionCard
-                        addButton
-                        if let submitError {
-                            errorPill(submitError)
-                        }
-                        if let justAdded {
-                            successPill(justAdded)
+            ZStack {
+                theme.current.backgroundColor.ignoresSafeArea()
+
+                if !store.isAuthenticated {
+                    notConfiguredView
+                } else {
+                    Group {
+                        if step == .name {
+                            nameStep
+                                .transition(.asymmetric(
+                                    insertion: .opacity,
+                                    removal: .move(edge: .top).combined(with: .opacity)
+                                ))
+                        } else {
+                            readyStep
+                                .transition(.asymmetric(
+                                    insertion: .move(edge: .bottom).combined(with: .opacity),
+                                    removal: .opacity
+                                ))
                         }
                     }
+                    .animation(.spring(response: 0.38, dampingFraction: 0.82), value: step)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 80)
             }
-            .background(theme.current.backgroundColor.ignoresSafeArea())
-            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) { BrandMark() }
                 ToolbarItemGroup(placement: .keyboard) {
                     Spacer()
-                    Button("Done") { focused = nil }
+                    Button("Done") { nameFocused = false; descFocused = false }
                         .font(.callout.weight(.semibold))
                 }
             }
             .sheet(isPresented: $showLocationPicker) {
                 LocationPickerSheet(selectedId: $selectedLocationId)
-                    .environmentObject(store)
-                    .environmentObject(theme)
-            }
-            .sheet(isPresented: $showCamera) {
-                CameraSheet { img in
-                    photo = downscale(img)
-                }
-                .ignoresSafeArea()
+                    .environmentObject(store).environmentObject(theme)
             }
             .sheet(isPresented: $showTagPicker) {
                 TagPickerSheet(selectedIds: $selectedTagIds)
-                    .environmentObject(store)
-                    .environmentObject(theme)
+                    .environmentObject(store).environmentObject(theme)
+            }
+            .sheet(isPresented: $showCamera) {
+                CameraSheet { img in photo = downscale(img) }.ignoresSafeArea()
             }
             .onChange(of: pickerItem) { _, newItem in
                 guard let newItem else { return }
@@ -90,207 +89,273 @@ struct AddItemView: View {
                     }
                 }
             }
-            .onAppear {
-                if store.isAuthenticated, focused == nil {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        focused = .name
-                    }
-                }
-            }
         }
     }
 
-    // MARK: - Cards
+    // MARK: - Step 0: Name
 
-    private var notConfiguredCard: some View {
-        GlassCard {
-            VStack(spacing: 10) {
-                Image(systemName: "link.circle")
-                    .font(.system(size: 32))
-                    .foregroundStyle(theme.current.accentColor)
-                Text("Connect to Homebox")
-                    .font(.title3.weight(.semibold))
-                Text("Open the Settings tab to enter your server URL and sign in. New items will save directly to your Homebox.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-        }
-    }
+    private var nameStep: some View {
+        VStack(spacing: 0) {
+            Spacer()
 
-    private var nameAndQuantityCard: some View {
-        GlassCard(title: "Item") {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("NAME")
-                        .font(.caption.weight(.semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    TextField("e.g. Cordless drill", text: $name)
-                        .textFieldStyle(.plain)
-                        .focused($focused, equals: .name)
-                        .submitLabel(.next)
-                        .onSubmit { focused = .description }
-                        .font(.title3)
+            VStack(spacing: 28) {
+                Image(systemName: "shippingbox.fill")
+                    .font(.system(size: 56))
+                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
+
+                VStack(spacing: 8) {
+                    TextField("What is it?", text: $name)
+                        .font(.largeTitle.weight(.medium))
+                        .multilineTextAlignment(.center)
                         .textInputAutocapitalization(.sentences)
-                }
-                HStack(spacing: 12) {
-                    Text("QUANTITY")
-                        .font(.caption.weight(.semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    Spacer(minLength: 0)
-                    QuantityControl(value: $quantity)
-                }
-            }
-        }
-    }
+                        .focused($nameFocused)
+                        .submitLabel(.continue)
+                        .onSubmit { if canAdvance { advance() } }
 
-    private var locationCard: some View {
-        GlassCard(title: "Location") {
-            VStack(alignment: .leading, spacing: 10) {
-                Button {
-                    showLocationPicker = true
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
-                            .font(.title3)
-                            .foregroundStyle(theme.current.accentColor)
-                        VStack(alignment: .leading, spacing: 2) {
-                            if let id = selectedLocationId {
-                                Text(store.pathString(forLocationId: id))
-                                    .font(.body.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(2)
-                            } else {
-                                Text("Tap to choose location")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right")
+                    if !name.isEmpty {
+                        Text("\(name.trimmingCharacters(in: .whitespaces).count) chars")
+                            .font(.caption2)
                             .foregroundStyle(.tertiary)
+                            .transition(.opacity)
                     }
-                    .padding(.vertical, 10)
-                    .padding(.horizontal, 12)
-                    .frame(maxWidth: .infinity)
-                    .background {
-                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                    }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-
-                HStack(spacing: 8) {
-                    Toggle(isOn: $lockLocation) { Text("Keep location after adding").font(.caption) }
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .tint(theme.current.accentColor)
                 }
             }
+            .padding(.horizontal, 28)
+
+            Spacer()
+
+            VStack(spacing: 12) {
+                Button { advance() } label: {
+                    Label("Continue", systemImage: "arrow.right.circle.fill")
+                        .font(.title3.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.glassProminent)
+                .disabled(!canAdvance)
+
+                if let loc = selectedLocationId {
+                    Button {
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .ready }
+                    } label: {
+                        Text("Back to \(store.pathString(forLocationId: loc))").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 40)
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
         }
     }
 
-    private var tagsCard: some View {
-        GlassCard(title: "Tags (optional)") {
-            Button {
-                showTagPicker = true
-            } label: {
-                HStack {
-                    Image(systemName: "tag.fill")
-                        .foregroundStyle(theme.current.accentColor)
-                    if selectedTagIds.isEmpty {
-                        Text("Tap to choose tags").foregroundStyle(.secondary)
-                    } else {
-                        Text("\(selectedTagIds.count) tag\(selectedTagIds.count == 1 ? "" : "s") selected")
-                            .foregroundStyle(.primary)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+    private var canAdvance: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
+
+    private func advance() {
+        guard canAdvance else { return }
+        nameFocused = false
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .ready }
+        if selectedLocationId == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showLocationPicker = true }
+        }
+    }
+
+    // MARK: - Step 1: Location + compact optionals + Add
+
+    private var readyStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Confirmed name header
+            nameConfirmRow
+
+            // Location (required)
+            locationRow
+
+            // Compact optional strip: qty · tags · photo
+            compactOptionals
+
+            // Description (optional, inline)
+            descriptionField
+
+            Spacer(minLength: 0)
+
+            // Feedback
+            if let submitError { errorPill(submitError) }
+            if let justAdded   { successPill(justAdded) }
+
+            // Lock + Add
+            VStack(spacing: 10) {
+                Toggle(isOn: $lockLocation) {
+                    Text("Keep location for next item").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.vertical, 10).padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
-                .contentShape(Rectangle())
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(theme.current.accentColor)
+
+                addButton
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 24)
+    }
+
+    // MARK: - Subviews
+
+    private var nameConfirmRow: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("ITEM").font(.caption.weight(.semibold)).tracking(0.6)
+                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                Text(name).font(.title3.weight(.semibold)).lineLimit(1)
+            }
+            Spacer()
+            Button {
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .name }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { nameFocused = true }
+            } label: {
+                Image(systemName: "pencil.circle.fill")
+                    .font(.title2)
+                    .foregroundStyle(theme.current.accentColor.opacity(0.7))
             }
             .buttonStyle(.plain)
         }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .background {
+            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
+        }
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
     }
 
-    private var photoCard: some View {
-        GlassCard(title: "Photo (optional)") {
-            if let photo {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(uiImage: photo)
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 88, height: 88)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1)
-                        )
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Photo attached").font(.callout.weight(.medium))
-                        Text("Uploaded to Homebox after the item is created.")
-                            .font(.caption).foregroundStyle(.secondary)
-                        HStack(spacing: 8) {
-                            Button(role: .destructive) {
-                                self.photo = nil
-                                pickerItem = nil
-                            } label: { Label("Remove", systemImage: "trash") }
-                                .buttonStyle(.bordered)
-                                .controlSize(.small)
-                            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
-                                Label("Replace", systemImage: "photo.on.rectangle")
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
+    private var locationRow: some View {
+        Button { showLocationPicker = true } label: {
+            HStack(spacing: 10) {
+                Image(systemName: selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
+                    .font(.title3)
+                    .foregroundStyle(theme.current.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("LOCATION").font(.caption.weight(.semibold)).tracking(0.6)
+                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                    if let id = selectedLocationId {
+                        Text(store.pathString(forLocationId: id))
+                            .font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                    } else {
+                        Text("Tap to choose — required").foregroundStyle(.secondary).font(.callout)
                     }
-                    Spacer(minLength: 0)
                 }
-            } else {
-                HStack(spacing: 10) {
-                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .stroke(selectedLocationId == nil
+                        ? theme.current.accentColor.opacity(0.35)
+                        : theme.current.accentColor.opacity(0.2), lineWidth: selectedLocationId == nil ? 1.5 : 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var compactOptionals: some View {
+        HStack(spacing: 10) {
+            // Quantity
+            VStack(spacing: 4) {
+                Text("QTY").font(.caption2.weight(.semibold)).tracking(0.4)
+                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                QuantityControl(value: $quantity)
+            }
+
+            Divider().frame(height: 40)
+
+            // Tags
+            Button { showTagPicker = true } label: {
+                VStack(spacing: 4) {
+                    Text("TAGS").font(.caption2.weight(.semibold)).tracking(0.4)
+                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                    HStack(spacing: 4) {
+                        Image(systemName: "tag.fill").font(.caption)
+                            .foregroundStyle(theme.current.accentColor)
+                        Text(selectedTagIds.isEmpty ? "None" : "\(selectedTagIds.count)")
+                            .font(.callout.weight(.medium))
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 5)
+                    .background(Capsule().fill(.ultraThinMaterial))
+                    .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
+                    .contentShape(Rectangle())
+                }
+            }
+            .buttonStyle(.plain)
+
+            Divider().frame(height: 40)
+
+            // Photo
+            VStack(spacing: 4) {
+                Text("PHOTO").font(.caption2.weight(.semibold)).tracking(0.4)
+                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                if let photo {
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: photo).resizable().scaledToFill()
+                            .frame(width: 44, height: 34).clipShape(RoundedRectangle(cornerRadius: 6))
                         Button {
-                            showCamera = true
+                            self.photo = nil; pickerItem = nil
                         } label: {
-                            Label("Camera", systemImage: "camera.fill")
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 6)
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption).foregroundStyle(.white)
+                                .background(Circle().fill(Color.black.opacity(0.4)).padding(-1))
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.plain)
+                        .offset(x: 4, y: -4)
                     }
-                    PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
-                        Label("Library", systemImage: "photo.on.rectangle")
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 6)
+                } else {
+                    HStack(spacing: 6) {
+                        if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Button { showCamera = true } label: {
+                                Image(systemName: "camera.fill").font(.callout)
+                                    .foregroundStyle(theme.current.accentColor)
+                                    .frame(width: 36, height: 34)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
+                            }.buttonStyle(.plain)
+                        }
+                        PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                            Image(systemName: "photo.on.rectangle").font(.callout)
+                                .foregroundStyle(theme.current.accentColor)
+                                .frame(width: 36, height: 34)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
+                        }.buttonStyle(.plain)
                     }
-                    .buttonStyle(.glass)
                 }
             }
         }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background {
+            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.05))
+        }
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
     }
 
-    private var descriptionCard: some View {
-        GlassCard(title: "Description (optional)") {
-            TextField("Notes about the item", text: $description, axis: .vertical)
-                .focused($focused, equals: .description)
-                .lineLimit(1...4)
-                .textInputAutocapitalization(.sentences)
-        }
+    private var descriptionField: some View {
+        TextField("Description / notes (optional)", text: $description, axis: .vertical)
+            .focused($descFocused)
+            .lineLimit(1...3)
+            .textInputAutocapitalization(.sentences)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background {
+                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.05))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
     }
 
     private var addButton: some View {
-        Button {
-            submit()
-        } label: {
+        Button { submit() } label: {
             HStack {
                 if isSubmitting { ProgressView().controlSize(.small) }
                 Label(isSubmitting ? "Adding…" : "Add to Homebox", systemImage: "plus.circle.fill")
@@ -304,9 +369,10 @@ struct AddItemView: View {
     }
 
     private var canSubmit: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty &&
-        selectedLocationId != nil
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && selectedLocationId != nil
     }
+
+    // MARK: - Feedback pills
 
     @ViewBuilder
     private func successPill(_ text: String) -> some View {
@@ -319,6 +385,7 @@ struct AddItemView: View {
         .overlay(Capsule().stroke(Color.green.opacity(0.5), lineWidth: 1))
         .foregroundStyle(.primary)
         .transition(.opacity.combined(with: .scale))
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder
@@ -334,28 +401,26 @@ struct AddItemView: View {
         .foregroundStyle(.primary)
     }
 
+    // MARK: - Not configured
+
+    private var notConfiguredView: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "link.circle").font(.system(size: 52)).foregroundStyle(.secondary)
+            Text("Connect to Homebox").font(.title3.weight(.semibold))
+            Text("Open Settings to enter your server URL and sign in.")
+                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
+        }
+    }
+
     // MARK: - Submit
 
     private func submit() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { focused = .name; return }
-        guard let client = store.client else {
-            submitError = "Not signed in. Open Settings to log in."
-            return
-        }
-        guard let locId = selectedLocationId else {
-            submitError = "Pick a location first."
-            return
-        }
-        submitError = nil
-        isSubmitting = true
+        guard !trimmedName.isEmpty, let client = store.client, let locId = selectedLocationId else { return }
+        submitError = nil; isSubmitting = true
         let payload = HBItemCreate(
-            name: trimmedName,
-            quantity: Double(quantity),
-            description: description,
-            locationId: locId,
-            parentId: nil,
-            tagIds: Array(selectedTagIds)
+            name: trimmedName, quantity: Double(quantity), description: description,
+            locationId: locId, parentId: nil, tagIds: Array(selectedTagIds)
         )
         let photoToUpload = photo
         Task {
@@ -368,7 +433,7 @@ struct AddItemView: View {
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     showSuccessPill("\"\(trimmedName)\"")
-                    resetForm(trimmedName: trimmedName)
+                    resetForm()
                 }
             } catch {
                 await MainActor.run {
@@ -380,23 +445,18 @@ struct AddItemView: View {
         }
     }
 
-    private func resetForm(trimmedName: String) {
-        name = ""
-        quantity = 1
-        description = ""
-        photo = nil
-        pickerItem = nil
-        selectedTagIds = []
+    private func resetForm() {
+        name = ""; quantity = 1; description = ""
+        photo = nil; pickerItem = nil; selectedTagIds = []
         if !lockLocation { selectedLocationId = nil }
-        focused = .name
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .name }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { nameFocused = true }
     }
 
     private func showSuccessPill(_ text: String) {
         withAnimation(.easeOut(duration: 0.15)) { justAdded = text }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
-            withAnimation(.easeIn(duration: 0.3)) {
-                if justAdded == text { justAdded = nil }
-            }
+            withAnimation(.easeIn(duration: 0.3)) { if justAdded == text { justAdded = nil } }
         }
     }
 }
