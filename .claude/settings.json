@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{ echo '# CLAUDE.md'; cat \"/Users/nitin/AI Playground/homebox-catalog-ios/CLAUDE.md\"; echo; echo '---'; echo '# HANDOFF.md'; cat \"/Users/nitin/AI Playground/homebox-catalog-ios/HANDOFF.md\"; } | jq -Rs '{\"hookSpecificOutput\": {\"hookEventName\": \"SessionStart\", \"additionalContext\": .}}'",
+            "command": "{ echo '# CLAUDE.md'; cat \"/Users/nitin/AI Playground/homebox-catalog-ios/CLAUDE.md\"; echo; echo '---'; echo '# LLM_HANDOFF.md'; cat \"/Users/nitin/AI Playground/homebox-catalog-ios/LLM_HANDOFF.md\"; } | jq -Rs '{\"hookSpecificOutput\": {\"hookEventName\": \"SessionStart\", \"additionalContext\": .}}'",
             "statusMessage": "Loading HomeBoy project context…"
           }
         ]
