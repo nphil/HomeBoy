@@ -40,6 +40,8 @@ struct HBLocationSummary: Codable, Identifiable, Hashable {
 }
 
 /// Item summary as returned by `GET /v1/items` (paginated).
+/// Homebox versions vary: some include `labels`, some `tags`, some neither in the summary.
+/// Use `effectiveLabels` instead of accessing the two fields directly.
 struct HBItem: Codable, Identifiable, Hashable {
     let id: String
     let name: String
@@ -49,8 +51,13 @@ struct HBItem: Codable, Identifiable, Hashable {
     let createdAt: String?
     let location: HBLocationSummary?
     let labels: [HBTag]?
+    let tags: [HBTag]?
 
     var quantityInt: Int { Int(quantity ?? 1) }
+
+    /// nil = the API didn't include labels in the summary (trust server-side ?labels= filter).
+    /// [] = the API did include them and the item has none (genuinely no tags).
+    var effectiveLabels: [HBTag]? { labels ?? tags }
 }
 
 struct HBItemListResponse: Codable {

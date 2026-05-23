@@ -417,10 +417,11 @@ struct ItemsListView: View {
         if let locId = filterLocationId {
             items = items.filter { $0.location?.id == locId }
         }
-        // Client-side tag filter — works even if server ignores ?labels=
+        // Client-side tag filter — works if the summary includes labels/tags.
+        // If the summary omits them, trust the server-side ?labels= filter and don't reject.
         if !filterTagIds.isEmpty {
             items = items.filter { item in
-                guard let labels = item.labels else { return false }
+                guard let labels = item.effectiveLabels else { return true }
                 return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
             }
         }
