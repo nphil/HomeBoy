@@ -281,6 +281,7 @@ struct EditItemSheet: View {
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }
@@ -294,6 +295,7 @@ struct EditItemSheet: View {
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }

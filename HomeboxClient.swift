@@ -48,6 +48,7 @@ struct HBItem: Codable, Identifiable, Hashable {
     let archived: Bool?
     let createdAt: String?
     let location: HBLocationSummary?
+    let labels: [HBTag]?
 
     var quantityInt: Int { Int(quantity ?? 1) }
 }

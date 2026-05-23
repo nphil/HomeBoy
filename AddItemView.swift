@@ -182,6 +182,7 @@ struct AddItemView: View {
                     .overlay(
                         RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1)
                     )
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
@@ -216,6 +217,7 @@ struct AddItemView: View {
                 .frame(maxWidth: .infinity)
                 .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
                 .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         }

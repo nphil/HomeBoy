@@ -32,8 +32,28 @@ struct SettingsView: View {
                     .padding(.vertical, 8)
                 }
 
+                if store.isAuthenticated {
+                    Section("Info") {
+                        if let total = store.cachedItemTotal {
+                            LabeledContent("Items") {
+                                Text("\(total)")
+                                    .font(.callout.monospacedDigit().weight(.medium))
+                            }
+                        } else {
+                            LabeledContent("Items") {
+                                Text("Open Items tab to load")
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
+                        }
+                        LabeledContent("Locations") {
+                            Text("\(store.locationsFlat.count)")
+                                .font(.callout.monospacedDigit().weight(.medium))
+                        }
+                    }
+                }
+
                 Section("About") {
-                    LabeledContent("Version", value: "0.3")
+                    LabeledContent("Version", value: "0.6")
                     Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
                 }
             }

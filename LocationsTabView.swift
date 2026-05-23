@@ -7,7 +7,11 @@ struct LocationsTabView: View {
 
     @State private var query: String = ""
     @State private var showCreate = false
-    @State private var loadError: String?
+    @State private var collapsedIds: Set<String> = []
+    @State private var didInitializeCollapse = false
+    @State private var viewMode: LocViewMode = .list
+
+    enum LocViewMode { case list, tile }
 
     var body: some View {
         NavigationStack {
@@ -17,19 +21,7 @@ struct LocationsTabView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) { BrandMark() }
-                if store.isAuthenticated {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showCreate = true
-                        } label: {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.title2)
-                        }
-                    }
-                }
-            }
+            .toolbar { toolbarContent }
             .sheet(isPresented: $showCreate) {
                 CreateLocationSheet()
                     .environmentObject(store)
@@ -40,8 +32,16 @@ struct LocationsTabView: View {
                     try? await store.refreshLocations()
                 }
             }
+            .onChange(of: store.locationsFlat) { _, flat in
+                // On first load, collapse all parents so only top-level is visible.
+                // Subsequent refreshes preserve the user's expand/collapse state.
+                guard !didInitializeCollapse, !flat.isEmpty else { return }
+                collapsedIds = Set(flat.compactMap { $0.parentId })
+                didInitializeCollapse = true
+            }
             .navigationDestination(for: LocationDetailRoute.self) { route in
-                LocationDetailView(locationId: route.id, onChange: { Task { try? await store.refreshLocations() } })
+                LocationDetailView(locationId: route.id,
+                                   onChange: { Task { try? await store.refreshLocations() } })
                     .environmentObject(store)
                     .environmentObject(theme)
             }
@@ -53,6 +53,31 @@ struct LocationsTabView: View {
         }
     }
 
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) { BrandMark() }
+        if store.isAuthenticated {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewMode = viewMode == .list ? .tile : .list
+                    }
+                } label: {
+                    Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                }
+                Button {
+                    showCreate = true
+                } label: {
+                    Image(systemName: "plus.circle.fill").font(.title2)
+                }
+            }
+        }
+    }
+
+    // MARK: - Content
+
     @ViewBuilder
     private var content: some View {
         if !store.isAuthenticated {
@@ -62,31 +87,92 @@ struct LocationsTabView: View {
         } else if store.locationsFlat.isEmpty {
             emptyState
         } else {
-            List {
-                ForEach(filteredRows, id: \.id) { loc in
-                    NavigationLink(value: LocationDetailRoute(id: loc.id)) {
-                        LocationRow(loc: loc)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .searchable(text: $query, prompt: "Search locations")
-            .refreshable {
-                try? await store.refreshLocations()
+            switch viewMode {
+            case .list: listContent
+            case .tile: tileContent
             }
         }
     }
 
-    private var filteredRows: [FlatLocation] {
+    // MARK: - List view
+
+    private var listContent: some View {
+        List {
+            ForEach(visibleRows, id: \.id) { loc in
+                LocationListRow(
+                    loc: loc,
+                    isCollapsed: collapsedIds.contains(loc.id),
+                    hasChildren: hasChildren(loc),
+                    onToggleCollapse: { toggleCollapse(loc.id) }
+                )
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .searchable(text: $query, prompt: "Search locations")
+        .refreshable { try? await store.refreshLocations() }
+    }
+
+    // MARK: - Tile view
+
+    private var tileContent: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12)],
+                spacing: 12
+            ) {
+                ForEach(tileRows, id: \.id) { loc in
+                    NavigationLink(value: LocationDetailRoute(id: loc.id)) {
+                        LocationTile(loc: loc, childCount: childCount(loc))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 60)
+        }
+        .scrollContentBackground(.hidden)
+        .background(theme.current.backgroundColor)
+        .searchable(text: $query, prompt: "Search locations")
+        .refreshable { try? await store.refreshLocations() }
+    }
+
+    // MARK: - Data helpers
+
+    private var visibleRows: [FlatLocation] {
+        let all = store.locationsFlat
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if !q.isEmpty {
+            return all.filter { $0.pathString.lowercased().contains(q) }
+        }
+        return all.filter { $0.isVisible(collapsedIds: collapsedIds) }
+    }
+
+    private var tileRows: [FlatLocation] {
         let all = store.locationsFlat
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return all }
         return all.filter { $0.pathString.lowercased().contains(q) }
     }
+
+    private func hasChildren(_ loc: FlatLocation) -> Bool {
+        store.locationsFlat.contains { $0.parentId == loc.id }
+    }
+
+    private func childCount(_ loc: FlatLocation) -> Int {
+        store.locationsFlat.filter { $0.parentId == loc.id }.count
+    }
+
+    private func toggleCollapse(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if collapsedIds.contains(id) { collapsedIds.remove(id) }
+            else { collapsedIds.insert(id) }
+        }
+    }
+
+    // MARK: - Empty states
 
     private var notSignedIn: some View {
         VStack(spacing: 12) {
@@ -108,29 +194,69 @@ struct LocationsTabView: View {
     }
 }
 
-private struct LocationRow: View {
+// MARK: - List row
+
+private struct LocationListRow: View {
     @EnvironmentObject var theme: ThemeManager
     let loc: FlatLocation
+    let isCollapsed: Bool
+    let hasChildren: Bool
+    let onToggleCollapse: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 0) {
+            // Depth indentation
             ForEach(0..<loc.depth, id: \.self) { _ in
                 Rectangle()
-                    .fill(theme.current.accentColor.opacity(0.25))
+                    .fill(theme.current.accentColor.opacity(0.20))
                     .frame(width: 2)
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 4)
+                    .padding(.trailing, 10)
             }
-            Image(systemName: loc.depth == 0 ? "house.fill" : "folder.fill")
-                .foregroundStyle(theme.current.accentColor.opacity(0.85))
-                .frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(loc.name).font(.body.weight(.medium))
-                if !loc.ancestors.isEmpty {
-                    Text(loc.ancestors.joined(separator: " / "))
-                        .font(.caption2).foregroundStyle(.secondary).monospaced()
+
+            // Expand/collapse toggle
+            if hasChildren {
+                Button(action: onToggleCollapse) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.current.accentColor.opacity(0.7))
+                        .frame(width: 20, height: 20)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+            } else {
+                Spacer().frame(width: 20)
             }
-            Spacer(minLength: 0)
+
+            // Navigate to detail
+            NavigationLink(value: LocationDetailRoute(id: loc.id)) {
+                HStack(spacing: 8) {
+                    Image(systemName: loc.depth == 0 ? "house.fill" : "folder.fill")
+                        .foregroundStyle(theme.current.accentColor.opacity(0.85))
+                        .frame(width: 20)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(loc.name).font(.body.weight(.medium))
+                        if !loc.ancestors.isEmpty {
+                            Text(loc.ancestors.joined(separator: " / "))
+                                .font(.caption2).foregroundStyle(.secondary).monospaced()
+                        }
+                    }
+
+                    Spacer(minLength: 0)
+
+                    // Item count badge
+                    if loc.itemCount > 0 {
+                        Text("\(loc.itemCount)")
+                            .font(.caption2.monospacedDigit().weight(.semibold))
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Capsule().fill(theme.current.accentColor.opacity(0.15)))
+                            .foregroundStyle(theme.current.accentColor)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 10)
@@ -146,7 +272,62 @@ private struct LocationRow: View {
     }
 }
 
-/// Sheet to create a new location, with optional parent selection.
+// MARK: - Tile
+
+private struct LocationTile: View {
+    @EnvironmentObject var theme: ThemeManager
+    let loc: FlatLocation
+    let childCount: Int
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
+                Image(systemName: loc.depth == 0 ? "house.fill" : "folder.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(theme.current.accentColor.opacity(0.85))
+                Spacer()
+                if loc.itemCount > 0 {
+                    Text("\(loc.itemCount)")
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(theme.current.accentColor.opacity(0.15)))
+                        .foregroundStyle(theme.current.accentColor)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(loc.name)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !loc.ancestors.isEmpty {
+                    Text(loc.ancestors.joined(separator: " › "))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .monospaced()
+                }
+                if childCount > 0 {
+                    Text("\(childCount) sublocation\(childCount == 1 ? "" : "s")")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.06))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1)
+        )
+    }
+}
+
+// MARK: - Create location sheet
+
 struct CreateLocationSheet: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
@@ -188,6 +369,7 @@ struct CreateLocationSheet: View {
                             Spacer()
                             Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                         }
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                 }

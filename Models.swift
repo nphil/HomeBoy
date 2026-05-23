@@ -9,10 +9,19 @@ struct FlatLocation: Identifiable, Hashable {
     let depth: Int
     /// Ancestor names from root → immediate parent (excludes self).
     let ancestors: [String]
+    /// Ancestor IDs from root → immediate parent (for collapse/expand logic).
+    let ancestorIds: [String]
+    let parentId: String?
+    let itemCount: Int
 
     /// "Garage / Shelf A / Bin 2" for display.
     var pathString: String {
         (ancestors + [name]).joined(separator: " / ")
+    }
+
+    /// Returns true if none of this location's ancestors are collapsed.
+    func isVisible(collapsedIds: Set<String>) -> Bool {
+        !ancestorIds.contains(where: { collapsedIds.contains($0) })
     }
 }
 
@@ -39,13 +48,13 @@ final class HomeboxStore: ObservableObject {
     @Published private(set) var locationsFlat: [FlatLocation] = []
     @Published private(set) var isLoadingLocations = false
     @Published var lastError: String?
+    @Published private(set) var cachedItemTotal: Int? = nil
 
     var isAuthenticated: Bool { token != nil && serverURL != nil }
 
     var serverURL: URL? {
         let trimmed = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
-        // Auto-prefix scheme if user typed just a host.
         let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
         return URL(string: withScheme)
     }
@@ -80,18 +89,30 @@ final class HomeboxStore: ObservableObject {
     func logout() {
         token = nil
         locationsFlat = []
+        cachedItemTotal = nil
     }
 
     // MARK: - Locations
 
     func refreshLocations() async throws {
         guard let client else { throw HBError.notConfigured }
-        await MainActor.run { self.isLoadingLocations = true }
+        isLoadingLocations = true
         defer { Task { @MainActor in self.isLoadingLocations = false } }
 
-        let tree = try await client.locationTree()
-        let flat = Self.flatten(tree: tree)
-        await MainActor.run { self.locationsFlat = flat }
+        // Fetch tree (hierarchy) and flat list (item counts) in parallel.
+        async let treeTask = client.locationTree()
+        async let listTask = client.listLocations()
+        let (tree, list) = try await (treeTask, listTask)
+
+        var countMap: [String: Int] = [:]
+        for loc in list { countMap[loc.id] = Int(loc.itemCount ?? 0) }
+
+        let flat = Self.flatten(tree: tree, countMap: countMap)
+        self.locationsFlat = flat
+    }
+
+    func updateCachedItemTotal(_ total: Int) {
+        cachedItemTotal = total
     }
 
     /// Returns the breadcrumb path (e.g. "Garage / Shelf A") for a given location id,
@@ -101,19 +122,27 @@ final class HomeboxStore: ObservableObject {
         return loc.pathString
     }
 
-    /// DFS flatten the tree, ignoring non-location nodes (just in case the API
-    /// returns items mixed in).
-    private static func flatten(tree: [HBTreeItem]) -> [FlatLocation] {
+    /// DFS flatten the tree, ignoring non-location nodes.
+    private static func flatten(tree: [HBTreeItem], countMap: [String: Int] = [:]) -> [FlatLocation] {
         var out: [FlatLocation] = []
-        func walk(_ node: HBTreeItem, depth: Int, ancestors: [String]) {
+        func walk(_ node: HBTreeItem, depth: Int, ancestors: [String], ancestorIds: [String]) {
             if node.type == "location" || node.type == "" {
-                out.append(FlatLocation(id: node.id, name: node.name, depth: depth, ancestors: ancestors))
+                out.append(FlatLocation(
+                    id: node.id, name: node.name, depth: depth,
+                    ancestors: ancestors, ancestorIds: ancestorIds,
+                    parentId: ancestorIds.last,
+                    itemCount: countMap[node.id] ?? 0
+                ))
                 let kids = (node.children ?? []).sorted { $0.name.lowercased() < $1.name.lowercased() }
-                for k in kids { walk(k, depth: depth + 1, ancestors: ancestors + [node.name]) }
+                for k in kids {
+                    walk(k, depth: depth + 1,
+                         ancestors: ancestors + [node.name],
+                         ancestorIds: ancestorIds + [node.id])
+                }
             }
         }
         let top = tree.sorted { $0.name.lowercased() < $1.name.lowercased() }
-        for n in top { walk(n, depth: 0, ancestors: []) }
+        for n in top { walk(n, depth: 0, ancestors: [], ancestorIds: []) }
         return out
     }
 }
