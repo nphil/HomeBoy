@@ -32,20 +32,26 @@ struct HomeboxCatalogApp: App {
 }
 
 struct ContentView: View {
+    @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
 
     var body: some View {
-        TabView {
-            AddItemView()
-                .tabItem { Label("Add", systemImage: "plus.circle.fill") }
-            ItemsListView()
-                .tabItem { Label("Items", systemImage: "shippingbox.fill") }
-            LocationsTabView()
-                .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
-            TagsTabView()
-                .tabItem { Label("Tags", systemImage: "tag.fill") }
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+        if store.isAuthenticated {
+            TabView {
+                AddItemView()
+                    .tabItem { Label("Add", systemImage: "plus.circle.fill") }
+                ItemsListView()
+                    .tabItem { Label("Items", systemImage: "shippingbox.fill") }
+                LocationsTabView()
+                    .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
+                TagsTabView()
+                    .tabItem { Label("Tags", systemImage: "tag.fill") }
+                SettingsView()
+                    .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+            }
+        } else {
+            OnboardingView()
+                .transition(.opacity)
         }
     }
 }
