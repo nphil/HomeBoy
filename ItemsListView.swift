@@ -29,6 +29,16 @@ struct ItemsListView: View {
                 }
             }
             .task { await load() }
+            .navigationDestination(for: ItemDetailRoute.self) { route in
+                ItemDetailView(itemId: route.id, onChange: { Task { await load(force: true) } })
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
+            .navigationDestination(for: LocationDetailRoute.self) { route in
+                LocationDetailView(locationId: route.id)
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
         }
     }
 
@@ -45,9 +55,12 @@ struct ItemsListView: View {
         } else {
             List {
                 ForEach(filteredItems) { item in
-                    ItemRow(item: item)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                    NavigationLink(value: ItemDetailRoute(id: item.id)) {
+                        ItemRow(item: item)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain)

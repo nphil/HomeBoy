@@ -40,6 +40,16 @@ struct LocationsTabView: View {
                     try? await store.refreshLocations()
                 }
             }
+            .navigationDestination(for: LocationDetailRoute.self) { route in
+                LocationDetailView(locationId: route.id, onChange: { Task { try? await store.refreshLocations() } })
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
+            .navigationDestination(for: ItemDetailRoute.self) { route in
+                ItemDetailView(itemId: route.id)
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
         }
     }
 
@@ -54,9 +64,12 @@ struct LocationsTabView: View {
         } else {
             List {
                 ForEach(filteredRows, id: \.id) { loc in
-                    LocationRow(loc: loc)
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
+                    NavigationLink(value: LocationDetailRoute(id: loc.id)) {
+                        LocationRow(loc: loc)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
                 }
             }
             .listStyle(.plain)

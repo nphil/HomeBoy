@@ -21,6 +21,10 @@ struct AddItemView: View {
     @State private var showCamera = false
     @State private var pickerItem: PhotosPickerItem?
 
+    // Tags
+    @State private var selectedTagIds: Set<String> = []
+    @State private var showTagPicker = false
+
     enum Field: Hashable { case name, description }
     @FocusState private var focused: Field?
 
@@ -33,6 +37,7 @@ struct AddItemView: View {
                     } else {
                         nameAndQuantityCard
                         locationCard
+                        tagsCard
                         photoCard
                         descriptionCard
                         addButton
@@ -70,6 +75,11 @@ struct AddItemView: View {
                     photo = downscale(img)
                 }
                 .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showTagPicker) {
+                TagPickerSheet(selectedIds: $selectedTagIds)
+                    .environmentObject(store)
+                    .environmentObject(theme)
             }
             .onChange(of: pickerItem) { _, newItem in
                 guard let newItem else { return }
@@ -182,6 +192,32 @@ struct AddItemView: View {
                         .tint(theme.current.accentColor)
                 }
             }
+        }
+    }
+
+    private var tagsCard: some View {
+        GlassCard(title: "Tags (optional)") {
+            Button {
+                showTagPicker = true
+            } label: {
+                HStack {
+                    Image(systemName: "tag.fill")
+                        .foregroundStyle(theme.current.accentColor)
+                    if selectedTagIds.isEmpty {
+                        Text("Tap to choose tags").foregroundStyle(.secondary)
+                    } else {
+                        Text("\(selectedTagIds.count) tag\(selectedTagIds.count == 1 ? "" : "s") selected")
+                            .foregroundStyle(.primary)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .padding(.vertical, 10).padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -317,7 +353,7 @@ struct AddItemView: View {
             description: description,
             locationId: locId,
             parentId: nil,
-            tagIds: []
+            tagIds: Array(selectedTagIds)
         )
         let photoToUpload = photo
         Task {
@@ -348,6 +384,7 @@ struct AddItemView: View {
         description = ""
         photo = nil
         pickerItem = nil
+        selectedTagIds = []
         if !lockLocation { selectedLocationId = nil }
         focused = .name
     }

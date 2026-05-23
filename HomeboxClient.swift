@@ -83,6 +83,137 @@ struct HBLocationCreateResponse: Codable {
     let name: String
 }
 
+// MARK: - Detail models
+
+struct HBTag: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let description: String?
+    let color: String?
+    let icon: String?
+}
+
+struct HBAttachmentRef: Codable, Identifiable, Hashable {
+    let id: String
+    let type: String
+    let primary: Bool?
+    let title: String?
+    let mimeType: String?
+    let createdAt: String?
+}
+
+/// Full item record returned by `GET /v1/items/{id}` (subset of ItemOut we use).
+/// All fields are optional except `id` and `name` to tolerate older versions.
+struct HBItemDetail: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    var description: String?
+    var quantity: Double?
+    var notes: String?
+    var insured: Bool?
+    var archived: Bool?
+    var assetId: String?
+    var serialNumber: String?
+    var modelNumber: String?
+    var manufacturer: String?
+    var purchasePrice: Double?
+    var purchaseFrom: String?
+    var purchaseTime: String?
+    var lifetimeWarranty: Bool?
+    var warrantyExpires: String?
+    var warrantyDetails: String?
+    var soldTo: String?
+    var soldPrice: Double?
+    var soldTime: String?
+    var soldNotes: String?
+    var syncChildItemsLocations: Bool?
+    var createdAt: String?
+    var updatedAt: String?
+    var location: HBLocationSummary?
+    var tags: [HBTag]?
+    var attachments: [HBAttachmentRef]?
+
+    var quantityInt: Int { Int(quantity ?? 1) }
+}
+
+/// PUT /v1/items/{id} body. Build it from an HBItemDetail you already have so
+/// fields you don't touch round-trip cleanly.
+struct HBItemUpdate: Codable {
+    var id: String
+    var name: String
+    var description: String
+    var quantity: Double
+    var insured: Bool
+    var archived: Bool
+    var assetId: String
+    var locationId: String
+    var tagIds: [String]
+    var serialNumber: String
+    var modelNumber: String
+    var manufacturer: String
+    var lifetimeWarranty: Bool
+    var warrantyExpires: String
+    var warrantyDetails: String
+    var purchaseTime: String
+    var purchaseFrom: String
+    var purchasePrice: Double
+    var soldTime: String
+    var soldTo: String
+    var soldPrice: Double
+    var soldNotes: String
+    var notes: String
+    var syncChildItemsLocations: Bool
+}
+
+extension HBItemUpdate {
+    /// Seed from a fetched detail. Any nil values become defaults.
+    init(from d: HBItemDetail, overrideLocationId: String? = nil, overrideTagIds: [String]? = nil) {
+        self.id = d.id
+        self.name = d.name
+        self.description = d.description ?? ""
+        self.quantity = d.quantity ?? 1
+        self.insured = d.insured ?? false
+        self.archived = d.archived ?? false
+        self.assetId = d.assetId ?? "0"
+        self.locationId = overrideLocationId ?? d.location?.id ?? ""
+        self.tagIds = overrideTagIds ?? (d.tags?.map { $0.id } ?? [])
+        self.serialNumber = d.serialNumber ?? ""
+        self.modelNumber = d.modelNumber ?? ""
+        self.manufacturer = d.manufacturer ?? ""
+        self.lifetimeWarranty = d.lifetimeWarranty ?? false
+        self.warrantyExpires = d.warrantyExpires ?? ""
+        self.warrantyDetails = d.warrantyDetails ?? ""
+        self.purchaseTime = d.purchaseTime ?? ""
+        self.purchaseFrom = d.purchaseFrom ?? ""
+        self.purchasePrice = d.purchasePrice ?? 0
+        self.soldTime = d.soldTime ?? ""
+        self.soldTo = d.soldTo ?? ""
+        self.soldPrice = d.soldPrice ?? 0
+        self.soldNotes = d.soldNotes ?? ""
+        self.notes = d.notes ?? ""
+        self.syncChildItemsLocations = d.syncChildItemsLocations ?? false
+    }
+}
+
+/// GET /v1/locations/{id} (LocationOut).
+struct HBLocationDetail: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    var description: String?
+    var totalPrice: Double?
+    var createdAt: String?
+    var updatedAt: String?
+    var parent: HBLocationSummary?
+    var children: [HBLocationSummary]?
+}
+
+struct HBLocationUpdate: Codable {
+    var id: String
+    var name: String
+    var description: String
+    var parentId: String?
+}
+
 // MARK: - Errors
 
 enum HBError: LocalizedError {
@@ -247,5 +378,76 @@ struct HomeboxClient {
         let data = try await request("v1/locations", method: "POST", body: body)
         do { return try JSONDecoder().decode(HBLocationCreateResponse.self, from: data).id }
         catch { throw HBError.decode(error) }
+    }
+
+    // MARK: Item detail / edit / delete
+
+    func getItem(id: String) async throws -> HBItemDetail {
+        let data = try await request("v1/items/\(id)", method: "GET")
+        do { return try JSONDecoder().decode(HBItemDetail.self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
+
+    func updateItem(_ payload: HBItemUpdate) async throws {
+        let body = try JSONEncoder().encode(payload)
+        _ = try await request("v1/items/\(payload.id)", method: "PUT", body: body)
+    }
+
+    func deleteItem(id: String) async throws {
+        _ = try await request("v1/items/\(id)", method: "DELETE")
+    }
+
+    // MARK: Location detail / edit / delete
+
+    func getLocation(id: String) async throws -> HBLocationDetail {
+        let data = try await request("v1/locations/\(id)", method: "GET")
+        do { return try JSONDecoder().decode(HBLocationDetail.self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
+
+    func updateLocation(_ payload: HBLocationUpdate) async throws {
+        let body = try JSONEncoder().encode(payload)
+        _ = try await request("v1/locations/\(payload.id)", method: "PUT", body: body)
+    }
+
+    func deleteLocation(id: String) async throws {
+        _ = try await request("v1/locations/\(id)", method: "DELETE")
+    }
+
+    // MARK: Tags
+
+    func listTags() async throws -> [HBTag] {
+        // Homebox sometimes wraps tags in a `{ items: [...] }` envelope and sometimes not.
+        // Try both shapes.
+        let data = try await request("v1/tags", method: "GET")
+        if let arr = try? JSONDecoder().decode([HBTag].self, from: data) { return arr }
+        struct Wrap: Codable { let items: [HBTag] }
+        if let w = try? JSONDecoder().decode(Wrap.self, from: data) { return w.items }
+        throw HBError.decode(NSError(domain: "homebox", code: 0, userInfo: [NSLocalizedDescriptionKey: "Unexpected tags response shape"]))
+    }
+
+    struct TagCreatePayload: Codable {
+        let name: String
+        let description: String
+        let color: String
+    }
+
+    @discardableResult
+    func createTag(name: String, description: String = "", color: String = "") async throws -> HBTag {
+        let body = try JSONEncoder().encode(TagCreatePayload(name: name, description: description, color: color))
+        let data = try await request("v1/tags", method: "POST", body: body)
+        do { return try JSONDecoder().decode(HBTag.self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
+
+    func deleteTag(id: String) async throws {
+        _ = try await request("v1/tags/\(id)", method: "DELETE")
+    }
+
+    // MARK: Attachment fetch
+
+    /// Fetch attachment bytes for an item attachment. Uses the standard bearer token.
+    func attachmentData(itemId: String, attachmentId: String) async throws -> Data {
+        return try await request("v1/items/\(itemId)/attachments/\(attachmentId)", method: "GET")
     }
 }
