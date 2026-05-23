@@ -1,51 +1,38 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Thumbnail cache
+// MARK: - Thumbnail cache (plain class — rows update via local @State, not @Published)
 
 @MainActor
-class ThumbnailStore: ObservableObject {
-    @Published private(set) var cache: [String: String] = [:]
-    private var inFlight: Set<String> = []
+class ThumbnailStore {
+    private var cache: [String: String] = [:]   // itemId → attId or "" (no thumb)
+    private var inFlight: [String: Task<String?, Never>] = [:]
 
-    func loadIfNeeded(_ itemId: String, client: HomeboxClient) {
-        guard cache[itemId] == nil, !inFlight.contains(itemId) else { return }
-        inFlight.insert(itemId)
-        Task {
+    func load(itemId: String, client: HomeboxClient) async -> String? {
+        if let cached = cache[itemId] { return cached.isEmpty ? nil : cached }
+        if let task = inFlight[itemId] { return await task.value }
+        let task = Task<String?, Never> {
             if let detail = try? await client.getItem(id: itemId),
                let att = (detail.attachments ?? []).first(where: { $0.primary == true })
                        ?? (detail.attachments ?? []).first(where: { $0.type.lowercased() == "photo" }) {
-                cache[itemId] = att.id
-            } else {
-                cache[itemId] = ""
+                return att.id
             }
-            inFlight.remove(itemId)
+            return nil
         }
+        inFlight[itemId] = task
+        let result = await task.value
+        cache[itemId] = result ?? ""
+        inFlight[itemId] = nil
+        return result
     }
-
-    func attachmentId(for itemId: String) -> String? {
-        guard let v = cache[itemId], !v.isEmpty else { return nil }
-        return v
-    }
-
-    func isLoaded(for itemId: String) -> Bool { cache[itemId] != nil }
 }
 
-// MARK: - Sort order
+// MARK: - Section model
 
-enum ItemSortOrder: String, CaseIterable, Identifiable {
-    case newestFirst, oldestFirst, nameAZ, nameZA, locationAZ, quantityDesc
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .newestFirst:  return "Newest first"
-        case .oldestFirst:  return "Oldest first"
-        case .nameAZ:       return "Name A–Z"
-        case .nameZA:       return "Name Z–A"
-        case .locationAZ:   return "Location A–Z"
-        case .quantityDesc: return "Quantity ↓"
-        }
-    }
+private struct ItemSection: Identifiable {
+    let letter: String
+    var id: String { letter }
+    let items: [HBItem]
 }
 
 // MARK: - ItemsListView
@@ -63,7 +50,6 @@ struct ItemsListView: View {
     // View options
     @State private var viewMode: ViewMode = .list
     @State private var tileColumns = 2
-    @State private var sortOrder: ItemSortOrder = .newestFirst
 
     // Filters
     @State private var showFilters = false
@@ -77,7 +63,7 @@ struct ItemsListView: View {
     @State private var selectedIds: Set<String> = []
     @State private var showBulkEdit = false
 
-    @StateObject private var thumbStore = ThumbnailStore()
+    @State private var thumbStore = ThumbnailStore()
 
     enum ViewMode { case list, tile }
 
@@ -138,25 +124,15 @@ struct ItemsListView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .principal) { BrandMark() }
         ToolbarItemGroup(placement: .topBarTrailing) {
-            // Filter toggle
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
             } label: {
                 Image(systemName: hasActiveFilters
                       ? "line.3.horizontal.decrease.circle.fill"
                       : "line.3.horizontal.decrease.circle")
-                .foregroundStyle(hasActiveFilters ? theme.current.accentColor : .primary)
             }
 
-            // Options: sort + view mode + columns
             Menu {
-                Picker("Sort by", selection: $sortOrder) {
-                    ForEach(ItemSortOrder.allCases) { o in Text(o.label).tag(o) }
-                }
-                .pickerStyle(.inline)
-
-                Divider()
-
                 Picker("View", selection: $viewMode) {
                     Label("List", systemImage: "list.bullet").tag(ViewMode.list)
                     Label("Tiles", systemImage: "square.grid.2x2").tag(ViewMode.tile)
@@ -176,7 +152,6 @@ struct ItemsListView: View {
                 Image(systemName: "ellipsis.circle")
             }
 
-            // Select / Done
             Button {
                 withAnimation { selectMode.toggle(); if !selectMode { selectedIds = [] } }
             } label: {
@@ -242,7 +217,7 @@ struct ItemsListView: View {
             errorState(loadError)
         } else if allItems.isEmpty {
             emptyState
-        } else if sortedFilteredItems.isEmpty {
+        } else if filteredItems.isEmpty {
             noResultsState
         } else {
             switch viewMode {
@@ -252,20 +227,52 @@ struct ItemsListView: View {
         }
     }
 
+    // MARK: - List view (A-Z sections + index bar)
+
     private var listView: some View {
-        List {
-            ForEach(sortedFilteredItems) { item in
-                itemListRow(item)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 3, leading: 16, bottom: 3, trailing: 16))
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 6, pinnedViews: .sectionHeaders) {
+                    ForEach(itemSections) { section in
+                        Section {
+                            ForEach(section.items) { item in
+                                itemListRow(item)
+                                    .padding(.horizontal, 16)
+                            }
+                        } header: {
+                            HStack {
+                                Text(section.letter)
+                                    .font(.caption.weight(.bold))
+                                    .tracking(0.5)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 4)
+                            .background(.ultraThinMaterial)
+                            .id(section.letter)
+                        }
+                    }
+                }
+                .padding(.top, 4)
+                .padding(.bottom, 80)
+            }
+            .scrollIndicators(.hidden)
+            .searchable(text: $query, prompt: "Search items")
+            .refreshable { await load(force: true) }
+            .overlay(alignment: .trailing) {
+                if !sectionLetters.isEmpty {
+                    AlphabetIndexBar(letters: sectionLetters) { letter in
+                        withAnimation { proxy.scrollTo(letter, anchor: .top) }
+                    }
+                    .padding(.trailing, 4)
+                    .padding(.vertical, 16)
+                }
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .searchable(text: $query, prompt: "Search items")
-        .refreshable { await load(force: true) }
     }
+
+    // MARK: - Tile view
 
     private var tileView: some View {
         ScrollView {
@@ -273,11 +280,14 @@ struct ItemsListView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
                 spacing: 10
             ) {
-                ForEach(sortedFilteredItems) { item in itemTile(item) }
+                ForEach(filteredItems.sorted { $0.name.lowercased() < $1.name.lowercased() }) { item in
+                    itemTile(item)
+                }
             }
             .padding(12)
             .padding(.bottom, 80)
         }
+        .scrollIndicators(.hidden)
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
         .searchable(text: $query, prompt: "Search items")
@@ -400,12 +410,19 @@ struct ItemsListView: View {
         }
     }
 
-    // MARK: - Filtering & sorting
+    // MARK: - Filtering & sections
 
-    private var sortedFilteredItems: [HBItem] {
+    private var filteredItems: [HBItem] {
         var items = allItems
         if let locId = filterLocationId {
             items = items.filter { $0.location?.id == locId }
+        }
+        // Client-side tag filter — works even if server ignores ?labels=
+        if !filterTagIds.isEmpty {
+            items = items.filter { item in
+                guard let labels = item.labels else { return false }
+                return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
+            }
         }
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
@@ -413,15 +430,26 @@ struct ItemsListView: View {
                 $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
             }
         }
-        switch sortOrder {
-        case .newestFirst:  return items.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
-        case .oldestFirst:  return items.sorted { ($0.createdAt ?? "") < ($1.createdAt ?? "") }
-        case .nameAZ:       return items.sorted { $0.name.lowercased() < $1.name.lowercased() }
-        case .nameZA:       return items.sorted { $0.name.lowercased() > $1.name.lowercased() }
-        case .locationAZ:   return items.sorted { ($0.location?.name ?? "").lowercased() < ($1.location?.name ?? "").lowercased() }
-        case .quantityDesc: return items.sorted { ($0.quantity ?? 1) > ($1.quantity ?? 1) }
+        return items
+    }
+
+    private var itemSections: [ItemSection] {
+        var groups: [String: [HBItem]] = [:]
+        for item in filteredItems {
+            let key: String
+            if let c = item.name.first, c.isLetter { key = String(c).uppercased() } else { key = "#" }
+            groups[key, default: []].append(item)
+        }
+        return groups.keys.sorted { a, b in
+            if a == "#" { return false }
+            if b == "#" { return true }
+            return a < b
+        }.map { key in
+            ItemSection(letter: key, items: groups[key]!.sorted { $0.name.lowercased() < $1.name.lowercased() })
         }
     }
+
+    private var sectionLetters: [String] { itemSections.map { $0.letter } }
 
     private func toggleSelection(_ item: HBItem) {
         if selectedIds.contains(item.id) { selectedIds.remove(item.id) } else { selectedIds.insert(item.id) }
@@ -433,6 +461,7 @@ struct ItemsListView: View {
         if !force && !allItems.isEmpty && !stale { return }
         isLoading = true; loadError = nil
         do {
+            // Pass labelIds so server can pre-filter; client-side filter below catches cases where server ignores it
             let resp = try await client.listItems(labelIds: Array(filterTagIds), pageSize: 1000)
             allItems = resp.items
             store.updateCachedItemTotal(resp.total ?? resp.items.count)
@@ -442,13 +471,16 @@ struct ItemsListView: View {
     }
 }
 
-// MARK: - List row content
+// MARK: - List row content (local @State for thumbnail — no shared observable updates)
 
 private struct ItemListRowContent: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
     let item: HBItem
-    @ObservedObject var thumbStore: ThumbnailStore
+    let thumbStore: ThumbnailStore
+
+    @State private var thumbAttId: String? = nil
+    @State private var thumbLoaded = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -475,18 +507,20 @@ private struct ItemListRowContent: View {
         .padding(.horizontal, 10).padding(.vertical, 8)
         .task(id: item.id) {
             guard let client = store.client else { return }
-            thumbStore.loadIfNeeded(item.id, client: client)
+            let attId = await thumbStore.load(itemId: item.id, client: client)
+            thumbAttId = attId
+            thumbLoaded = true
         }
     }
 
     @ViewBuilder
     private var thumbnailView: some View {
-        if !thumbStore.isLoaded(for: item.id) {
+        if !thumbLoaded {
             ZStack {
                 RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.10))
                 ProgressView().controlSize(.small)
             }
-        } else if let attId = thumbStore.attachmentId(for: item.id) {
+        } else if let attId = thumbAttId {
             AuthImage(itemId: item.id, attachmentId: attId).scaledToFill()
         } else {
             ZStack {
@@ -503,14 +537,17 @@ private struct ItemListRowContent: View {
     }
 }
 
-// MARK: - Tile content
+// MARK: - Tile content (same local @State pattern)
 
 private struct ItemTileContent: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
     let item: HBItem
-    @ObservedObject var thumbStore: ThumbnailStore
+    let thumbStore: ThumbnailStore
     let columns: Int
+
+    @State private var thumbAttId: String? = nil
+    @State private var thumbLoaded = false
 
     private var thumbHeight: CGFloat { columns <= 2 ? 108 : columns == 3 ? 80 : 62 }
     private var namePad: CGFloat { columns <= 3 ? 8 : 6 }
@@ -537,15 +574,17 @@ private struct ItemTileContent: View {
         }
         .task(id: item.id) {
             guard let client = store.client else { return }
-            thumbStore.loadIfNeeded(item.id, client: client)
+            let attId = await thumbStore.load(itemId: item.id, client: client)
+            thumbAttId = attId
+            thumbLoaded = true
         }
     }
 
     @ViewBuilder
     private var thumbnailView: some View {
-        if !thumbStore.isLoaded(for: item.id) {
+        if !thumbLoaded {
             ZStack { theme.current.accentColor.opacity(0.10); ProgressView().controlSize(.small) }
-        } else if let attId = thumbStore.attachmentId(for: item.id) {
+        } else if let attId = thumbAttId {
             AuthImage(itemId: item.id, attachmentId: attId).scaledToFill()
         } else {
             ZStack {

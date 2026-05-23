@@ -6,10 +6,6 @@ struct AddItemView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
 
-    // Step state
-    enum Step { case name, ready }
-    @State private var step: Step = .name
-
     // Fields
     @State private var name = ""
     @State private var quantity = 1
@@ -41,22 +37,7 @@ struct AddItemView: View {
                 if !store.isAuthenticated {
                     notConfiguredView
                 } else {
-                    Group {
-                        if step == .name {
-                            nameStep
-                                .transition(.asymmetric(
-                                    insertion: .opacity,
-                                    removal: .move(edge: .top).combined(with: .opacity)
-                                ))
-                        } else {
-                            readyStep
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .bottom).combined(with: .opacity),
-                                    removal: .opacity
-                                ))
-                        }
-                    }
-                    .animation(.spring(response: 0.38, dampingFraction: 0.82), value: step)
+                    addForm
                 }
             }
             .navigationTitle("")
@@ -89,101 +70,26 @@ struct AddItemView: View {
                     }
                 }
             }
-        }
-    }
-
-    // MARK: - Step 0: Name
-
-    private var nameStep: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            VStack(spacing: 28) {
-                Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 56))
-                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
-
-                VStack(spacing: 8) {
-                    TextField("What is it?", text: $name)
-                        .font(.largeTitle.weight(.medium))
-                        .multilineTextAlignment(.center)
-                        .textInputAutocapitalization(.sentences)
-                        .focused($nameFocused)
-                        .submitLabel(.continue)
-                        .onSubmit { if canAdvance { advance() } }
-
-                    if !name.isEmpty {
-                        Text("\(name.trimmingCharacters(in: .whitespaces).count) chars")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                            .transition(.opacity)
-                    }
-                }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
             }
-            .padding(.horizontal, 28)
-
-            Spacer()
-
-            VStack(spacing: 12) {
-                Button { advance() } label: {
-                    Label("Continue", systemImage: "arrow.right.circle.fill")
-                        .font(.title3.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(!canAdvance)
-
-                if let loc = selectedLocationId {
-                    Button {
-                        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .ready }
-                    } label: {
-                        Text("Back to \(store.pathString(forLocationId: loc))").font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-            }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 40)
-        }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
         }
     }
 
-    private var canAdvance: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
+    // MARK: - Main form
 
-    private func advance() {
-        guard canAdvance else { return }
-        nameFocused = false
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .ready }
-        if selectedLocationId == nil {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showLocationPicker = true }
-        }
-    }
-
-    // MARK: - Step 1: Location + compact optionals + Add
-
-    private var readyStep: some View {
+    private var addForm: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Confirmed name header
-            nameConfirmRow
-
-            // Location (required)
+            nameField
             locationRow
-
-            // Compact optional strip: qty · tags · photo
             compactOptionals
-
-            // Description (optional, inline)
             descriptionField
 
             Spacer(minLength: 0)
 
-            // Feedback
             if let submitError { errorPill(submitError) }
             if let justAdded   { successPill(justAdded) }
 
-            // Lock + Add
             VStack(spacing: 10) {
                 Toggle(isOn: $lockLocation) {
                     Text("Keep location for next item").font(.caption).foregroundStyle(.secondary)
@@ -202,30 +108,27 @@ struct AddItemView: View {
 
     // MARK: - Subviews
 
-    private var nameConfirmRow: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("ITEM").font(.caption.weight(.semibold)).tracking(0.6)
-                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                Text(name).font(.title3.weight(.semibold)).lineLimit(1)
-            }
-            Spacer()
-            Button {
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .name }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { nameFocused = true }
-            } label: {
-                Image(systemName: "pencil.circle.fill")
-                    .font(.title2)
-                    .foregroundStyle(theme.current.accentColor.opacity(0.7))
-            }
-            .buttonStyle(.plain)
+    private var nameField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("ITEM").font(.caption.weight(.semibold)).tracking(0.6)
+                .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                .padding(.horizontal, 14)
+
+            TextField("What is it?", text: $name)
+                .font(.title3.weight(.semibold))
+                .textInputAutocapitalization(.sentences)
+                .focused($nameFocused)
+                .submitLabel(.next)
+                .onSubmit { descFocused = true }
+                .padding(.horizontal, 14).padding(.vertical, 12)
+                .background {
+                    RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 14)
+                    .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
+                            lineWidth: name.isEmpty ? 1.5 : 1))
         }
-        .padding(.horizontal, 14).padding(.vertical, 12)
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
     }
 
     private var locationRow: some View {
@@ -256,7 +159,8 @@ struct AddItemView: View {
             .overlay(RoundedRectangle(cornerRadius: 14)
                 .stroke(selectedLocationId == nil
                         ? theme.current.accentColor.opacity(0.35)
-                        : theme.current.accentColor.opacity(0.2), lineWidth: selectedLocationId == nil ? 1.5 : 1))
+                        : theme.current.accentColor.opacity(0.2),
+                        lineWidth: selectedLocationId == nil ? 1.5 : 1))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -264,7 +168,6 @@ struct AddItemView: View {
 
     private var compactOptionals: some View {
         HStack(spacing: 10) {
-            // Quantity
             VStack(spacing: 4) {
                 Text("QTY").font(.caption2.weight(.semibold)).tracking(0.4)
                     .foregroundStyle(theme.current.accentColor.opacity(0.75))
@@ -273,7 +176,6 @@ struct AddItemView: View {
 
             Divider().frame(height: 40)
 
-            // Tags
             Button { showTagPicker = true } label: {
                 VStack(spacing: 4) {
                     Text("TAGS").font(.caption2.weight(.semibold)).tracking(0.4)
@@ -294,7 +196,6 @@ struct AddItemView: View {
 
             Divider().frame(height: 40)
 
-            // Photo
             VStack(spacing: 4) {
                 Text("PHOTO").font(.caption2.weight(.semibold)).tracking(0.4)
                     .foregroundStyle(theme.current.accentColor.opacity(0.75))
@@ -449,8 +350,7 @@ struct AddItemView: View {
         name = ""; quantity = 1; description = ""
         photo = nil; pickerItem = nil; selectedTagIds = []
         if !lockLocation { selectedLocationId = nil }
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) { step = .name }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { nameFocused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { nameFocused = true }
     }
 
     private func showSuccessPill(_ text: String) {

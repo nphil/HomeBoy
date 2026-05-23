@@ -97,22 +97,40 @@ struct LocationsTabView: View {
     // MARK: - List view
 
     private var listContent: some View {
-        List {
-            ForEach(visibleRows, id: \.id) { loc in
-                LocationListRow(
-                    loc: loc,
-                    isCollapsed: collapsedIds.contains(loc.id),
-                    hasChildren: hasChildren(loc),
-                    onToggleCollapse: { toggleCollapse(loc.id) }
-                )
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    ForEach(visibleRows, id: \.id) { loc in
+                        LocationListRow(
+                            loc: loc,
+                            isCollapsed: collapsedIds.contains(loc.id),
+                            hasChildren: hasChildren(loc),
+                            onToggleCollapse: { toggleCollapse(loc.id) }
+                        )
+                        .id(loc.id)
+                        .padding(.horizontal, 16)
+                    }
+                }
+                .padding(.vertical, 8)
+                .padding(.bottom, 60)
+            }
+            .scrollIndicators(.hidden)
+            .searchable(text: $query, prompt: "Search locations")
+            .refreshable { try? await store.refreshLocations() }
+            .overlay(alignment: .trailing) {
+                if !locationIndexLetters.isEmpty {
+                    AlphabetIndexBar(letters: locationIndexLetters) { letter in
+                        if let loc = visibleRows.first(where: {
+                            String($0.name.prefix(1)).uppercased() == letter
+                        }) {
+                            withAnimation { proxy.scrollTo(loc.id, anchor: .top) }
+                        }
+                    }
+                    .padding(.trailing, 4)
+                    .padding(.vertical, 16)
+                }
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .searchable(text: $query, prompt: "Search locations")
-        .refreshable { try? await store.refreshLocations() }
     }
 
     // MARK: - Tile view
@@ -133,6 +151,7 @@ struct LocationsTabView: View {
             .padding(16)
             .padding(.bottom, 60)
         }
+        .scrollIndicators(.hidden)
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
         .searchable(text: $query, prompt: "Search locations")
@@ -155,6 +174,20 @@ struct LocationsTabView: View {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return all }
         return all.filter { $0.pathString.lowercased().contains(q) }
+    }
+
+    private var locationIndexLetters: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for loc in visibleRows {
+            let key = loc.name.first.map { $0.isLetter ? String($0).uppercased() : "#" } ?? "#"
+            if seen.insert(key).inserted { result.append(key) }
+        }
+        return result.sorted { a, b in
+            if a == "#" { return false }
+            if b == "#" { return true }
+            return a < b
+        }
     }
 
     private func hasChildren(_ loc: FlatLocation) -> Bool {
