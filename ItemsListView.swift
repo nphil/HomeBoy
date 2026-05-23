@@ -440,12 +440,33 @@ struct ItemsListView: View {
                 $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
             }
             if textMatches.isEmpty && q.count >= 3,
-               let embedding = NLEmbedding.sentenceEmbedding(for: .english) {
-                items = items
-                    .map { ($0, embedding.distance(between: q, and: $0.name.lowercased(), distanceType: .cosine)) }
-                    .filter { $0.1 < 0.75 }
-                    .sorted { $0.1 < $1.1 }
-                    .map { $0.0 }
+               let sentEmbedding = NLEmbedding.sentenceEmbedding(for: .english),
+               let wordEmbedding = NLEmbedding.wordEmbedding(for: .english) {
+                
+                let tokenizer = NLTokenizer(unit: .word)
+                tokenizer.string = q
+                let queryWords = tokenizer.tokens(for: q.startIndex..<q.endIndex).map { String(q[$0]) }
+                
+                items = items.compactMap { item -> (HBItem, Double)? in
+                    let name = item.name.lowercased()
+                    let d1 = sentEmbedding.distance(between: q, and: name, distanceType: .cosine)
+                    
+                    tokenizer.string = name
+                    let targetWords = tokenizer.tokens(for: name.startIndex..<name.endIndex).map { String(name[$0]) }
+                    
+                    var minWordDist = 2.0
+                    for qw in queryWords {
+                        for tw in targetWords {
+                            let wd = wordEmbedding.distance(between: qw, and: tw, distanceType: .cosine)
+                            if wd < minWordDist { minWordDist = wd }
+                        }
+                    }
+                    
+                    let dist = min(d1, minWordDist)
+                    return dist < 1.15 ? (item, dist) : nil
+                }
+                .sorted { $0.1 < $1.1 }
+                .map { $0.0 }
             } else {
                 items = textMatches
             }
