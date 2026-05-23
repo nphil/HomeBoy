@@ -25,7 +25,8 @@ struct HomeboxCatalogApp: App {
                 .environmentObject(store)
                 .environmentObject(theme)
                 .tint(theme.current.accentColor)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(theme.current.preferredColorScheme)
+                .background(theme.current.backgroundColor.ignoresSafeArea())
         }
     }
 }

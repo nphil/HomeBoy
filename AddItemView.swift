@@ -41,7 +41,7 @@ struct AddItemView: View {
                 .padding(.top, 8)
                 .padding(.bottom, 80)
             }
-            .background(ThemeBackground().ignoresSafeArea())
+            .background(theme.current.backgroundColor.ignoresSafeArea())
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)

@@ -24,22 +24,21 @@ struct SettingsView: View {
                 }
 
                 Section("Theme") {
-                    HStack(spacing: 0) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
                         ForEach(AppTheme.allCases) { t in
                             ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
-                                .frame(maxWidth: .infinity)
                         }
                     }
                     .padding(.vertical, 8)
                 }
 
                 Section("About") {
-                    LabeledContent("Version", value: "0.2")
+                    LabeledContent("Version", value: "0.3")
                     Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
                 }
             }
             .scrollContentBackground(.hidden)
-            .background(ThemeBackground().ignoresSafeArea())
+            .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

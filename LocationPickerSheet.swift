@@ -13,7 +13,7 @@ struct LocationPickerSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                ThemeBackground().ignoresSafeArea()
+                theme.current.backgroundColor.ignoresSafeArea()
                 content
             }
             .navigationTitle("Choose location")
