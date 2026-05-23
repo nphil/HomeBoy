@@ -74,7 +74,7 @@ struct AddItemView: View {
 
     private var nameAndQuantityCard: some View {
         GlassCard(title: "Item") {
-            HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("NAME")
                         .font(.caption.weight(.semibold))
@@ -89,17 +89,13 @@ struct AddItemView: View {
                         .autocorrectionDisabled(false)
                         .textInputAutocapitalization(.sentences)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("QTY")
+                HStack(spacing: 12) {
+                    Text("QUANTITY")
                         .font(.caption.weight(.semibold))
                         .tracking(0.6)
                         .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    Stepper(value: $quantity, in: 1...9999) {
-                        Text("\(quantity)")
-                            .font(.title3.monospacedDigit())
-                            .frame(minWidth: 30, alignment: .leading)
-                    }
-                    .labelsHidden()
+                    Spacer(minLength: 0)
+                    QuantityControl(value: $quantity)
                 }
             }
         }
