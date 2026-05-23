@@ -18,3 +18,4 @@ Package.resolved
 # User-specific Xcode noise (just in case)
 xcuserdata/
 *.xcuserstate
+.claude/settings.local.json
