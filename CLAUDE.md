@@ -44,7 +44,7 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 | `AddItemView.swift` | Main form. Name → Qty pill → location picker → photo card (Camera/Library buttons or attached-thumbnail with Remove/Replace) → optional description → submit. On submit: POST `/v1/items`, then if a photo is set POST `/v1/items/{id}/attachments` (primary=true). Uses `PhotosPicker` (iOS 16+) for library + `CameraSheet` for capture. |
 | `LocationPickerSheet.swift` | Sheet over `store.locationsFlat` with depth indentation, indent ticks, search, pull-to-refresh. Tap to pick; "Clear" in toolbar to deselect. Reused by AddItemView and CreateLocationSheet. |
 | `LocationsTabView.swift` | Dedicated Locations tab — indented tree, search, plus-button toolbar opens `CreateLocationSheet` (name + optional parent + description; refreshes the store on success). |
-| `ItemsListView.swift` | `GET /v1/items`, sorted newest-first, search + pull-to-refresh. Breadcrumb prefers the full path from the cached tree, falls back to the item's immediate location name. |
+| `ItemsListView.swift` | `GET /v1/items`, sorted newest-first, search (hybrid semantic word+sentence embedding) + pull-to-refresh. Breadcrumb prefers the full path from the cached tree, falls back to the item's immediate location name. |
 | `SettingsView.swift` | Server URL field + sign-in form (auto-prefix `https://` if no scheme). Signed-in summary: user, cached-location count, refresh, sign-out. Theme picker is a 5-column `LazyVGrid` of swatches. About. |
 | `Components.swift` | `GlassCard`, `QuantityControl` (custom -/+ pill — replaces broken `Stepper.labelsHidden()`). |
 | `project.yml` | xcodegen spec — iOS 26 deployment, no signing, asset catalog. Info.plist props: `NSAllowsArbitraryLoads`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`. `CFBundleDisplayName: HomeBoy`. |
@@ -91,3 +91,4 @@ git push origin main
 - Homebox's `Authorization` header takes the **raw token string** (no `Bearer ` prefix).
 - The "API docs" at homebox.software show the **unreleased** `/v1/entities` unified-entity API. Released versions (v0.25.x) still use separate `/v1/items` + `/v1/locations`. Always cross-check `backend/app/api/routes.go` at the target release tag.
 - For very large inventories (>1000 items), we'd need pagination. Currently we ask for `pageSize=1000` in one shot.
+- **Semantic Search**: `ItemsListView` uses a hybrid `min(sentenceEmbedding, wordEmbedding)` with a 1.15 threshold because `sentenceEmbedding` alone breaks on single-word synonyms (like seat/couch). Do not revert to a strict sentence embedding check.

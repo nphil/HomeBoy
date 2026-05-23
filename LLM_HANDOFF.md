@@ -236,7 +236,19 @@ Watch CI: `gh run watch` or visit the Actions tab. IPA appears at https://github
 
 ---
 
-## 12. The User (Nitin)
+## 12. Semantic Search Implementation
+
+Apple's `NLEmbedding.sentenceEmbedding` natively scores single-word synonyms poorly (e.g. "seat" vs "couch" gets a terrible 1.33 distance).
+To fix this, `ItemsListView` uses a **hybrid search model**:
+1. It tokenizes the item names into individual words.
+2. It calculates the minimum cosine distance between query words and item words using `wordEmbedding`.
+3. It also calculates the full string distance using `sentenceEmbedding`.
+4. It takes `min(wordDist, sentDist)` and applies a relaxed threshold of `1.15`.
+**Rule:** Do not revert to a pure `sentenceEmbedding < 0.75` check, or single-word synonym matches will break again.
+
+---
+
+## 13. The User (Nitin)
 
 This part matters more than the tech.
 
@@ -249,7 +261,7 @@ This part matters more than the tech.
 
 ---
 
-## 13. Quick Reference
+## 14. Quick Reference
 
 | Want to... | Look at |
 |---|---|
