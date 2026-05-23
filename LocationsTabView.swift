@@ -10,6 +10,7 @@ struct LocationsTabView: View {
     @State private var collapsedIds: Set<String> = []
     @State private var didInitializeCollapse = false
     @State private var viewMode: LocViewMode = .list
+    @State private var indexLetter: String? = nil
 
     enum LocViewMode { case list, tile }
 
@@ -119,15 +120,22 @@ struct LocationsTabView: View {
             .refreshable { try? await store.refreshLocations() }
             .overlay(alignment: .trailing) {
                 if !locationIndexLetters.isEmpty {
-                    AlphabetIndexBar(letters: locationIndexLetters) { letter in
+                    AlphabetIndexBar(letters: locationIndexLetters, currentLetter: $indexLetter) { letter in
                         if let loc = visibleRows.first(where: {
                             String($0.name.prefix(1)).uppercased() == letter
                         }) {
-                            withAnimation { proxy.scrollTo(loc.id, anchor: .top) }
+                            withAnimation { proxy.scrollTo(loc.id, anchor: .center) }
                         }
                     }
-                    .padding(.trailing, 4)
+                    .padding(.trailing, 2)
                     .padding(.vertical, 16)
+                }
+            }
+            .overlay {
+                if let letter = indexLetter {
+                    LetterPopupBox(letter: letter, accent: theme.current.accentColor)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
             }
         }

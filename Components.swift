@@ -2,70 +2,73 @@ import SwiftUI
 
 // MARK: - Alphabet index bar (iOS Contacts-style)
 
+/// Invisible right-edge touch strip. On press+drag, fires onSelect with the letter under the finger.
+/// Pair it with `LetterPopupBox` shown as a centered overlay driven by the same binding.
 struct AlphabetIndexBar: View {
     let letters: [String]
+    @Binding var currentLetter: String?
     let onSelect: (String) -> Void
-
-    @State private var touchY: CGFloat? = nil
-    @State private var activeLetter: String? = nil
-    @State private var isShowing = false
-
-    private let hitWidth: CGFloat = 32
 
     var body: some View {
         GeometryReader { geo in
             let count = max(letters.count, 1)
             let itemH = geo.size.height / CGFloat(count)
-
-            ZStack(alignment: .topTrailing) {
-                ForEach(0..<letters.count, id: \.self) { idx in
-                    letterView(letter: letters[idx], idx: idx, itemH: itemH)
-                }
-            }
-            .frame(width: hitWidth, height: geo.size.height, alignment: .trailing)
-            .opacity(isShowing ? 1 : 0)
-            .animation(.easeOut(duration: 0.15), value: isShowing)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !isShowing { isShowing = true }
-                        touchY = value.location.y
-                        let idx = min(max(Int(value.location.y / itemH), 0), count - 1)
-                        let letter = letters[idx]
-                        if letter != activeLetter {
-                            activeLetter = letter
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            onSelect(letter)
+            Color.clear
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            let idx = min(max(Int(value.location.y / itemH), 0), count - 1)
+                            let letter = letters[idx]
+                            if letter != currentLetter {
+                                currentLetter = letter
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                onSelect(letter)
+                            }
                         }
-                    }
-                    .onEnded { _ in
-                        touchY = nil
-                        activeLetter = nil
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                            isShowing = false
+                        .onEnded { _ in
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                                withAnimation(.easeOut(duration: 0.2)) { currentLetter = nil }
+                            }
                         }
-                    }
-            )
+                )
         }
-        .frame(width: hitWidth)
+        .frame(width: 32)
     }
+}
 
-    @ViewBuilder
-    private func letterView(letter: String, idx: Int, itemH: CGFloat) -> some View {
-        let letterCenterY = (CGFloat(idx) + 0.5) * itemH
-        let dist: CGFloat = touchY.map { abs($0 - letterCenterY) } ?? .infinity
-        let normDist = min(dist / (itemH * 4), 1.0)
-        let scale: CGFloat = touchY == nil ? 1.0 : (1.0 + (1.0 - normDist) * 2.8)
+/// Themed translucent letter card. Render as a centered overlay when `currentLetter` is set.
+struct LetterPopupBox: View {
+    let letter: String
+    let accent: Color
 
+    var body: some View {
         Text(letter)
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(Color.accentColor)
-            .padding(.trailing, 6)
-            .frame(height: itemH, alignment: .center)
-            .offset(y: CGFloat(idx) * itemH)
-            .scaleEffect(scale, anchor: .trailing)
-            .zIndex(scale)
+            .font(.system(size: 80, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .frame(width: 140, height: 140)
+            .background(
+                ZStack {
+                    RoundedRectangle(cornerRadius: 28).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 28).fill(accent.opacity(0.78))
+                }
+            )
+            .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.3), lineWidth: 1.5))
+            .shadow(color: .black.opacity(0.3), radius: 16, x: 0, y: 6)
+    }
+}
+
+/// Decode a "#RRGGBB" / "RRGGBB" string into a SwiftUI Color.
+extension Color {
+    init?(hex: String) {
+        var s = hex.trimmingCharacters(in: .whitespacesAndNewlines)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self = Color(
+            red:   Double((v >> 16) & 0xFF) / 255,
+            green: Double((v >>  8) & 0xFF) / 255,
+            blue:  Double( v        & 0xFF) / 255
+        )
     }
 }
 

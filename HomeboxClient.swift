@@ -453,6 +453,11 @@ struct HomeboxClient {
         _ = try await request("v1/tags/\(id)", method: "DELETE")
     }
 
+    func updateTag(id: String, name: String, description: String = "", color: String = "") async throws {
+        let body = try JSONEncoder().encode(TagCreatePayload(name: name, description: description, color: color))
+        _ = try await request("v1/tags/\(id)", method: "PUT", body: body)
+    }
+
     // MARK: Attachment fetch
 
     /// Fetch attachment bytes for an item attachment. Uses the standard bearer token.

@@ -12,6 +12,7 @@ struct AddItemView: View {
     @State private var description = ""
     @State private var selectedLocationId: String?
     @State private var lockLocation = false
+    @State private var lockTags = false
     @State private var selectedTagIds: Set<String> = []
     @State private var photo: UIImage?
     @State private var pickerItem: PhotosPickerItem?
@@ -90,15 +91,18 @@ struct AddItemView: View {
             if let submitError { errorPill(submitError) }
             if let justAdded   { successPill(justAdded) }
 
-            VStack(spacing: 10) {
+            VStack(spacing: 6) {
                 Toggle(isOn: $lockLocation) {
                     Text("Keep location for next item").font(.caption).foregroundStyle(.secondary)
                 }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .tint(theme.current.accentColor)
+                .toggleStyle(.switch).controlSize(.mini).tint(theme.current.accentColor)
 
-                addButton
+                Toggle(isOn: $lockTags) {
+                    Text("Keep tags for next item").font(.caption).foregroundStyle(.secondary)
+                }
+                .toggleStyle(.switch).controlSize(.mini).tint(theme.current.accentColor)
+
+                addButton.padding(.top, 4)
             }
         }
         .padding(.horizontal, 16)
@@ -348,7 +352,8 @@ struct AddItemView: View {
 
     private func resetForm() {
         name = ""; quantity = 1; description = ""
-        photo = nil; pickerItem = nil; selectedTagIds = []
+        photo = nil; pickerItem = nil
+        if !lockTags { selectedTagIds = [] }
         if !lockLocation { selectedLocationId = nil }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { nameFocused = true }
     }

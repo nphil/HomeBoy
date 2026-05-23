@@ -42,6 +42,8 @@ struct ContentView: View {
                 .tabItem { Label("Items", systemImage: "shippingbox.fill") }
             LocationsTabView()
                 .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
+            TagsTabView()
+                .tabItem { Label("Tags", systemImage: "tag.fill") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }

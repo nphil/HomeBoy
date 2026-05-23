@@ -64,6 +64,7 @@ struct ItemsListView: View {
     @State private var showBulkEdit = false
 
     @State private var thumbStore = ThumbnailStore()
+    @State private var indexLetter: String? = nil
 
     enum ViewMode { case list, tile }
 
@@ -262,11 +263,18 @@ struct ItemsListView: View {
             .refreshable { await load(force: true) }
             .overlay(alignment: .trailing) {
                 if !sectionLetters.isEmpty {
-                    AlphabetIndexBar(letters: sectionLetters) { letter in
-                        withAnimation { proxy.scrollTo(letter, anchor: .top) }
+                    AlphabetIndexBar(letters: sectionLetters, currentLetter: $indexLetter) { letter in
+                        withAnimation { proxy.scrollTo(letter, anchor: .center) }
                     }
-                    .padding(.trailing, 4)
+                    .padding(.trailing, 2)
                     .padding(.vertical, 16)
+                }
+            }
+            .overlay {
+                if let letter = indexLetter {
+                    LetterPopupBox(letter: letter, accent: theme.current.accentColor)
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                 }
             }
         }
