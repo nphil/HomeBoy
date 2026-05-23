@@ -112,7 +112,7 @@ private struct TagRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(Color(hex: tag.color ?? "") ?? theme.current.accentColor)
+                .fill(Color(hex: tag.color ?? ""))
                 .frame(width: 18, height: 18)
                 .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
 
@@ -217,7 +217,7 @@ struct TagDetailView: View {
     private func headerCard(_ tag: HBTag) -> some View {
         HStack(spacing: 14) {
             Circle()
-                .fill(Color(hex: tag.color ?? "") ?? theme.current.accentColor)
+                .fill(Color(hex: tag.color ?? ""))
                 .frame(width: 44, height: 44)
                 .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
             VStack(alignment: .leading, spacing: 2) {
@@ -317,7 +317,7 @@ struct TagEditSheet: View {
                         ForEach(HomeboxTagPalette, id: \.self) { hex in
                             Button { colorHex = hex } label: {
                                 Circle()
-                                    .fill(Color(hex: hex) ?? .gray)
+                                    .fill(Color(hex: hex))
                                     .frame(height: 36)
                                     .overlay(
                                         Circle().stroke(colorHex == hex ? Color.primary : Color.primary.opacity(0.1),
