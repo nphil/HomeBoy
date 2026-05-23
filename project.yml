@@ -28,8 +28,8 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: Catalog
-        CFBundleShortVersionString: "0.3"
-        CFBundleVersion: "3"
+        CFBundleShortVersionString: "0.4"
+        CFBundleVersion: "4"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

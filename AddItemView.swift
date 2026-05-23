@@ -190,7 +190,7 @@ struct AddItemView: View {
 
     private var canSubmit: Bool {
         !name.trimmingCharacters(in: .whitespaces).isEmpty &&
-        store.itemTypeId != nil
+        selectedLocationId != nil
     }
 
     @ViewBuilder
@@ -224,22 +224,27 @@ struct AddItemView: View {
     private func submit() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { focused = .name; return }
-        guard let client = store.client, let itemTypeId = store.itemTypeId else {
+        guard let client = store.client else {
             submitError = "Not signed in. Open Settings to log in."
+            return
+        }
+        guard let locId = selectedLocationId else {
+            submitError = "Pick a location first."
             return
         }
         submitError = nil
         isSubmitting = true
-        let payload = HBCreateEntityRequest(
+        let payload = HBItemCreate(
             name: trimmedName,
-            entityTypeId: itemTypeId,
-            parentId: selectedLocationId,
             quantity: Double(quantity),
-            description: description.isEmpty ? nil : description
+            description: description,
+            locationId: locId,
+            parentId: nil,
+            tagIds: []
         )
         Task {
             do {
-                _ = try await client.createEntity(payload)
+                try await client.createItem(payload)
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     showSuccessPill("\"\(trimmedName)\"")

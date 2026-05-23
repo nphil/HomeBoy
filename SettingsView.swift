@@ -68,7 +68,7 @@ struct SettingsView: View {
                     Text("Loading locations…").foregroundStyle(.secondary)
                 } else {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("\(store.locations.count) locations cached")
+                    Text("\(store.locationsFlat.count) locations cached")
                         .foregroundStyle(.secondary)
                 }
                 Spacer()

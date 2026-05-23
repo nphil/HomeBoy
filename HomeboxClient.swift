@@ -1,6 +1,6 @@
 import Foundation
 
-// MARK: - Models
+// MARK: - Models (matches Homebox v0.25.x API)
 
 struct HBLoginResponse: Codable {
     let token: String
@@ -8,74 +8,68 @@ struct HBLoginResponse: Codable {
     let attachmentToken: String?
 }
 
-struct HBEntityType: Codable, Identifiable, Hashable {
+/// Minimal info we hold for a location — the shape returned by `GET /v1/locations`
+/// (LocationOutCount). The list endpoint does NOT include parent info, so the
+/// breadcrumb path is built from the `/v1/locations/tree` response.
+struct HBLocation: Codable, Identifiable, Hashable {
     let id: String
     let name: String
-    let isLocation: Bool
     let description: String?
-    let icon: String?
+    let itemCount: Double?
 }
 
-/// Decodes the minimum we need from /v1/entities. The full schema is much wider,
-/// but we keep this lean and rely on `parent` being a recursive entity.
-struct HBEntity: Codable, Identifiable, Hashable {
+/// Returned by `GET /v1/locations/tree`. Self-referential, so it's a `final class`.
+final class HBTreeItem: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let type: String
+    let children: [HBTreeItem]?
+
+    init(id: String, name: String, type: String, children: [HBTreeItem]?) {
+        self.id = id; self.name = name; self.type = type; self.children = children
+    }
+
+    static func == (lhs: HBTreeItem, rhs: HBTreeItem) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
+struct HBLocationSummary: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let description: String?
+}
+
+/// Item summary as returned by `GET /v1/items` (paginated).
+struct HBItem: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let description: String?
     let quantity: Double?
     let archived: Bool?
     let createdAt: String?
-    let entityType: HBEntityType?
-    let parent: HBParentRef?
+    let location: HBLocationSummary?
 
     var quantityInt: Int { Int(quantity ?? 1) }
-    var isLocation: Bool { entityType?.isLocation == true }
 }
 
-/// `parent` in API responses is itself a nested entity (recursive). We only keep
-/// id/name and the grand-parent reference — enough to render a breadcrumb.
-final class HBParentRef: Codable, Identifiable, Hashable {
-    let id: String
-    let name: String
-    let parent: HBParentRef?
-
-    init(id: String, name: String, parent: HBParentRef? = nil) {
-        self.id = id
-        self.name = name
-        self.parent = parent
-    }
-
-    static func == (lhs: HBParentRef, rhs: HBParentRef) -> Bool { lhs.id == rhs.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
-
-    /// Builds a "A / B / C" breadcrumb, ancestors first.
-    var pathString: String {
-        var parts: [String] = []
-        var cur: HBParentRef? = self
-        while let p = cur {
-            parts.insert(p.name, at: 0)
-            cur = p.parent
-        }
-        return parts.joined(separator: " / ")
-    }
-}
-
-struct HBEntityListResponse: Codable {
-    let items: [HBEntity]
+struct HBItemListResponse: Codable {
+    let items: [HBItem]
     let page: Int?
     let pageSize: Int?
     let total: Int?
 }
 
-struct HBCreateEntityRequest: Codable {
+struct HBItemCreate: Codable {
     let name: String
-    let entityTypeId: String
+    let quantity: Double
+    let description: String
+    let locationId: String
+    /// `parentId` is for nesting items under other items; we don't use it.
     let parentId: String?
-    let quantity: Double?
-    let description: String?
+    let tagIds: [String]
 }
 
-// MARK: - Client
+// MARK: - Errors
 
 enum HBError: LocalizedError {
     case notConfigured
@@ -97,7 +91,9 @@ enum HBError: LocalizedError {
     }
 }
 
-/// Stateless HTTP client. All credentials are passed in by the caller (HomeboxStore).
+// MARK: - Client
+
+/// Stateless HTTP client. Caller holds the server URL + token.
 struct HomeboxClient {
     var serverURL: URL
     var token: String?
@@ -147,49 +143,48 @@ struct HomeboxClient {
             body: body.percentEncodedQuery?.data(using: .utf8),
             contentType: "application/x-www-form-urlencoded"
         )
-        do {
-            return try JSONDecoder().decode(HBLoginResponse.self, from: data)
-        } catch {
-            throw HBError.decode(error)
-        }
+        do { return try JSONDecoder().decode(HBLoginResponse.self, from: data) }
+        catch { throw HBError.decode(error) }
     }
 
-    // MARK: Entity types
+    // MARK: Locations
 
-    func entityTypes() async throws -> [HBEntityType] {
-        let data = try await request("v1/entity-types", method: "GET")
-        do {
-            return try JSONDecoder().decode([HBEntityType].self, from: data)
-        } catch {
-            throw HBError.decode(error)
-        }
+    /// `GET /v1/locations` — flat list (no parent info).
+    func listLocations() async throws -> [HBLocation] {
+        let data = try await request("v1/locations", method: "GET")
+        do { return try JSONDecoder().decode([HBLocation].self, from: data) }
+        catch { throw HBError.decode(error) }
     }
 
-    // MARK: Entities (items + locations)
+    /// `GET /v1/locations/tree?withItems=false` — nested tree for the picker.
+    func locationTree() async throws -> [HBTreeItem] {
+        let data = try await request(
+            "v1/locations/tree",
+            method: "GET",
+            query: [URLQueryItem(name: "withItems", value: "false")]
+        )
+        do { return try JSONDecoder().decode([HBTreeItem].self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
 
-    /// Fetch a page of entities. Caller filters by `entityType.isLocation` for items vs locations.
-    func entities(query: String? = nil, parentIds: [String] = [], page: Int = 1, pageSize: Int = 500) async throws -> HBEntityListResponse {
+    // MARK: Items
+
+    /// `GET /v1/items` — paginated list of items, optionally filtered.
+    func listItems(query: String? = nil, locationIds: [String] = [], page: Int = 1, pageSize: Int = 500) async throws -> HBItemListResponse {
         var items: [URLQueryItem] = [
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pageSize", value: String(pageSize)),
         ]
         if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
-        for pid in parentIds { items.append(URLQueryItem(name: "parentIds", value: pid)) }
-        let data = try await request("v1/entities", method: "GET", query: items)
-        do {
-            return try JSONDecoder().decode(HBEntityListResponse.self, from: data)
-        } catch {
-            throw HBError.decode(error)
-        }
+        for id in locationIds { items.append(URLQueryItem(name: "locations", value: id)) }
+        let data = try await request("v1/items", method: "GET", query: items)
+        do { return try JSONDecoder().decode(HBItemListResponse.self, from: data) }
+        catch { throw HBError.decode(error) }
     }
 
-    func createEntity(_ payload: HBCreateEntityRequest) async throws -> HBEntity {
+    /// `POST /v1/items` — create an item under a location.
+    func createItem(_ payload: HBItemCreate) async throws {
         let body = try JSONEncoder().encode(payload)
-        let data = try await request("v1/entities", method: "POST", body: body)
-        do {
-            return try JSONDecoder().decode(HBEntity.self, from: data)
-        } catch {
-            throw HBError.decode(error)
-        }
+        _ = try await request("v1/items", method: "POST", body: body)
     }
 }

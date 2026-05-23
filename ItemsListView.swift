@@ -4,7 +4,7 @@ struct ItemsListView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
 
-    @State private var items: [HBEntity] = []
+    @State private var items: [HBItem] = []
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var query: String = ""
@@ -57,7 +57,7 @@ struct ItemsListView: View {
         }
     }
 
-    private var filteredItems: [HBEntity] {
+    private var filteredItems: [HBItem] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return items }
         return items.filter {
@@ -102,10 +102,8 @@ struct ItemsListView: View {
         isLoading = true
         loadError = nil
         do {
-            let resp = try await client.entities(pageSize: 1000)
-            // Items are entities that are NOT locations. Newest first.
-            let pulled = resp.items.filter { !$0.isLocation }
-                .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
+            let resp = try await client.listItems(pageSize: 1000)
+            let pulled = resp.items.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
             await MainActor.run { self.items = pulled }
         } catch {
             await MainActor.run { self.loadError = error.localizedDescription }
@@ -115,8 +113,9 @@ struct ItemsListView: View {
 }
 
 private struct ItemRow: View {
+    @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
-    let item: HBEntity
+    let item: HBItem
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -127,10 +126,10 @@ private struct ItemRow: View {
             }
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name).font(.body.weight(.medium))
-                if let parent = item.parent {
+                if let locationPath = breadcrumb {
                     HStack(spacing: 4) {
                         Image(systemName: "mappin.and.ellipse").font(.caption2)
-                        Text(parent.pathString).font(.caption).monospaced()
+                        Text(locationPath).font(.caption).monospaced()
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -148,5 +147,15 @@ private struct ItemRow: View {
         .overlay(
             RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1)
         )
+    }
+
+    /// Prefer the full path from cached locations; fall back to the immediate
+    /// location name from the item payload.
+    private var breadcrumb: String? {
+        if let id = item.location?.id {
+            let path = store.pathString(forLocationId: id)
+            if !path.isEmpty { return path }
+        }
+        return item.location?.name
     }
 }

@@ -1,8 +1,22 @@
 import Foundation
 import SwiftUI
 
-/// State container for everything Homebox-related: auth, cached entity types,
-/// cached location tree. Replaces the old local-queue `CatalogStore`.
+/// One node in the flattened (DFS-ordered) location tree, paired with its depth
+/// and the parent chain — ready for an indented picker.
+struct FlatLocation: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let depth: Int
+    /// Ancestor names from root → immediate parent (excludes self).
+    let ancestors: [String]
+
+    /// "Garage / Shelf A / Bin 2" for display.
+    var pathString: String {
+        (ancestors + [name]).joined(separator: " / ")
+    }
+}
+
+/// State container for Homebox connectivity + cached data.
 @MainActor
 final class HomeboxStore: ObservableObject {
     // MARK: - Auth + config (persisted)
@@ -19,14 +33,10 @@ final class HomeboxStore: ObservableObject {
     @Published var savedUsername: String {
         didSet { UserDefaults.standard.set(savedUsername, forKey: Keys.username) }
     }
-    @Published private(set) var itemTypeId: String? {
-        didSet { UserDefaults.standard.set(itemTypeId, forKey: Keys.itemTypeId) }
-    }
 
     // MARK: - In-memory caches
 
-    @Published var locations: [HBEntity] = []
-    @Published var entityTypes: [HBEntityType] = []
+    @Published private(set) var locationsFlat: [FlatLocation] = []
     @Published private(set) var isLoadingLocations = false
     @Published var lastError: String?
 
@@ -49,90 +59,61 @@ final class HomeboxStore: ObservableObject {
         static let serverURL = "homebox.serverURL"
         static let username  = "homebox.username"
         static let token     = "homebox.token"
-        static let itemTypeId = "homebox.itemTypeId"
     }
 
     init() {
         serverURLString = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
         savedUsername   = UserDefaults.standard.string(forKey: Keys.username) ?? ""
         token           = Keychain.get(Keys.token)
-        itemTypeId      = UserDefaults.standard.string(forKey: Keys.itemTypeId)
     }
 
     // MARK: - Auth
 
-    /// Logs in, stores the token, then fetches entity types and locations.
     func login(username: String, password: String) async throws {
         guard let url = serverURL else { throw HBError.badURL }
         let resp = try await HomeboxClient.login(serverURL: url, username: username, password: password)
         token = resp.token
         savedUsername = username
-        try await bootstrap()
+        try await refreshLocations()
     }
 
     func logout() {
         token = nil
-        itemTypeId = nil
-        locations = []
-        entityTypes = []
+        locationsFlat = []
     }
 
-    /// Loads entity types (to discover the Item type ID) and the location tree.
-    func bootstrap() async throws {
-        guard let client else { throw HBError.notConfigured }
-        let types = try await client.entityTypes()
-        await MainActor.run {
-            self.entityTypes = types
-            // Pick the first non-location type as "Item". If multiple item types
-            // exist, the user could override later — for now keep it simple.
-            if let item = types.first(where: { !$0.isLocation }) {
-                self.itemTypeId = item.id
-            }
-        }
-        try await refreshLocations()
-    }
+    // MARK: - Locations
 
     func refreshLocations() async throws {
         guard let client else { throw HBError.notConfigured }
         await MainActor.run { self.isLoadingLocations = true }
         defer { Task { @MainActor in self.isLoadingLocations = false } }
 
-        // Pull all entities and filter for locations client-side. Homebox doesn't
-        // expose an entityTypeId filter on GET /v1/entities, so we fetch and split.
-        // For most home inventories this fits in a single page (we ask for 1000).
-        let page = try await client.entities(pageSize: 1000)
-        let locs = page.items.filter { $0.isLocation }
-        await MainActor.run { self.locations = locs }
+        let tree = try await client.locationTree()
+        let flat = Self.flatten(tree: tree)
+        await MainActor.run { self.locationsFlat = flat }
     }
 
-    // MARK: - Helpers
+    /// Returns the breadcrumb path (e.g. "Garage / Shelf A") for a given location id,
+    /// or empty string if not found in cache.
+    func pathString(forLocationId id: String?) -> String {
+        guard let id, let loc = locationsFlat.first(where: { $0.id == id }) else { return "" }
+        return loc.pathString
+    }
 
-    /// Returns locations ordered by depth-first traversal of the tree, each
-    /// paired with its depth, suitable for an indented picker.
-    func locationsAsTree() -> [(entity: HBEntity, depth: Int)] {
-        let byParent = Dictionary(grouping: locations) { $0.parent?.id ?? "" }
-        var out: [(HBEntity, Int)] = []
-
-        func walk(parentId: String, depth: Int) {
-            let kids = (byParent[parentId] ?? []).sorted { $0.name.lowercased() < $1.name.lowercased() }
-            for k in kids {
-                out.append((k, depth))
-                walk(parentId: k.id, depth: depth + 1)
+    /// DFS flatten the tree, ignoring non-location nodes (just in case the API
+    /// returns items mixed in).
+    private static func flatten(tree: [HBTreeItem]) -> [FlatLocation] {
+        var out: [FlatLocation] = []
+        func walk(_ node: HBTreeItem, depth: Int, ancestors: [String]) {
+            if node.type == "location" || node.type == "" {
+                out.append(FlatLocation(id: node.id, name: node.name, depth: depth, ancestors: ancestors))
+                let kids = (node.children ?? []).sorted { $0.name.lowercased() < $1.name.lowercased() }
+                for k in kids { walk(k, depth: depth + 1, ancestors: ancestors + [node.name]) }
             }
         }
-        walk(parentId: "", depth: 0)
+        let top = tree.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        for n in top { walk(n, depth: 0, ancestors: []) }
         return out
-    }
-
-    /// Builds a "A / B / C" path string for a given location id by walking ancestors.
-    func pathString(forLocationId id: String?) -> String {
-        guard let id, let loc = locations.first(where: { $0.id == id }) else { return "" }
-        var parts = [loc.name]
-        var current: HBParentRef? = loc.parent
-        while let p = current {
-            parts.insert(p.name, at: 0)
-            current = p.parent
-        }
-        return parts.joined(separator: " / ")
     }
 }
