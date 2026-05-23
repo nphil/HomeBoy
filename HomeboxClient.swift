@@ -69,6 +69,20 @@ struct HBItemCreate: Codable {
     let tagIds: [String]
 }
 
+/// Minimal decode of POST /v1/items response — just the id so we can attach.
+struct HBItemCreateResponse: Codable { let id: String }
+
+struct HBLocationCreate: Codable {
+    let name: String
+    let parentId: String?
+    let description: String
+}
+
+struct HBLocationCreateResponse: Codable {
+    let id: String
+    let name: String
+}
+
 // MARK: - Errors
 
 enum HBError: LocalizedError {
@@ -182,9 +196,56 @@ struct HomeboxClient {
         catch { throw HBError.decode(error) }
     }
 
-    /// `POST /v1/items` — create an item under a location.
-    func createItem(_ payload: HBItemCreate) async throws {
+    /// `POST /v1/items` — create an item under a location. Returns the new item's id.
+    @discardableResult
+    func createItem(_ payload: HBItemCreate) async throws -> String {
         let body = try JSONEncoder().encode(payload)
-        _ = try await request("v1/items", method: "POST", body: body)
+        let data = try await request("v1/items", method: "POST", body: body)
+        do { return try JSONDecoder().decode(HBItemCreateResponse.self, from: data).id }
+        catch { throw HBError.decode(error) }
+    }
+
+    /// `POST /v1/items/{id}/attachments` — multipart/form-data upload.
+    /// `mimeType` is set on the multipart part; Homebox itself infers attachment type from the filename extension.
+    func uploadAttachment(itemId: String, fileData: Data, filename: String, mimeType: String = "image/jpeg", primary: Bool = false) async throws {
+        let boundary = "----HomeBoy\(UUID().uuidString)"
+        var body = Data()
+        func appendString(_ s: String) { body.append(s.data(using: .utf8)!) }
+
+        // file part
+        appendString("--\(boundary)\r\n")
+        appendString("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+        appendString("Content-Type: \(mimeType)\r\n\r\n")
+        body.append(fileData)
+        appendString("\r\n")
+
+        // name part
+        appendString("--\(boundary)\r\n")
+        appendString("Content-Disposition: form-data; name=\"name\"\r\n\r\n")
+        appendString("\(filename)\r\n")
+
+        // primary part
+        appendString("--\(boundary)\r\n")
+        appendString("Content-Disposition: form-data; name=\"primary\"\r\n\r\n")
+        appendString(primary ? "true\r\n" : "false\r\n")
+
+        appendString("--\(boundary)--\r\n")
+
+        _ = try await request(
+            "v1/items/\(itemId)/attachments",
+            method: "POST",
+            body: body,
+            contentType: "multipart/form-data; boundary=\(boundary)"
+        )
+    }
+
+    /// `POST /v1/locations` — create a location, optionally under a parent.
+    @discardableResult
+    func createLocation(name: String, parentId: String?, description: String = "") async throws -> String {
+        let payload = HBLocationCreate(name: name, parentId: parentId, description: description)
+        let body = try JSONEncoder().encode(payload)
+        let data = try await request("v1/locations", method: "POST", body: body)
+        do { return try JSONDecoder().decode(HBLocationCreateResponse.self, from: data).id }
+        catch { throw HBError.decode(error) }
     }
 }

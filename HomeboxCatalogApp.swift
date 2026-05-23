@@ -40,6 +40,8 @@ struct ContentView: View {
                 .tabItem { Label("Add", systemImage: "plus.circle.fill") }
             ItemsListView()
                 .tabItem { Label("Items", systemImage: "shippingbox.fill") }
+            LocationsTabView()
+                .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
@@ -54,7 +56,7 @@ struct BrandMark: View {
             Image(systemName: "shippingbox.fill")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(theme.current.accentColor)
-            Text("Catalog")
+            Text("HomeBoy")
                 .font(.system(size: 18, weight: .semibold))
         }
     }

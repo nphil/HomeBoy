@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import PhotosUI
 
 struct AddItemView: View {
     @EnvironmentObject var store: HomeboxStore
@@ -15,6 +16,11 @@ struct AddItemView: View {
     @State private var justAdded: String? = nil
     @State private var submitError: String?
 
+    // Photo capture / pick
+    @State private var photo: UIImage?
+    @State private var showCamera = false
+    @State private var pickerItem: PhotosPickerItem?
+
     enum Field: Hashable { case name, description }
     @FocusState private var focused: Field?
 
@@ -27,6 +33,7 @@ struct AddItemView: View {
                     } else {
                         nameAndQuantityCard
                         locationCard
+                        photoCard
                         descriptionCard
                         addButton
                         if let submitError {
@@ -57,6 +64,21 @@ struct AddItemView: View {
                 LocationPickerSheet(selectedId: $selectedLocationId)
                     .environmentObject(store)
                     .environmentObject(theme)
+            }
+            .sheet(isPresented: $showCamera) {
+                CameraSheet { img in
+                    photo = downscale(img)
+                }
+                .ignoresSafeArea()
+            }
+            .onChange(of: pickerItem) { _, newItem in
+                guard let newItem else { return }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let img = UIImage(data: data) {
+                        await MainActor.run { photo = downscale(img) }
+                    }
+                }
             }
             .onAppear {
                 if store.isAuthenticated, focused == nil {
@@ -163,6 +185,61 @@ struct AddItemView: View {
         }
     }
 
+    private var photoCard: some View {
+        GlassCard(title: "Photo (optional)") {
+            if let photo {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(uiImage: photo)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 88, height: 88)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1)
+                        )
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Photo attached").font(.callout.weight(.medium))
+                        Text("Uploaded to Homebox after the item is created.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 8) {
+                            Button(role: .destructive) {
+                                self.photo = nil
+                                pickerItem = nil
+                            } label: { Label("Remove", systemImage: "trash") }
+                                .buttonStyle(.bordered)
+                                .controlSize(.small)
+                            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                                Label("Replace", systemImage: "photo.on.rectangle")
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                HStack(spacing: 10) {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button {
+                            showCamera = true
+                        } label: {
+                            Label("Camera", systemImage: "camera.fill")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.glass)
+                    }
+                    PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                        Label("Library", systemImage: "photo.on.rectangle")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.glass)
+                }
+            }
+        }
+    }
+
     private var descriptionCard: some View {
         GlassCard(title: "Description (optional)") {
             TextField("Notes about the item", text: $description, axis: .vertical)
@@ -242,9 +319,14 @@ struct AddItemView: View {
             parentId: nil,
             tagIds: []
         )
+        let photoToUpload = photo
         Task {
             do {
-                try await client.createItem(payload)
+                let newId = try await client.createItem(payload)
+                if let photoToUpload, let data = photoToUpload.jpegData(compressionQuality: 0.82) {
+                    let filename = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
+                    try await client.uploadAttachment(itemId: newId, fileData: data, filename: filename, primary: true)
+                }
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     showSuccessPill("\"\(trimmedName)\"")
@@ -264,6 +346,8 @@ struct AddItemView: View {
         name = ""
         quantity = 1
         description = ""
+        photo = nil
+        pickerItem = nil
         if !lockLocation { selectedLocationId = nil }
         focused = .name
     }
