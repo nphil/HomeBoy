@@ -148,7 +148,28 @@ struct TagsTabView: View {
     private func load() async {
         guard let client = store.client else { return }
         isLoading = true
-        if let fetched = try? await client.listTags() { tags = fetched }
+        do {
+            async let tagsTask = client.listTags()
+            async let itemsTask = client.listItems(pageSize: 1000)
+            let (fetchedTags, fetchedItems) = try await (tagsTask, itemsTask)
+            
+            var counts: [String: Int] = [:]
+            for item in fetchedItems.items {
+                if let labels = item.effectiveLabels {
+                    for label in labels {
+                        counts[label.id, default: 0] += 1
+                    }
+                }
+            }
+            
+            self.tags = fetchedTags.map { tag in
+                var t = tag
+                t.itemCount = Double(counts[tag.id] ?? 0)
+                return t
+            }
+        } catch {
+            if let fetched = try? await client.listTags() { tags = fetched }
+        }
         isLoading = false
     }
 }
@@ -172,14 +193,18 @@ private struct TagRow: View {
                     Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
             if let count = tag.itemCount {
                 Text("\(Int(count))")
                     .font(.caption.weight(.medium).monospacedDigit())
                     .foregroundStyle(.secondary)
                     .padding(.trailing, 4)
+                    .layoutPriority(1)
             }
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+            Image(systemName: "chevron.right")
+                .foregroundStyle(.tertiary)
+                .font(.caption)
+                .layoutPriority(1)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
