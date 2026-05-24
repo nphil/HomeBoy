@@ -43,10 +43,10 @@
         {
           "version": "1.0.10-rolling",
           "buildVersion": "1.0.10-rolling",
-          "date": "2026-05-24T21:06:08Z",
-          "localizedDescription": "Rolling release that automatically points to the latest CI build from the main branch. Built from commit aad0760 on 2026-05-24T21:06:08Z.",
+          "date": "2026-05-24T21:39:53Z",
+          "localizedDescription": "Rolling release that automatically points to the latest CI build from the main branch. Built from commit efd8b06 on 2026-05-24T21:39:53Z.",
           "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/latest/HomeboxCatalog.ipa",
-          "size": 3803738
+          "size": 3802526
         }
       ]
     }
