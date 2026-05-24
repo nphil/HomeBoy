@@ -345,12 +345,23 @@ struct ItemsListView: View {
             errorState(loadError)
         } else if allItems.isEmpty {
             emptyState
-        } else if filteredItems.isEmpty {
-            noResultsState
         } else {
-            switch viewMode {
-            case .list: listView
-            case .tile: tileView
+            VStack(spacing: 0) {
+                if showFilters {
+                    filterPanel
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                }
+                
+                if filteredItems.isEmpty {
+                    noResultsState
+                } else {
+                    switch viewMode {
+                    case .list: listView
+                    case .tile: tileView
+                    }
+                }
             }
         }
     }
@@ -360,14 +371,7 @@ struct ItemsListView: View {
     private var listView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(spacing: 0) {
-                    if showFilters {
-                        filterPanel
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                            .padding(.bottom, 4)
-                    }
-                    LazyVStack(spacing: 6, pinnedViews: .sectionHeaders) {
+                LazyVStack(spacing: 6, pinnedViews: .sectionHeaders) {
                     if isSortedAlphabetically {
                         ForEach(itemSections) { section in
                             Section {
@@ -402,9 +406,8 @@ struct ItemsListView: View {
                     }
                 }
                 .padding(.top, 4)
+                .padding(.bottom, 80)
             }
-            .padding(.bottom, 80)
-        }
             .coordinateSpace(name: "pullToSearch")
             .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
@@ -432,23 +435,15 @@ struct ItemsListView: View {
 
     private var tileView: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                if showFilters {
-                    filterPanel
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
+                spacing: 10
+            ) {
+                ForEach(sortedItems) { item in
+                    itemTile(item)
                 }
-                LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
-                    spacing: 10
-                ) {
-                    ForEach(sortedItems) { item in
-                        itemTile(item)
-                    }
-                }
-                .padding(12)
             }
+            .padding(12)
             .padding(.bottom, 80)
         }
         .coordinateSpace(name: "pullToSearch")

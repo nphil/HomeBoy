@@ -246,6 +246,8 @@ struct TagDetailRoute: Hashable { let id: String }
 Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push routes, not views.
 
 ### Filter chips pattern (Items tab)
+- **Outside ScrollView**: Filter chips must be placed *outside* and *above* scroll views (e.g., as a sibling to the `ScrollView` inside a wrapping `VStack` in `contentArea`) rather than inside the `ScrollView`. This pins them to the top and prevents layout/hit-testing issues or gesture conflicts with the lazy containers inside the scroll view.
+- **Direct Gestures**:
 ```swift
 // Filter chips use direct gesture handlers to prevent touch propagation to list rows:
 HStack(spacing: 4) { /* icon + label + xmark */ }
