@@ -129,11 +129,6 @@ struct ItemsListView: View {
             }
             .toolbar {
                 if selectMode {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Text(selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected")
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(.primary)
-                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Done") {
                             withAnimation {
@@ -148,14 +143,12 @@ struct ItemsListView: View {
                         Button("Select All") {
                             selectedIds = Set(filteredItems.map { $0.id })
                         }
-                        .buttonStyle(.glass)
                         
                         Spacer()
                         
                         Button("Deselect All") {
                             selectedIds = []
                         }
-                        .buttonStyle(.glass)
                         .disabled(selectedIds.isEmpty)
                         
                         Spacer()
@@ -163,7 +156,7 @@ struct ItemsListView: View {
                         Button("Edit") {
                             showBulkEdit = true
                         }
-                        .buttonStyle(.glassProminent)
+                        .bold()
                         .disabled(selectedIds.isEmpty)
                     }
                 } else {
@@ -259,6 +252,8 @@ struct ItemsListView: View {
                     .environmentObject(store).environmentObject(theme)
             }
             .toolbar(selectMode ? .hidden : .visible, for: .tabBar)
+            .navigationTitle(selectMode ? (selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected") : "")
+            .navigationBarTitleDisplayMode(.inline)
         }
     }
 
