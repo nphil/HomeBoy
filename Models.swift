@@ -71,9 +71,16 @@ final class HomeboxStore: ObservableObject {
     }
 
     init() {
-        serverURLString = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
+        let savedURL = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
+        serverURLString = savedURL
         savedUsername   = UserDefaults.standard.string(forKey: Keys.username) ?? ""
-        token           = Keychain.get(Keys.token)
+        
+        if savedURL.isEmpty {
+            token = nil
+            Keychain.delete(Keys.token) // Clean up dangling token from previous installs
+        } else {
+            token = Keychain.get(Keys.token)
+        }
     }
 
     // MARK: - Auth
