@@ -36,6 +36,7 @@ struct AddItemView: View {
 
     @FocusState private var nameFocused: Bool
     @FocusState private var descFocused: Bool
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
@@ -45,17 +46,19 @@ struct AddItemView: View {
                 if !store.isAuthenticated {
                     notConfiguredView
                 } else {
-                    addForm
+                    ScrollView {
+                        addForm
+                    }
+                    .scrollDismissesKeyboard(.interactively)
+                    .scrollIndicators(.hidden)
                 }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .principal) { BrandMark() }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { nameFocused = false; descFocused = false }
-                        .font(.callout.weight(.semibold))
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { dismiss() }
                 }
             }
             .sheet(isPresented: $showLocationPicker) {
@@ -349,6 +352,7 @@ struct AddItemView: View {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     showSuccessPill("\"\(trimmedName)\"")
                     resetForm()
+                    dismiss()
                 }
             } catch {
                 await MainActor.run {

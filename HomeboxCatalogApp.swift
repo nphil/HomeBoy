@@ -34,20 +34,41 @@ struct HomeboxCatalogApp: App {
 struct ContentView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
+    @State private var selectedTab = 1
+    @State private var showAddSheet = false
 
     var body: some View {
         if store.isAuthenticated {
-            TabView {
-                AddItemView()
+            TabView(selection: Binding(
+                get: { selectedTab },
+                set: { newValue in
+                    if newValue == 0 {
+                        showAddSheet = true
+                    } else {
+                        selectedTab = newValue
+                    }
+                }
+            )) {
+                Color.clear
                     .tabItem { Label("Add", systemImage: "plus.circle.fill") }
+                    .tag(0)
                 ItemsListView()
                     .tabItem { Label("Items", systemImage: "shippingbox.fill") }
+                    .tag(1)
                 LocationsTabView()
                     .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
+                    .tag(2)
                 TagsTabView()
                     .tabItem { Label("Tags", systemImage: "tag.fill") }
+                    .tag(3)
                 SettingsView()
                     .tabItem { Label("Settings", systemImage: "gearshape.fill") }
+                    .tag(4)
+            }
+            .sheet(isPresented: $showAddSheet) {
+                AddItemView()
+                    .environmentObject(store)
+                    .environmentObject(theme)
             }
         } else {
             OnboardingView()
