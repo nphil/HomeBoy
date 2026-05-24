@@ -277,7 +277,7 @@ struct ItemsListView: View {
                             }
                             .padding(.horizontal, 20)
                             .padding(.vertical, 8)
-                            .background(theme.current.backgroundColor)
+                            .background(Color.clear)
                             .id(section.letter)
                         }
                     }
