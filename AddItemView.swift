@@ -114,7 +114,7 @@ struct AddItemView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
-        .padding(.bottom, 24)
+        .padding(.bottom, 100)
     }
 
     // MARK: - Subviews
@@ -221,15 +221,14 @@ struct AddItemView: View {
                     .padding(.horizontal, 4)
                 
                 if photos.isEmpty {
-                    // When no photos are present, display both camera and library buttons side-by-side without a ScrollView
+                    // Display camera and library as identical square icon buttons side-by-side
                     HStack(spacing: 12) {
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
                             Button { showCamera = true } label: {
-                                Label("Camera", systemImage: "camera.fill")
-                                    .font(.body.weight(.semibold))
+                                Image(systemName: "camera.fill")
+                                    .font(.title3)
                                     .foregroundStyle(theme.current.accentColor)
-                                    .padding(.vertical, 10).padding(.horizontal, 16)
-                                    .frame(maxWidth: .infinity)
+                                    .frame(width: 44, height: 44)
                                     .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
                                     .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
                             }
@@ -237,15 +236,16 @@ struct AddItemView: View {
                         }
                         
                         PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
-                            Label("Photo Library", systemImage: "photo.on.rectangle")
-                                .font(.body.weight(.semibold))
+                            Image(systemName: "photo.on.rectangle")
+                                .font(.title3)
                                 .foregroundStyle(theme.current.accentColor)
-                                .padding(.vertical, 10).padding(.horizontal, 16)
-                                .frame(maxWidth: .infinity)
+                                .frame(width: 44, height: 44)
                                 .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
                                 .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
+                        
+                        Spacer()
                     }
                     .padding(.horizontal, 4)
                 } else {
