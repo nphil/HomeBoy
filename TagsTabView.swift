@@ -33,26 +33,6 @@ struct TagsTabView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 4)
 
-                    // Search bar
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search tags", text: $query)
-                            .textFieldStyle(.plain)
-                            .autocorrectionDisabled()
-                        if !query.isEmpty {
-                            Button { query = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.primary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 6)
 
                     content
                 }
@@ -79,7 +59,10 @@ struct TagsTabView: View {
                     }
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .searchable(text: $query, prompt: "Search tags")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
             .task { await load() }
             .sheet(isPresented: $showCreate) {
                 TagEditSheet(mode: .create) { await load() }

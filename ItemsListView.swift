@@ -80,27 +80,6 @@ struct ItemsListView: View {
                     .padding(.top, 8)
                     .padding(.bottom, 4)
 
-                    // Search bar
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search items", text: $query)
-                            .textFieldStyle(.plain)
-                            .autocorrectionDisabled()
-                        if !query.isEmpty {
-                            Button { query = "" } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.primary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 6)
-
                     if showFilters {
                         filterPanel
                             .padding(.horizontal, 16)
@@ -132,7 +111,10 @@ struct ItemsListView: View {
                     }
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .searchable(text: $query, prompt: "Search items")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
             .task { await load() }
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
@@ -169,7 +151,6 @@ struct ItemsListView: View {
             .safeAreaInset(edge: .bottom) {
                 if selectMode { bulkActionBar }
             }
-            .scrollDismissesKeyboard(.interactively)
         }
     }
 
