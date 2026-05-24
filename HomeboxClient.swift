@@ -330,7 +330,7 @@ struct HomeboxClient {
         ]
         if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
         for id in locationIds { items.append(URLQueryItem(name: "locations", value: id)) }
-        for id in labelIds { items.append(URLQueryItem(name: "labels", value: id)) }
+        for id in labelIds { items.append(URLQueryItem(name: "tags", value: id)) }
         let data = try await request("v1/items", method: "GET", query: items)
         do { return try JSONDecoder().decode(HBItemListResponse.self, from: data) }
         catch { throw HBError.decode(error) }
