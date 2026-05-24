@@ -87,7 +87,7 @@ struct LocationsTabView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) { BrandMark() }
+        ToolbarItem(placement: .navigationBarLeading) { BrandMark() }
         if store.isAuthenticated {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {

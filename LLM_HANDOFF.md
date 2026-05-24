@@ -166,7 +166,7 @@ Always uppercase, `tracking(0.6)`, accent color at 0.75 opacity.
 - Within the sheet, wrap the form in a `ScrollView` and use `.scrollDismissesKeyboard(.interactively)` rather than putting a "Done" button on the keyboard toolbar.
 
 ### Navigation and Search Layout
-- For top-level navigation on main tabs, left-align the app logo using `ToolbarItem(placement: .topBarLeading) { BrandMark() }`.
+- For top-level navigation on main tabs, left-align the app logo using `ToolbarItem(placement: .navigationBarLeading) { BrandMark() }`.
 - When using `.searchable()`, apply it to the outermost container view (e.g. `ZStack`) instead of an inner `ScrollView`. This prevents the keyboard from spuriously dismissing when the data array empties out and the view conditionally swaps to a "No Matches" empty state.
 
 ### Multiselect in Lists

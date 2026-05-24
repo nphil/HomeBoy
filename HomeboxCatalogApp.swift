@@ -63,18 +63,14 @@ struct BrandMark: View {
     @EnvironmentObject var theme: ThemeManager
 
     var body: some View {
-        Button(action: {}) {
-            HStack(spacing: 8) {
-                Image(systemName: "shippingbox.fill")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(theme.current.accentColor)
-                Text("HomeBoy")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
-            }
+        HStack(spacing: 8) {
+            Image(systemName: "shippingbox.fill")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(theme.current.accentColor)
+            Text("HomeBoy")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
         }
-        .buttonStyle(.plain)
-        .fixedSize()
-        .allowsHitTesting(false)
+        .accessibilityAddTraits(.isHeader)
     }
 }
