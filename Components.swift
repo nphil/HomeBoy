@@ -127,3 +127,93 @@ struct QuantityControl: View {
     }
 }
 
+// MARK: - Thumbnail cache (plain class — rows update via local @State, not @Published)
+
+@MainActor
+class ThumbnailStore {
+    private var cache: [String: String] = [:]   // itemId → attId or "" (no thumb)
+    private var inFlight: [String: Task<String?, Never>] = [:]
+
+    func load(itemId: String, client: HomeboxClient) async -> String? {
+        if let cached = cache[itemId] { return cached.isEmpty ? nil : cached }
+        if let task = inFlight[itemId] { return await task.value }
+        let task = Task<String?, Never> {
+            if let detail = try? await client.getItem(id: itemId),
+               let att = (detail.attachments ?? []).first(where: { $0.primary == true })
+                       ?? (detail.attachments ?? []).first(where: { $0.type.lowercased() == "photo" }) {
+                return att.id
+            }
+            return nil
+        }
+        inFlight[itemId] = task
+        let result = await task.value
+        cache[itemId] = result ?? ""
+        inFlight[itemId] = nil
+        return result
+    }
+}
+
+// MARK: - Reusable Item Row
+struct ItemListRowContent: View {
+    @EnvironmentObject var store: HomeboxStore
+    @EnvironmentObject var theme: ThemeManager
+    let item: HBItem
+    let thumbStore: ThumbnailStore
+
+    @State private var thumbAttId: String? = nil
+    @State private var thumbLoaded = false
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            thumbnailView
+                .frame(width: 48, height: 48)
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name).font(.body.weight(.medium)).lineLimit(1)
+                if let path = breadcrumb {
+                    HStack(spacing: 3) {
+                        Image(systemName: "mappin.and.ellipse").font(.caption2)
+                        Text(path).font(.caption).monospaced().lineLimit(1)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                if let d = item.description, !d.isEmpty {
+                    Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+            Text("×\(item.quantityInt)").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .task(id: item.id) {
+            guard let client = store.client else { return }
+            let attId = await thumbStore.load(itemId: item.id, client: client)
+            thumbAttId = attId
+            thumbLoaded = true
+        }
+    }
+
+    @ViewBuilder
+    private var thumbnailView: some View {
+        if !thumbLoaded {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.10))
+                ProgressView().controlSize(.small)
+            }
+        } else if let attId = thumbAttId {
+            AuthImage(itemId: item.id, attachmentId: attId).scaledToFill()
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.12))
+                Text("\(item.quantityInt)").font(.callout.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(theme.current.accentColor)
+            }
+        }
+    }
+
+    private var breadcrumb: String? {
+        if let id = item.location?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
+        return item.location?.name
+    }
+}

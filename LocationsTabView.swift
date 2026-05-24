@@ -62,6 +62,12 @@ struct LocationsTabView: View {
                 collapsedIds = Set(flat.compactMap { $0.parentId })
                 didInitializeCollapse = true
             }
+            .onAppear {
+                if !didInitializeCollapse && !store.locationsFlat.isEmpty {
+                    collapsedIds = Set(store.locationsFlat.compactMap { $0.parentId })
+                    didInitializeCollapse = true
+                }
+            }
             .navigationDestination(for: LocationDetailRoute.self) { route in
                 LocationDetailView(locationId: route.id,
                                    onChange: { Task { try? await store.refreshLocations() } })
@@ -163,14 +169,11 @@ struct LocationsTabView: View {
     private var tileContent: some View {
         ScrollView {
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12)],
+                columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12, alignment: .top)],
                 spacing: 12
             ) {
                 ForEach(tileRows, id: \.id) { loc in
-                    NavigationLink(value: LocationDetailRoute(id: loc.id)) {
-                        LocationTile(loc: loc, childCount: childCount(loc))
-                    }
-                    .buttonStyle(.plain)
+                    LocationTile(loc: loc, store: store)
                 }
             }
             .padding(16)
@@ -330,14 +333,45 @@ private struct LocationListRow: View {
     }
 }
 
-// MARK: - Tile
-
 private struct LocationTile: View {
     @EnvironmentObject var theme: ThemeManager
     let loc: FlatLocation
-    let childCount: Int
+    let store: HomeboxStore
+    
+    @State private var isExpanded = false
+
+    private var children: [FlatLocation] {
+        store.locationsFlat.filter { $0.parentId == loc.id }
+    }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if !children.isEmpty {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                        isExpanded.toggle()
+                    }
+                }
+            } label: {
+                mainCard
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded && !children.isEmpty {
+                childrenList
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .background {
+            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.06))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1)
+        )
+    }
+    
+    private var mainCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top) {
                 Image(systemName: loc.depth == 0 ? "house.fill" : "folder.fill")
@@ -351,6 +385,12 @@ private struct LocationTile: View {
                         .background(Capsule().fill(theme.current.accentColor.opacity(0.15)))
                         .foregroundStyle(theme.current.accentColor)
                 }
+                NavigationLink(value: LocationDetailRoute(id: loc.id)) {
+                    Image(systemName: "arrow.up.right.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(theme.current.accentColor)
+                }
+                .buttonStyle(.plain)
             }
 
             VStack(alignment: .leading, spacing: 3) {
@@ -365,22 +405,41 @@ private struct LocationTile: View {
                         .lineLimit(1)
                         .monospaced()
                 }
-                if childCount > 0 {
-                    Text("\(childCount) sublocation\(childCount == 1 ? "" : "s")")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                if !children.isEmpty {
+                    HStack(spacing: 4) {
+                        Text("\(children.count) sublocation\(children.count == 1 ? "" : "s")")
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                 }
             }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.06))
+        .contentShape(Rectangle())
+    }
+
+    private var childrenList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(children, id: \.id) { child in
+                NavigationLink(value: LocationDetailRoute(id: child.id)) {
+                    HStack(spacing: 8) {
+                        Rectangle()
+                            .fill(theme.current.accentColor.opacity(0.3))
+                            .frame(width: 2)
+                        Text(child.name)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1)
-        )
+        .padding(.horizontal, 12)
+        .padding(.bottom, 12)
     }
 }
 

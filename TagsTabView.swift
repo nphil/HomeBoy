@@ -165,6 +165,7 @@ struct TagDetailView: View {
     @State private var isLoading = false
     @State private var showEdit = false
     @State private var showDelete = false
+    @State private var thumbStore = ThumbnailStore()
 
     var body: some View {
         ScrollView {
@@ -189,7 +190,12 @@ struct TagDetailView: View {
                 } else {
                     ForEach(items) { item in
                         NavigationLink(value: ItemDetailRoute(id: item.id)) {
-                            itemRow(item)
+                            ItemListRowContent(item: item, thumbStore: thumbStore)
+                                .background {
+                                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+                                }
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.15), lineWidth: 1))
                         }.buttonStyle(.plain)
                     }
                 }
@@ -252,28 +258,7 @@ struct TagDetailView: View {
         .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
     }
 
-    private func itemRow(_ item: HBItem) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: "shippingbox.fill")
-                .foregroundStyle(theme.current.accentColor)
-                .frame(width: 24)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name).font(.body.weight(.medium)).lineLimit(1)
-                if let loc = item.location?.name {
-                    Text(loc).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 0)
-            Text("×\(item.quantityInt)").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
-            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 10)
-        .background {
-            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.15), lineWidth: 1))
-    }
+
 
     private func load() async {
         guard let client = store.client else { return }
