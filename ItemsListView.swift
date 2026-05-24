@@ -48,6 +48,7 @@ struct ItemsListView: View {
     @State private var indexLetter: String? = nil
     @State private var semanticResults: [HBItem]? = nil
     @State private var semanticSearchTask: Task<Void, Never>? = nil
+    @State private var isSearchActive = false
 
     enum ViewMode { case list, tile }
 
@@ -80,7 +81,13 @@ struct ItemsListView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Button {
+                        isSearchActive = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+
                     Button {
                         withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
                             showSiteMenu.wrappedValue.toggle()
@@ -122,6 +129,7 @@ struct ItemsListView: View {
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
             .onChange(of: globalSearchQuery) { _, newQuery in updateSemanticSearch(for: newQuery) }
+            .searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search items…")
             .onChange(of: store.activeGroupId) { _, _ in
                 // Collection switched — wipe local caches and re-fetch with the new tenant
                 allItems = []

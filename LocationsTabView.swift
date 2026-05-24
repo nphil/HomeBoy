@@ -13,6 +13,7 @@ struct LocationsTabView: View {
     @State private var didInitializeCollapse = false
     @State private var viewMode: LocViewMode = .list
     @State private var indexLetter: String? = nil
+    @State private var isSearchActive = false
 
     enum LocViewMode { case list, tile }
 
@@ -45,7 +46,13 @@ struct LocationsTabView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Button {
+                        isSearchActive = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+
                     Button {
                         withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
                             showSiteMenu.wrappedValue.toggle()
@@ -102,6 +109,7 @@ struct LocationsTabView: View {
                 collapsedIds = []
                 didInitializeCollapse = false
             }
+            .searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search locations…")
             .navigationDestination(for: LocationDetailRoute.self) { route in
                 LocationDetailView(locationId: route.id,
                                    onChange: { Task { try? await store.refreshLocations() } })
@@ -284,27 +292,29 @@ private struct LocationListRow: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Depth indentation
+            // Expand/collapse toggle — pinned to the far left so it's always
+            // easy to find and tap, regardless of how deep the item is indented.
+            if hasChildren {
+                Button(action: onToggleCollapse) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.current.accentColor.opacity(0.7))
+                        .frame(width: 36)
+                        .frame(maxHeight: .infinity)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            } else {
+                Spacer().frame(width: 36)
+            }
+
+            // Depth indentation — visual hierarchy lines come after the chevron
             ForEach(0..<loc.depth, id: \.self) { _ in
                 Rectangle()
                     .fill(theme.current.accentColor.opacity(0.20))
                     .frame(width: 2)
                     .padding(.vertical, 4)
                     .padding(.trailing, 10)
-            }
-
-            // Expand/collapse toggle
-            if hasChildren {
-                Button(action: onToggleCollapse) {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(theme.current.accentColor.opacity(0.7))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            } else {
-                Spacer().frame(width: 20)
             }
 
             // Navigate to detail

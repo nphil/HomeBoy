@@ -20,6 +20,7 @@ struct TagsTabView: View {
     @State private var tags: [HBTag] = []
     @State private var isLoading = false
     @State private var showCreate = false
+    @State private var isSearchActive = false
 
     var body: some View {
         NavigationStack {
@@ -50,7 +51,13 @@ struct TagsTabView: View {
                 }
             }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
+                    Button {
+                        isSearchActive = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+
                     Button {
                         withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
                             showSiteMenu.wrappedValue.toggle()
@@ -69,6 +76,7 @@ struct TagsTabView: View {
                     }
                 }
             }
+            .searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search tags…")
             .task { await load() }
             .onChange(of: store.activeGroupId) { _, _ in
                 tags = []
