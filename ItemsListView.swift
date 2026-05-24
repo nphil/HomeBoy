@@ -520,10 +520,21 @@ struct ItemsListView: View {
                     Text("Select All")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(theme.current.backgroundColor)
+                        )
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(theme.current.accentColor.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1)
+                        )
                 }
-                .buttonStyle(.bordered)
-                .tint(theme.current.accentColor)
+                .buttonStyle(.glass)
 
                 Button {
                     selectedIds = []
@@ -531,10 +542,21 @@ struct ItemsListView: View {
                     Text("Deselect All")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(theme.current.backgroundColor)
+                        )
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(Color.secondary.opacity(0.12))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
+                        )
                 }
-                .buttonStyle(.bordered)
-                .tint(.secondary)
+                .buttonStyle(.glass)
 
                 Button {
                     showBulkEdit = true
@@ -542,10 +564,13 @@ struct ItemsListView: View {
                     Text("Edit")
                         .font(.body.weight(.semibold))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(theme.current.accentColor.opacity(selectedIds.isEmpty ? 0.4 : 1.0))
+                        )
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(theme.current.accentColor)
+                .buttonStyle(.glassProminent)
                 .disabled(selectedIds.isEmpty)
             }
         }
