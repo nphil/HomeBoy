@@ -11,11 +11,11 @@ struct LocationsTabView: View {
     @State private var showCreate = false
     @State private var collapsedIds: Set<String> = []
     @State private var didInitializeCollapse = false
-    @State private var viewMode: LocViewMode = .list
+    @AppStorage("locationsViewMode") private var viewMode: LocViewMode = .list
     @State private var indexLetter: String? = nil
     @State private var isSearchActive = false
 
-    enum LocViewMode { case list, tile }
+    enum LocViewMode: String { case list, tile }
 
     var body: some View {
         NavigationStack {

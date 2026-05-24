@@ -173,6 +173,12 @@ private struct TagRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if let count = tag.itemCount {
+                Text("\(Int(count))")
+                    .font(.caption.weight(.medium).monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.trailing, 4)
+            }
             Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)

@@ -99,6 +99,7 @@ struct HBTag: Codable, Identifiable, Hashable {
     let description: String?
     let color: String?
     let icon: String?
+    let itemCount: Double?
 }
 
 struct HBGroup: Codable, Identifiable, Hashable {

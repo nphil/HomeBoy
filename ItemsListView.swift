@@ -28,7 +28,7 @@ struct ItemsListView: View {
     @State private var lastLoadedAt: Date? = nil
 
     // View options
-    @State private var viewMode: ViewMode = .list
+    @AppStorage("itemsViewMode") private var viewMode: ViewMode = .list
     @State private var tileColumns = 2
 
     // Filters
@@ -50,7 +50,7 @@ struct ItemsListView: View {
     @State private var semanticSearchTask: Task<Void, Never>? = nil
     @State private var isSearchActive = false
 
-    enum ViewMode { case list, tile }
+    enum ViewMode: String { case list, tile }
 
     var body: some View {
         NavigationStack {
@@ -263,16 +263,21 @@ struct ItemsListView: View {
                                     .padding(.horizontal, 16)
                             }
                         } header: {
-                            HStack {
+                            HStack(spacing: 8) {
                                 Text(section.letter)
                                     .font(.caption.weight(.bold))
                                     .tracking(0.5)
-                                    .foregroundStyle(.secondary)
-                                Spacer()
+                                    .foregroundStyle(theme.current.accentColor)
+                                
+                                Rectangle()
+                                    .fill(theme.current.accentColor.opacity(0.4))
+                                    .frame(height: 1)
+                                
+                                Spacer(minLength: 0)
                             }
                             .padding(.horizontal, 20)
-                            .padding(.vertical, 4)
-                            .background(.ultraThinMaterial)
+                            .padding(.vertical, 8)
+                            .background(theme.current.backgroundColor.opacity(0.95))
                             .id(section.letter)
                         }
                     }
