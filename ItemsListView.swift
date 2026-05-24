@@ -131,7 +131,7 @@ struct ItemsListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .navigationBarLeading) { BrandMark() }
+        ToolbarItem(placement: .topBarLeading) { BrandMark() }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }

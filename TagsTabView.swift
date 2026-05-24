@@ -51,7 +51,7 @@ struct TagsTabView: View {
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "Search tags")
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { BrandMark() }
+                ToolbarItem(placement: .topBarLeading) { BrandMark() }
             }
             .task { await load() }
             .sheet(isPresented: $showCreate) {

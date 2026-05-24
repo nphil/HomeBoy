@@ -56,7 +56,7 @@ struct AddItemView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .navigationBarLeading) { BrandMark() }
+                ToolbarItem(placement: .topBarLeading) { BrandMark() }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }
                 }
