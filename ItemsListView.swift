@@ -362,12 +362,16 @@ struct ItemsListView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
                         .padding(.bottom, 8)
-                        .background(.ultraThinMaterial)
-                        .overlay(
-                            Rectangle()
-                                .fill(theme.current.accentColor.opacity(0.12))
-                                .frame(height: 1),
-                            alignment: .bottom
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    theme.current.backgroundColor,
+                                    theme.current.backgroundColor.opacity(0.95),
+                                    theme.current.backgroundColor.opacity(0)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
                         )
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
