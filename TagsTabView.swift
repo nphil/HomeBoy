@@ -17,63 +17,14 @@ struct TagsTabView: View {
     @State private var tags: [HBTag] = []
     @State private var isLoading = false
     @State private var query = ""
-    @State private var isSearchPresented = false
     @State private var showCreate = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    // Custom header
-                    HStack(spacing: 12) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isSearchPresented.toggle()
-                            }
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .font(.title3)
-                                .foregroundStyle(theme.current.accentColor)
-                        }
-                        
-                        Spacer()
-                        BrandMark()
-                        Spacer()
-                        
-                        // Empty placeholder to keep BrandMark centered
-                        Image(systemName: "magnifyingglass").font(.title3).opacity(0)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
-                    if isSearchPresented {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(.secondary)
-                            TextField("Search tags", text: $query)
-                                .textFieldStyle(.plain)
-                                .autocorrectionDisabled()
-                            if !query.isEmpty {
-                                Button { query = "" } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.primary.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 6)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-
-                    content
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -96,7 +47,8 @@ struct TagsTabView: View {
                     }
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .navigationTitle("Tags")
+            .searchable(text: $query, prompt: "Search tags")
             .task { await load() }
             .sheet(isPresented: $showCreate) {
                 TagEditSheet(mode: .create) { await load() }
@@ -132,8 +84,6 @@ struct TagsTabView: View {
             }
         } else {
             ScrollView {
-                Color.clear.frame(height: 0)
-                    .onPullToSearch(isPresented: $isSearchPresented)
                 LazyVStack(spacing: 6) {
                     ForEach(filteredTags) { tag in
                         NavigationLink(value: TagDetailRoute(id: tag.id)) {

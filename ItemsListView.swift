@@ -22,7 +22,6 @@ struct ItemsListView: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var query: String = ""
-    @State private var isSearchPresented = false
     @State private var lastLoadedAt: Date? = nil
 
     // View options
@@ -53,72 +52,8 @@ struct ItemsListView: View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    // Custom header
-                    HStack(spacing: 12) {
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                isSearchPresented.toggle()
-                            }
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .font(.title3)
-                                .foregroundStyle(theme.current.accentColor)
-                        }
-                        
-                        Spacer()
-                        BrandMark()
-                        Spacer()
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
-                        } label: {
-                            Image(systemName: hasActiveFilters
-                                  ? "line.3.horizontal.decrease.circle.fill"
-                                  : "line.3.horizontal.decrease.circle")
-                                .font(.title3)
-                                .foregroundStyle(theme.current.accentColor)
-                        }
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                viewMode = viewMode == .list ? .tile : .list
-                            }
-                        } label: {
-                            Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                                .font(.title3)
-                                .foregroundStyle(theme.current.accentColor)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
-                    if isSearchPresented {
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .foregroundStyle(.secondary)
-                            TextField("Search items", text: $query)
-                                .textFieldStyle(.plain)
-                                .autocorrectionDisabled()
-                            if !query.isEmpty {
-                                Button { query = "" } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(Color.primary.opacity(0.06))
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 6)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-
-                    contentArea
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                contentArea
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -141,7 +76,27 @@ struct ItemsListView: View {
                     }
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
+            .navigationTitle("Items")
+            .searchable(text: $query, prompt: "Search items")
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                    } label: {
+                        Image(systemName: hasActiveFilters
+                              ? "line.3.horizontal.decrease.circle.fill"
+                              : "line.3.horizontal.decrease.circle")
+                    }
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            viewMode = viewMode == .list ? .tile : .list
+                        }
+                    } label: {
+                        Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                    }
+                }
+            }
             .task { await load() }
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
@@ -253,8 +208,6 @@ struct ItemsListView: View {
     private var listView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                Color.clear.frame(height: 0)
-                    .onPullToSearch(isPresented: $isSearchPresented)
                 if showFilters {
                     filterPanel
                         .padding(.horizontal, 16)
@@ -313,8 +266,6 @@ struct ItemsListView: View {
 
     private var tileView: some View {
         ScrollView {
-            Color.clear.frame(height: 0)
-                .onPullToSearch(isPresented: $isSearchPresented)
             if showFilters {
                 filterPanel
                     .padding(.horizontal, 16)
