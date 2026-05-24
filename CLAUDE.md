@@ -35,19 +35,19 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 
 | File | Purpose |
 |---|---|
-| `HomeboxCatalogApp.swift` | `@main`. Injects `HomeboxStore` + `ThemeManager`, transparent nav appearance. Conditionally routes to `OnboardingView` (if unauthenticated) or the 5-tab `TabView` (if authenticated). `BrandMark` shows "HomeBoy". |
+| `HomeboxCatalogApp.swift` | `@main`. Injects `HomeboxStore` + `ThemeManager`, transparent nav appearance. Conditionally routes to `OnboardingView` (if unauthenticated) or the 4-tab `TabView` (if authenticated). `BrandMark` shows "HomeBoy". |
 | `OnboardingView.swift` | Full-screen welcome and login view. Server URL field + sign-in form. Takes over root until authenticated. |
 | `Theme.swift` | `AppTheme` (30 themes ported from Homebox's `assets/css/main.css`), `ThemeManager`, `Color(h:s:l:)` HSL helper, `ThemeSwatch` previewing actual bg + primary + accent. No orb background — each view uses `theme.current.backgroundColor` as a solid `.background(...)`. |
 | `Models.swift` | `HomeboxStore` ObservableObject — auth state, server URL, in-memory `locationsFlat: [FlatLocation]` (DFS-flattened tree with ancestor chain). Helpers: `pathString(forLocationId:)`. |
 | `HomeboxClient.swift` | Async/await HTTP client for v0.25.x. Codable models: `HBItem`, `HBLocation`, `HBTreeItem` (final class, recursive), `HBItemCreate`, `HBLocationCreate`, plus `HBLoginResponse`/`HBItemListResponse`. `uploadAttachment` builds multipart/form-data by hand. |
 | `Keychain.swift` | Minimal `SecItem` wrapper for the bearer token (`AccessibleAfterFirstUnlockThisDeviceOnly`). |
 | `PhotoSource.swift` | `CameraSheet` (UIViewControllerRepresentable over UIImagePickerController) + `downscale(_:maxDimension:)` helper that keeps JPEGs under a few hundred KB. |
-| `AddItemView.swift` | Main form. Name → Qty pill → location picker → photo card (Camera/Library buttons or attached-thumbnail with Remove/Replace) → optional description → submit. On submit: POST `/v1/items`, then if a photo is set POST `/v1/items/{id}/attachments` (primary=true). Uses `PhotosPicker` (iOS 16+) for library + `CameraSheet` for capture. |
+| `AddItemView.swift` | Main form. Name → Qty pill → location picker → photo card (Camera/Library buttons or attached-thumbnail with Remove/Replace) → optional description → submit. On submit: POST `/v1/items`, then if a photo is set POST `/v1/items/{id}/attachments` (primary=true). Uses `PhotosPicker` (iOS 16+) for library + `CameraSheet` for capture. Now presented as a modal sheet with interactive scroll dismissal. |
 | `LocationPickerSheet.swift` | Sheet over `store.locationsFlat` with depth indentation, indent ticks, search, pull-to-refresh. Tap to pick; "Clear" in toolbar to deselect. Reused by AddItemView and CreateLocationSheet. |
-| `LocationsTabView.swift` | Dedicated Locations tab — indented tree, search, plus-button toolbar opens `CreateLocationSheet` (name + optional parent + description; refreshes the store on success). |
-| `ItemsListView.swift` | `GET /v1/items`, sorted newest-first, search (hybrid semantic word+sentence embedding) + pull-to-refresh. Breadcrumb prefers the full path from the cached tree, falls back to the item's immediate location name. |
+| `LocationsTabView.swift` | Dedicated Locations tab — indented tree, search, FAB to open `CreateLocationSheet` (name + optional parent + description; refreshes the store on success). The tree collapses down to top-level items by default. Tiles in grid view use a smooth spring accordion expansion to show child locations inline instead of navigating. |
+| `ItemsListView.swift` | `GET /v1/items`, sorted newest-first, search (hybrid semantic word+sentence embedding) + pull-to-refresh. Breadcrumb prefers the full path from the cached tree, falls back to the item's immediate location name. Uses a FAB (Floating Action Button) to present AddItemView. |
 | `SettingsView.swift` | Signed-in summary: user, server, cached-location count, refresh, sign-out. Theme picker is a 5-column `LazyVGrid` of swatches. About. |
-| `Components.swift` | `GlassCard`, `QuantityControl` (custom -/+ pill — replaces broken `Stepper.labelsHidden()`). |
+| `Components.swift` | `GlassCard`, `QuantityControl` (custom -/+ pill — replaces broken `Stepper.labelsHidden()`), `ThumbnailStore` and `ItemListRowContent` for rendering consistent item rows with async thumbnails. |
 | `project.yml` | xcodegen spec — iOS 26 deployment, no signing, asset catalog. Info.plist props: `NSAllowsArbitraryLoads`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`. `CFBundleDisplayName: HomeBoy`. |
 | `.github/workflows/build.yml` | macOS-15 runner: install xcodegen → generate → archive unsigned → zip IPA → publish to "latest" release. |
 | `Assets.xcassets/` | App icon (1024×1024 isometric cardboard box with green inventory label on a warm peach gradient — homage to Homebox's PWA icon). |
@@ -61,6 +61,7 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 - **Attachments are multipart/form-data**, not JSON. `HomeboxClient.uploadAttachment` constructs the body by hand; the request runs through the same `request()` helper so it picks up the auth token automatically. Type (photo vs attachment) is inferred from filename extension server-side — that's why uploads use `photo-<epoch>.jpg`.
 - **`Stepper(...).labelsHidden()` is broken on iOS 26** — it reserves layout space for the hidden label and blows out the row. Use `QuantityControl` instead.
 - **Recursive Codable**: `HBTreeItem` is a `final class` (not struct) because Codable structs can't be self-referential. Conform via `Hashable` on `id`.
+- **UX Patterns**: Use Floating Action Buttons (FABs) fixed in a `.bottomTrailing` alignment for primary actions (like Add/Create) instead of filling up the bottom TabBar or navigation toolbar. For forms, avoid `ToolbarItem` with a static "Done" button for keyboard dismissal; instead, wrap forms in a `ScrollView` and use `.scrollDismissesKeyboard(.interactively)`. For lists of items, use the shared `ItemListRowContent` from `Components.swift`.
 
 ## Common tasks
 

@@ -6,7 +6,7 @@ A field guide for any LLM picking up this project. Read this *before* touching c
 
 ## 1. The Project in One Paragraph
 
-iPhone app (iOS 26, SwiftUI, Liquid Glass) for rapid item entry into a self-hosted [Homebox](https://homebox.software/) v0.25.x instance. Display name is **HomeBoy**; repo/bundle id keep the original `homebox-catalog` naming so AltStore sideloads update in place. Five tabs: **Add / Items / Locations / Tags / Settings**. Every list view talks directly to the Homebox REST API — there is no local persistence beyond keychain (token) and `UserDefaults` (server URL, username, theme choice).
+iPhone app (iOS 26, SwiftUI, Liquid Glass) for rapid item entry into a self-hosted [Homebox](https://homebox.software/) v0.25.x instance. Display name is **HomeBoy**; repo/bundle id keep the original `homebox-catalog` naming so AltStore sideloads update in place. Four tabs: **Items / Locations / Tags / Settings**. Every list view talks directly to the Homebox REST API — there is no local persistence beyond keychain (token) and `UserDefaults` (server URL, username, theme choice).
 
 ---
 
@@ -35,23 +35,23 @@ These have all been learned through pain. Don't relearn them.
 
 | File | Purpose | Watch out for |
 |---|---|---|
-| `HomeboxCatalogApp.swift` | `@main`, conditional routing (OnboardingView vs TabView), transparent nav, `BrandMark` | Tab order: Add / Items / Locations / Tags / Settings. Don't reorder casually — user has muscle memory. |
+| `HomeboxCatalogApp.swift` | `@main`, conditional routing (OnboardingView vs TabView), transparent nav, `BrandMark` | Tab order: Items / Locations / Tags / Settings. Don't reorder casually — user has muscle memory. |
 | `OnboardingView.swift` | Full-screen unauthenticated server config and login form | Takes over root view when `store.isAuthenticated == false`. |
 | `Theme.swift` | 30 themes ported from Homebox web CSS, `ThemeManager`, `Color(h:s:l:)` HSL helper, **`Color(hex:)` non-failable**, `ThemeSwatch` | Don't add another `Color(hex:)`. Don't use orb backgrounds — solid bg only. |
 | `Models.swift` | `HomeboxStore` (ObservableObject), `FlatLocation`, `Route` structs, `HBItem.tagId`s helpers | Locations are DFS-flattened into `locationsFlat` with `ancestors` chain. |
 | `HomeboxClient.swift` | Async/await HTTP client, all Codable models | Bearer token is **raw** — no `"Bearer "` prefix. Multipart upload is hand-rolled. |
 | `Keychain.swift` | `SecItem` wrapper for token, `AccessibleAfterFirstUnlockThisDeviceOnly` | Token only. Password never persisted. |
 | `PhotoSource.swift` | `CameraSheet` (UIImagePickerController wrapper) + `downscale(_:maxDimension:)` | Keeps JPEGs under a few hundred KB. |
-| `AddItemView.swift` | The main form — single-screen, no step flow | Auto-focuses name field 0.15s after appear. `lockLocation` and `lockTags` toggles preserve fields across submissions. |
+| `AddItemView.swift` | The main form — single-screen, no step flow | Presented as a modal sheet with interactive scroll dismissal. Auto-focuses name field 0.15s after appear. `lockLocation` and `lockTags` toggles preserve fields across submissions. |
 | `LocationPickerSheet.swift` | Indented-tree picker, used by AddItem and CreateLocationSheet | Shared component — don't fork it. |
-| `LocationsTabView.swift` | Tree list + tile grid view, A-Z index bar, search | Has `viewMode` toggle (list/tile) in toolbar. List view supports collapse/expand per node — state held in `collapsedIds`. |
-| `ItemsListView.swift` | Item list with section headers, tag filter, location filter, A-Z bar | Tag filter uses `effectiveLabels` to handle API version variance — see §5. |
+| `LocationsTabView.swift` | Tree list + tile grid view, A-Z index bar, search | Has `viewMode` toggle (list/tile) in toolbar. List view supports collapse/expand per node — state held in `collapsedIds` and strictly collapses on load. Tile view uses an inline accordion expansion for child locations. |
+| `ItemsListView.swift` | Item list with section headers, tag filter, location filter, A-Z bar | Uses a FAB to present AddItemView. Tag filter uses `effectiveLabels` to handle API version variance — see §5. |
 | `ItemDetailView.swift` | Photos + full fields + edit + delete | |
 | `LocationDetailView.swift` | Edit/delete + children + items in location | |
 | `TagPickerSheet.swift` | Multi-select tag picker + inline "create new" | Distinct from `TagEditSheet` in TagsTabView. |
-| `TagsTabView.swift` | Full tag management: list, create, edit (name+color+desc), delete, view items per tag | Uses `HomeboxTagPalette` — 12 hex colors matching Homebox web. |
+| `TagsTabView.swift` | Full tag management: list, create, edit (name+color+desc), delete, view items per tag | Uses `HomeboxTagPalette` — 12 hex colors matching Homebox web. Renders items using shared `ItemListRowContent`. |
 | `SettingsView.swift` | Signed-in summary + theme picker (5-col grid) + about + logout | Server config and login moved to `OnboardingView.swift`. |
-| `Components.swift` | `GlassCard`, `QuantityControl`, `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore` | **`ThumbnailStore` is not an ObservableObject** — see §6. |
+| `Components.swift` | `GlassCard`, `QuantityControl`, `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore`, `ItemListRowContent` | **`ThumbnailStore` is not an ObservableObject** — see §6. |
 | `project.yml` | xcodegen spec | iOS 26 deployment target, `CODE_SIGNING_ALLOWED=NO`, `CFBundleDisplayName: HomeBoy`. |
 | `.github/workflows/build.yml` | CI: xcodegen → archive unsigned → zip IPA → publish to `latest` release | macos-15, Xcode 26. |
 
@@ -159,6 +159,11 @@ Always uppercase, `tracking(0.6)`, accent color at 0.75 opacity.
 - `LetterPopupBox` is rendered as a separate centered overlay (themed translucent box, big rounded letter) — only visible while `currentLetter != nil`.
 - Auto-hides 0.35s after drag ends.
 - Pattern is used in `ItemsListView` and `LocationsTabView`. The bar is in `Components.swift`.
+
+### Floating Action Buttons (FAB) & Sheets
+- Use a FAB in the `.bottomTrailing` corner of a main view's `ZStack` for primary actions (Add Item, Create Location, Create Tag).
+- Bind the FAB to show a modal `.sheet`.
+- Within the sheet, wrap the form in a `ScrollView` and use `.scrollDismissesKeyboard(.interactively)` rather than putting a "Done" button on the keyboard toolbar.
 
 ### Navigation route structs
 ```swift
