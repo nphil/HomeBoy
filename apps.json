@@ -17,6 +17,14 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.7",
+          "buildVersion": "1.0.7",
+          "date": "2026-05-24T20:25:00Z",
+          "localizedDescription": "UI Optimization: Glassmorphic filter panel overlay with scroll-under effect, item edit sheet photo management, and automatic primary setting for new uploads.",
+          "downloadURL": "https://github.com/nphil/homebox-catalog-ios/releases/download/v1.0.7/HomeboxCatalog.ipa",
+          "size": 15000000
+        },
+        {
           "version": "latest",
           "buildVersion": "latest",
           "date": "2026-05-24T00:00:00Z",

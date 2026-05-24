@@ -49,7 +49,7 @@ struct SettingsView: View {
                 }
 
                 Section("About") {
-                    LabeledContent("Version", value: "0.6")
+                    LabeledContent("Version", value: appVersionString)
                     Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
                 }
             }
@@ -105,5 +105,11 @@ struct SettingsView: View {
 
     private var displayServer: String {
         store.serverURL?.host ?? store.serverURLString
+    }
+
+    private var appVersionString: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.7"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "8"
+        return "\(version) (\(build))"
     }
 }
