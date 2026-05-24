@@ -87,6 +87,7 @@ struct ItemsListView: View {
             .searchable(text: $query, prompt: "Search items")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarRole(.editor)
             .toolbar { toolbarContent }
             .task { await load() }
             .onAppear { Task { await load() } }

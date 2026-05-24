@@ -53,6 +53,7 @@ struct SettingsView: View {
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarRole(.editor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { BrandMark() }
             }

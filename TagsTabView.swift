@@ -50,6 +50,7 @@ struct TagsTabView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "Search tags")
+            .toolbarRole(.editor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { BrandMark() }
             }

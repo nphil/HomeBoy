@@ -55,6 +55,7 @@ struct AddItemView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarRole(.editor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { BrandMark() }
                 ToolbarItem(placement: .topBarTrailing) {
