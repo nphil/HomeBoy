@@ -18,8 +18,51 @@ struct LocationsTabView: View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 0) {
+                    // Custom header
+                    HStack(spacing: 12) {
+                        BrandMark()
+                        Spacer()
+                        if store.isAuthenticated {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    viewMode = viewMode == .list ? .tile : .list
+                                }
+                            } label: {
+                                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                                    .font(.title3)
+                                    .foregroundStyle(theme.current.accentColor)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+
+                    // Search bar
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Search locations", text: $query)
+                            .textFieldStyle(.plain)
+                            .autocorrectionDisabled()
+                        if !query.isEmpty {
+                            Button { query = "" } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.primary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+
+                    content
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -42,11 +85,7 @@ struct LocationsTabView: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: "Search locations")
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
-            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showCreate) {
                 CreateLocationSheet()
                     .environmentObject(store)
@@ -58,8 +97,6 @@ struct LocationsTabView: View {
                 }
             }
             .onChange(of: store.locationsFlat) { _, flat in
-                // On first load, collapse all parents so only top-level is visible.
-                // Subsequent refreshes preserve the user's expand/collapse state.
                 guard !didInitializeCollapse, !flat.isEmpty else { return }
                 collapsedIds = Set(flat.compactMap { $0.parentId })
                 didInitializeCollapse = true
@@ -81,24 +118,7 @@ struct LocationsTabView: View {
                     .environmentObject(store)
                     .environmentObject(theme)
             }
-        }
-    }
-
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) { BrandMark() }
-        if store.isAuthenticated {
-            ToolbarItemGroup(placement: .topBarTrailing) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        viewMode = viewMode == .list ? .tile : .list
-                    }
-                } label: {
-                    Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                }
-            }
+            .scrollDismissesKeyboard(.interactively)
         }
     }
 

@@ -14,49 +14,55 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                signedInSection
-
-                Section("Theme") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
-                        ForEach(AppTheme.allCases) { t in
-                            ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
-                        }
-                    }
-                    .padding(.vertical, 8)
+            VStack(spacing: 0) {
+                // Custom header
+                HStack(spacing: 12) {
+                    BrandMark()
+                    Spacer()
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
 
-                Section("Info") {
-                    if let total = store.cachedItemTotal {
-                        LabeledContent("Items") {
-                            Text("\(total)")
+                Form {
+                    signedInSection
+
+                    Section("Theme") {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
+                            ForEach(AppTheme.allCases) { t in
+                                ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+
+                    Section("Info") {
+                        if let total = store.cachedItemTotal {
+                            LabeledContent("Items") {
+                                Text("\(total)")
+                                    .font(.callout.monospacedDigit().weight(.medium))
+                            }
+                        } else {
+                            LabeledContent("Items") {
+                                Text("Open Items tab to load")
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
+                        }
+                        LabeledContent("Locations") {
+                            Text("\(store.locationsFlat.count)")
                                 .font(.callout.monospacedDigit().weight(.medium))
                         }
-                    } else {
-                        LabeledContent("Items") {
-                            Text("Open Items tab to load")
-                                .font(.callout).foregroundStyle(.secondary)
-                        }
                     }
-                    LabeledContent("Locations") {
-                        Text("\(store.locationsFlat.count)")
-                            .font(.callout.monospacedDigit().weight(.medium))
-                    }
-                }
 
-                Section("About") {
-                    LabeledContent("Version", value: "0.6")
-                    Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
+                    Section("About") {
+                        LabeledContent("Version", value: "0.6")
+                        Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
+                    }
                 }
+                .scrollContentBackground(.hidden)
             }
-            .scrollContentBackground(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { BrandMark() }
-            }
-            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .alert("Sign out?", isPresented: $confirmLogout) {
                 Button("Cancel", role: .cancel) {}
                 Button("Sign out", role: .destructive) {
