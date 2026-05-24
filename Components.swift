@@ -217,3 +217,35 @@ struct ItemListRowContent: View {
         return item.location?.name
     }
 }
+
+// MARK: - Pull to Search Gesture
+
+struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+extension View {
+    /// Detects if the user pulls down a scroll view by at least `threshold` points and sets `isPresented` to true.
+    /// Requires the view to be placed at the top inside a ScrollView that has `.coordinateSpace(name: "pullToSearch")` applied.
+    func onPullToSearch(isPresented: Binding<Bool>, threshold: CGFloat = 40) -> some View {
+        self.background(
+            GeometryReader { proxy in
+                Color.clear
+                    .preference(
+                        key: ScrollOffsetKey.self,
+                        value: proxy.frame(in: .named("pullToSearch")).minY
+                    )
+            }
+        )
+        .onPreferenceChange(ScrollOffsetKey.self) { offset in
+            if offset > threshold && !isPresented.wrappedValue {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isPresented.wrappedValue = true
+                }
+            }
+        }
+    }
+}

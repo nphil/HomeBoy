@@ -162,6 +162,8 @@ struct LocationsTabView: View {
     private var listContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                Color.clear.frame(height: 0)
+                    .onPullToSearch(isPresented: $isSearchPresented)
                 LazyVStack(spacing: 6) {
                     ForEach(visibleRows, id: \.id) { loc in
                         LocationListRow(
@@ -177,6 +179,8 @@ struct LocationsTabView: View {
                 .padding(.vertical, 8)
                 .padding(.bottom, 60)
             }
+            .coordinateSpace(name: "pullToSearch")
+            .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
             .refreshable { try? await store.refreshLocations() }
             .overlay(alignment: .trailing) {
@@ -206,6 +210,8 @@ struct LocationsTabView: View {
 
     private var tileContent: some View {
         ScrollView {
+            Color.clear.frame(height: 0)
+                .onPullToSearch(isPresented: $isSearchPresented)
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12, alignment: .top)],
                 spacing: 12
@@ -217,6 +223,8 @@ struct LocationsTabView: View {
             .padding(16)
             .padding(.bottom, 60)
         }
+        .coordinateSpace(name: "pullToSearch")
+        .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)

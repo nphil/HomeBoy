@@ -132,6 +132,8 @@ struct TagsTabView: View {
             }
         } else {
             ScrollView {
+                Color.clear.frame(height: 0)
+                    .onPullToSearch(isPresented: $isSearchPresented)
                 LazyVStack(spacing: 6) {
                     ForEach(filteredTags) { tag in
                         NavigationLink(value: TagDetailRoute(id: tag.id)) {
@@ -141,8 +143,11 @@ struct TagsTabView: View {
                         .padding(.horizontal, 16)
                     }
                 }
-                .padding(.vertical, 8).padding(.bottom, 60)
+                .padding(.vertical, 8)
+                .padding(.bottom, 80)
             }
+            .coordinateSpace(name: "pullToSearch")
+            .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
             .refreshable { await load() }
         }

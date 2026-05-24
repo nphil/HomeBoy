@@ -253,6 +253,8 @@ struct ItemsListView: View {
     private var listView: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                Color.clear.frame(height: 0)
+                    .onPullToSearch(isPresented: $isSearchPresented)
                 if showFilters {
                     filterPanel
                         .padding(.horizontal, 16)
@@ -284,6 +286,8 @@ struct ItemsListView: View {
                 .padding(.top, 4)
                 .padding(.bottom, 80)
             }
+            .coordinateSpace(name: "pullToSearch")
+            .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
             .refreshable { await load(force: true) }
             .overlay(alignment: .trailing) {
@@ -309,6 +313,8 @@ struct ItemsListView: View {
 
     private var tileView: some View {
         ScrollView {
+            Color.clear.frame(height: 0)
+                .onPullToSearch(isPresented: $isSearchPresented)
             if showFilters {
                 filterPanel
                     .padding(.horizontal, 16)
@@ -326,6 +332,8 @@ struct ItemsListView: View {
             .padding(12)
             .padding(.bottom, 80)
         }
+        .coordinateSpace(name: "pullToSearch")
+        .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
