@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// A snappy, springy animation used for both the popover open/close and the
+/// dismiss-on-background-tap. Quick (≈0.25 s) with a tiny bounce so it feels
+/// alive but never overshoots into jitter.
+private let popoverSpring: Animation = .spring(duration: 0.25, bounce: 0.22)
+
 struct SiteMenuPopover: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
@@ -15,9 +20,7 @@ struct SiteMenuPopover: View {
                 Color.black.opacity(0.35)
                     .ignoresSafeArea()
                     .onTapGesture {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            isPresented = false
-                        }
+                        withAnimation(popoverSpring) { isPresented = false }
                     }
                     .transition(.opacity)
 
@@ -33,9 +36,7 @@ struct SiteMenuPopover: View {
 
                     // Settings button
                     Button {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-                            isPresented = false
-                        }
+                        withAnimation(popoverSpring) { isPresented = false }
                         NotificationCenter.default.post(name: .showSettings, object: nil)
                     } label: {
                         HStack {
@@ -58,11 +59,19 @@ struct SiteMenuPopover: View {
                 .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
                 .padding(.horizontal, 16)
                 .padding(.top, 60)
-                // Organic zoom from top-leading (where the chevron button lives)
+                // Pops out from the chevron — scale starts at 50% (not 1%) so it
+                // feels like a card unfolding, not a wild zoom from infinity.
                 .transition(
-                    .scale(scale: 0.01, anchor: .topLeading)
+                    .scale(scale: 0.5, anchor: .topLeading)
                     .combined(with: .opacity)
                 )
+            }
+        }
+        .onChange(of: isPresented) { _, presented in
+            // When the popover opens, refresh per-group stats so the cached
+            // counts on each card are up to date.
+            if presented {
+                Task { await store.refreshAllGroupStats() }
             }
         }
     }
@@ -72,6 +81,14 @@ struct SiteMenuPopover: View {
     @ViewBuilder
     private func groupCard(_ group: HBGroup) -> some View {
         let isActive = group.id == store.activeGroupId
+        // Active group uses live store values; inactive groups use cached stats
+        // fetched per-group via the X-Tenant header.
+        let locCount: Int = isActive
+            ? store.locationsFlat.count
+            : (store.cachedGroupStats[group.id]?.locationCount ?? 0)
+        let itemCount: Int = isActive
+            ? (store.cachedItemTotal ?? 0)
+            : (store.cachedGroupStats[group.id]?.itemTotal ?? 0)
 
         Button {
             guard !isActive, !isSwitching else { return }
@@ -87,24 +104,13 @@ struct SiteMenuPopover: View {
                             .font(.headline)
                             .foregroundStyle(.primary)
                     }
-                    if isActive {
-                        HStack(spacing: 12) {
-                            Label("\(store.locationsFlat.count)", systemImage: "mappin.and.ellipse")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Label("\(store.cachedItemTotal ?? 0)", systemImage: "shippingbox")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } else if let desc = group.description, !desc.isEmpty {
-                        Text(desc)
+                    HStack(spacing: 12) {
+                        Label("\(locCount)", systemImage: "mappin.and.ellipse")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    } else {
-                        Text("Tap to switch")
+                        Label("\(itemCount)", systemImage: "shippingbox")
                             .font(.caption)
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
@@ -132,7 +138,7 @@ struct SiteMenuPopover: View {
         .disabled(isSwitching)
     }
 
-    // MARK: - Placeholder (shown before groups load)
+    // MARK: - Placeholder (groups still loading)
 
     @ViewBuilder
     private var placeholderCard: some View {
@@ -175,9 +181,7 @@ struct SiteMenuPopover: View {
         isSwitching = true
         await store.setActiveGroup(group)
         isSwitching = false
-        withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
-            isPresented = false
-        }
+        withAnimation(popoverSpring) { isPresented = false }
         NotificationCenter.default.post(
             name: .showToast,
             object: nil,

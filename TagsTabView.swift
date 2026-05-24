@@ -52,7 +52,9 @@ struct TagsTabView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation { showSiteMenu.wrappedValue.toggle() }
+                        withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
+                            showSiteMenu.wrappedValue.toggle()
+                        }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "shippingbox.fill")
@@ -68,6 +70,10 @@ struct TagsTabView: View {
                 }
             }
             .task { await load() }
+            .onChange(of: store.activeGroupId) { _, _ in
+                tags = []
+                Task { await load() }
+            }
             .sheet(isPresented: $showCreate) {
                 TagEditSheet(mode: .create) { await load() }
                     .environmentObject(store).environmentObject(theme)

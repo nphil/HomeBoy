@@ -82,7 +82,9 @@ struct ItemsListView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation { showSiteMenu.wrappedValue.toggle() }
+                        withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
+                            showSiteMenu.wrappedValue.toggle()
+                        }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "shippingbox.fill")
@@ -120,6 +122,15 @@ struct ItemsListView: View {
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
             .onChange(of: globalSearchQuery) { _, newQuery in updateSemanticSearch(for: newQuery) }
+            .onChange(of: store.activeGroupId) { _, _ in
+                // Collection switched — wipe local caches and re-fetch with the new tenant
+                allItems = []
+                selectedIds = []
+                selectMode = false
+                filterLocationId = nil
+                filterTagIds = []
+                Task { await load(force: true) }
+            }
             .navigationDestination(for: ItemDetailRoute.self) { route in
                 ItemDetailView(itemId: route.id, onChange: { Task { await load(force: true) } })
                     .environmentObject(store)

@@ -47,7 +47,9 @@ struct LocationsTabView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation { showSiteMenu.wrappedValue.toggle() }
+                        withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
+                            showSiteMenu.wrappedValue.toggle()
+                        }
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "shippingbox.fill")
@@ -93,6 +95,12 @@ struct LocationsTabView: View {
                     collapsedIds = Set(store.locationsFlat.compactMap { $0.parentId })
                     didInitializeCollapse = true
                 }
+            }
+            .onChange(of: store.activeGroupId) { _, _ in
+                // Collection switched — reset collapse state so the new tree
+                // re-initialises cleanly (store.locationsFlat is refreshed by setActiveGroup).
+                collapsedIds = []
+                didInitializeCollapse = false
             }
             .navigationDestination(for: LocationDetailRoute.self) { route in
                 LocationDetailView(locationId: route.id,

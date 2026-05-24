@@ -27,6 +27,15 @@ struct FlatLocation: Identifiable, Hashable {
     }
 }
 
+// MARK: - GroupStats
+
+/// Cached (locations, items) count for a group — used in the popover to show
+/// totals on every collection card, not just the active one.
+struct GroupStats: Equatable {
+    let locationCount: Int
+    let itemTotal: Int
+}
+
 // MARK: - HomeboxStore
 
 /// Central state for Homebox connectivity + cached data.
@@ -73,6 +82,8 @@ final class HomeboxStore: ObservableObject {
     @Published private(set) var isLoadingLocations = false
     @Published private(set) var cachedItemTotal: Int? = nil
     @Published private(set) var groupName: String? = nil
+    /// Per-group cached counts shown on each card in the SiteMenuPopover.
+    @Published private(set) var cachedGroupStats: [String: GroupStats] = [:]
 
     var isAuthenticated: Bool { token != nil && serverURL != nil }
 
@@ -136,6 +147,7 @@ final class HomeboxStore: ObservableObject {
         locationsFlat = []
         cachedItemTotal = nil
         groupName     = nil
+        cachedGroupStats = [:]
     }
 
     // MARK: - Group switching (the X-Tenant story)
@@ -152,6 +164,38 @@ final class HomeboxStore: ObservableObject {
 
         try? await refreshLocations()
         await refreshItemTotal()
+
+        // Keep this group's card stats in sync with what we just fetched
+        cachedGroupStats[group.id] = GroupStats(
+            locationCount: locationsFlat.count,
+            itemTotal:     cachedItemTotal ?? 0
+        )
+    }
+
+    /// Fetch (locationCount, itemTotal) for every group in `self.groups` using
+    /// each group's own `X-Tenant` header. Results populate `cachedGroupStats`
+    /// so the popover can show numbers on every card, not just the active one.
+    func refreshAllGroupStats() async {
+        guard let serverURL else { return }
+        let snapshotToken  = token
+        let snapshotGroups = groups
+        guard !snapshotGroups.isEmpty else { return }
+
+        var newStats: [String: GroupStats] = cachedGroupStats
+        for group in snapshotGroups {
+            let scoped = HomeboxClient(serverURL: serverURL,
+                                       token: snapshotToken,
+                                       tenantId: group.id)
+            async let locTask  = scoped.listLocations()
+            async let itemTask = scoped.listItems(page: 1, pageSize: 1)
+            let locs    = (try? await locTask) ?? []
+            let itemRes = try? await itemTask
+            newStats[group.id] = GroupStats(
+                locationCount: locs.count,
+                itemTotal:     itemRes?.total ?? 0
+            )
+        }
+        cachedGroupStats = newStats
     }
 
     // MARK: - Data fetching

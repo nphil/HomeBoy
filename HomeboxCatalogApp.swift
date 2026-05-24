@@ -81,12 +81,14 @@ struct ContentView: View {
                 .zIndex(200)
             }
             .task {
-                // Refresh group list, location tree, and item count concurrently on every launch
+                // Refresh group list + location tree + item count concurrently
                 async let g: Void = store.refreshGroups()
                 async let l: Void = store.refreshLocations()
                 try? await g
                 try? await l
                 await store.refreshItemTotal()
+                // Once we know the groups, fetch per-group stats for the popover cards
+                await store.refreshAllGroupStats()
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSettings)) { _ in
                 showSettingsSheet = true
