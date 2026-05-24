@@ -248,6 +248,7 @@ struct EditItemSheet: View {
     @State private var showCamera = false
     @State private var isSaving = false
     @State private var errorMsg: String?
+    @State private var attachmentsToDelete: Set<String> = []
 
     init(original: HBItemDetail, onSaved: @escaping (HBItemDetail) -> Void = { _ in }) {
         self.original = original
@@ -263,77 +264,127 @@ struct EditItemSheet: View {
         _tagIds = State(initialValue: Set(original.tags?.map { $0.id } ?? []))
     }
 
+    private var existingPhotos: [HBAttachmentRef] {
+        (original.attachments ?? []).filter { $0.type.lowercased() == "photo" && !attachmentsToDelete.contains($0.id) }
+    }
+
+    @ViewBuilder private var itemSection: some View {
+        Section("Item") {
+            TextField("Name", text: $name).textInputAutocapitalization(.sentences)
+            Stepper("Quantity: \(quantity)", value: $quantity, in: 1...9999)
+            TextField("Description", text: $description, axis: .vertical).lineLimit(1...4)
+        }
+    }
+
+    @ViewBuilder private var locationSection: some View {
+        Section("Location") {
+            Button { showLocationPicker = true } label: {
+                HStack {
+                    Image(systemName: "mappin.and.ellipse")
+                    Text(locationId.flatMap { store.pathString(forLocationId: $0) } ?? "Pick location")
+                        .foregroundStyle(locationId == nil ? .secondary : .primary)
+                    Spacer()
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private var tagsSection: some View {
+        Section("Tags") {
+            Button { showTagPicker = true } label: {
+                HStack {
+                    Image(systemName: "tag")
+                    Text(tagIds.isEmpty ? "Pick tags" : "\(tagIds.count) selected")
+                        .foregroundStyle(tagIds.isEmpty ? .secondary : .primary)
+                    Spacer()
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    @ViewBuilder private var identificationSection: some View {
+        Section("Identification") {
+            TextField("Manufacturer", text: $manufacturer).textInputAutocapitalization(.words)
+            TextField("Model number", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
+            TextField("Serial number", text: $serial).textInputAutocapitalization(.never).autocorrectionDisabled()
+        }
+    }
+
+    @ViewBuilder private var notesSection: some View {
+        Section("Notes") {
+            TextField("Notes", text: $notes, axis: .vertical).lineLimit(1...6)
+        }
+    }
+
+    @ViewBuilder private var photosSection: some View {
+        Section("Photos") {
+            if !existingPhotos.isEmpty {
+                ForEach(existingPhotos) { att in
+                    HStack {
+                        AuthImage(itemId: original.id, attachmentId: att.id, allowsFullScreen: false)
+                            .frame(width: 50, height: 50)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                        
+                        Text(att.title ?? "Photo")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        
+                        Spacer()
+                        
+                        Button(role: .destructive) {
+                            withAnimation {
+                                _ = attachmentsToDelete.insert(att.id)
+                            }
+                        } label: {
+                            Image(systemName: "trash")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.borderless)
+                    }
+                }
+            }
+            
+            if let photo {
+                HStack {
+                    Image(uiImage: photo).resizable().scaledToFill()
+                        .frame(width: 50, height: 50)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    Text("New photo will be uploaded on save")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button(role: .destructive) { self.photo = nil; pickerItem = nil } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                }
+            } else {
+                HStack(spacing: 10) {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button { showCamera = true } label: { Label("Camera", systemImage: "camera").frame(maxWidth: .infinity) }
+                            .buttonStyle(.bordered)
+                    }
+                    PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
+                        Label("Library", systemImage: "photo").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Item") {
-                    TextField("Name", text: $name).textInputAutocapitalization(.sentences)
-                    Stepper("Quantity: \(quantity)", value: $quantity, in: 1...9999)
-                    TextField("Description", text: $description, axis: .vertical).lineLimit(1...4)
-                }
-
-                Section("Location") {
-                    Button { showLocationPicker = true } label: {
-                        HStack {
-                            Image(systemName: "mappin.and.ellipse")
-                            Text(locationId.flatMap { store.pathString(forLocationId: $0) } ?? "Pick location")
-                                .foregroundStyle(locationId == nil ? .secondary : .primary)
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Section("Tags") {
-                    Button { showTagPicker = true } label: {
-                        HStack {
-                            Image(systemName: "tag")
-                            Text(tagIds.isEmpty ? "Pick tags" : "\(tagIds.count) selected")
-                                .foregroundStyle(tagIds.isEmpty ? .secondary : .primary)
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Section("Identification") {
-                    TextField("Manufacturer", text: $manufacturer).textInputAutocapitalization(.words)
-                    TextField("Model number", text: $model).textInputAutocapitalization(.never).autocorrectionDisabled()
-                    TextField("Serial number", text: $serial).textInputAutocapitalization(.never).autocorrectionDisabled()
-                }
-
-                Section("Notes") {
-                    TextField("Notes", text: $notes, axis: .vertical).lineLimit(1...6)
-                }
-
-                Section("Add photo") {
-                    if let photo {
-                        HStack {
-                            Image(uiImage: photo).resizable().scaledToFill()
-                                .frame(width: 60, height: 60)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
-                            Text("New photo will be uploaded on save")
-                                .font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            Button(role: .destructive) { self.photo = nil; pickerItem = nil } label: { Image(systemName: "xmark.circle.fill") }
-                        }
-                    } else {
-                        HStack(spacing: 10) {
-                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                                Button { showCamera = true } label: { Label("Camera", systemImage: "camera").frame(maxWidth: .infinity) }
-                                    .buttonStyle(.bordered)
-                            }
-                            PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
-                                Label("Library", systemImage: "photo").frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
-                }
+                itemSection
+                locationSection
+                tagsSection
+                identificationSection
+                notesSection
+                photosSection
 
                 if let errorMsg {
                     Section { Label(errorMsg, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout) }
@@ -389,9 +440,16 @@ struct EditItemSheet: View {
         update.manufacturer = manufacturer
         do {
             try await client.updateItem(update)
+            
+            // Delete marked attachments
+            for attId in attachmentsToDelete {
+                try await client.deleteAttachment(itemId: original.id, attachmentId: attId)
+            }
+
             if let photo, let data = photo.jpegData(compressionQuality: 0.82) {
                 let filename = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
-                let setPrimary = (original.attachments ?? []).isEmpty
+                let remainingPhotosCount = (original.attachments ?? []).filter { $0.type.lowercased() == "photo" && !attachmentsToDelete.contains($0.id) }.count
+                let setPrimary = remainingPhotosCount == 0
                 try await client.uploadAttachment(itemId: original.id, fileData: data, filename: filename, primary: setPrimary)
             }
             let fresh = try await client.getItem(id: original.id)

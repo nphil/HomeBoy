@@ -496,4 +496,9 @@ struct HomeboxClient {
     func attachmentData(itemId: String, attachmentId: String) async throws -> Data {
         return try await request("v1/items/\(itemId)/attachments/\(attachmentId)", method: "GET")
     }
+
+    /// Delete an attachment from an item.
+    func deleteAttachment(itemId: String, attachmentId: String) async throws {
+        _ = try await request("v1/items/\(itemId)/attachments/\(attachmentId)", method: "DELETE")
+    }
 }
