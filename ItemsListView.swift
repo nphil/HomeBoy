@@ -141,24 +141,12 @@ struct ItemsListView: View {
                       : "line.3.horizontal.decrease.circle")
             }
 
-            Menu {
-                Picker("View", selection: $viewMode) {
-                    Label("List", systemImage: "list.bullet").tag(ViewMode.list)
-                    Label("Tiles", systemImage: "square.grid.2x2").tag(ViewMode.tile)
-                }
-                .pickerStyle(.inline)
-
-                if viewMode == .tile {
-                    Divider()
-                    Picker("Columns", selection: $tileColumns) {
-                        Text("2 columns").tag(2)
-                        Text("3 columns").tag(3)
-                        Text("4 columns").tag(4)
-                    }
-                    .pickerStyle(.inline)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewMode = viewMode == .list ? .tile : .list
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
+                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
             }
         }
     }
