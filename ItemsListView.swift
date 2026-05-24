@@ -53,8 +53,72 @@ struct ItemsListView: View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                contentArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 0) {
+                    // Custom header
+                    HStack(spacing: 12) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                isSearchPresented.toggle()
+                            }
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                                .font(.title3)
+                                .foregroundStyle(theme.current.accentColor)
+                        }
+                        
+                        Spacer()
+                        BrandMark()
+                        Spacer()
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                        } label: {
+                            Image(systemName: hasActiveFilters
+                                  ? "line.3.horizontal.decrease.circle.fill"
+                                  : "line.3.horizontal.decrease.circle")
+                                .font(.title3)
+                                .foregroundStyle(theme.current.accentColor)
+                        }
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                viewMode = viewMode == .list ? .tile : .list
+                            }
+                        } label: {
+                            Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                                .font(.title3)
+                                .foregroundStyle(theme.current.accentColor)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+
+                    if isSearchPresented {
+                        HStack(spacing: 8) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                            TextField("Search items", text: $query)
+                                .textFieldStyle(.plain)
+                                .autocorrectionDisabled()
+                            if !query.isEmpty {
+                                Button { query = "" } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Color.primary.opacity(0.06))
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 6)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
+                    contentArea
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -77,8 +141,7 @@ struct ItemsListView: View {
                     }
                 }
             }
-            .searchable(text: $query, isPresented: $isSearchPresented, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search items")
-            .toolbar { toolbarContent }
+            .toolbar(.hidden, for: .navigationBar)
             .task { await load() }
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
@@ -114,39 +177,6 @@ struct ItemsListView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if selectMode { bulkActionBar }
-            }
-        }
-    }
-
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button {
-                isSearchPresented = true
-            } label: {
-                Image(systemName: "magnifyingglass")
-            }
-        }
-        ToolbarItem(placement: .principal) {
-            BrandMark()
-        }
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
-            } label: {
-                Image(systemName: hasActiveFilters
-                      ? "line.3.horizontal.decrease.circle.fill"
-                      : "line.3.horizontal.decrease.circle")
-            }
-
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewMode = viewMode == .list ? .tile : .list
-                }
-            } label: {
-                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
             }
         }
     }
