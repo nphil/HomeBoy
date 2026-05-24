@@ -48,6 +48,7 @@ struct TagsTabView: View {
                         }
                     }
                 }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {

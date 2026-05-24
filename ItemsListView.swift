@@ -78,6 +78,7 @@ struct ItemsListView: View {
                         }
                     }
                 }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
