@@ -21,6 +21,8 @@ These have all been learned through pain. Don't relearn them.
 - **xcodegen sources path is `.`** — any new `.swift` file in the repo root is auto-included.
 - **Pushing `.github/workflows/*` requires `workflow` scope** on the gh token. Fix: `gh auth refresh -h github.com -s workflow`.
 - **Always end a session** by linking the user to: https://github.com/nphil/homebox-catalog-ios/releases/tag/latest
+- **Versioning Strategy**: Version 1.0 is the official baseline. Going forward, small bug fixes increment the patch version (e.g. 1.0.1, 1.0.2), while large feature additions or rebases use larger version increments (e.g. 1.1, 2.0).
+- **Public Releases**: Pushing a git tag starting with `v` (e.g. `v1.0`) triggers the Build IPA workflow to create a public release with the compiled unsigned IPA. Link the user to `https://github.com/nphil/homebox-catalog-ios/releases/tag/<tag_name>` when a tag is pushed.
 
 ### Code
 - **No custom `.glass` / `.glassProminent` button styles.** iOS 26 SDK provides these natively. Defining your own → `ambiguous use of 'glass'` compile error.

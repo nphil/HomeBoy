@@ -14,6 +14,7 @@ Target: iOS 26, Liquid Glass UI, sideloaded via AltStore (no App Store).
 - Unsigned IPA, `CODE_SIGNING_ALLOWED=NO` — AltStore signs at sideload.
 - Runner: `macos-15`, latest Xcode (currently 26 with iOS 26 SDK).
 - **Always commit + push after any meaningful change** — CI does the rest.
+- **Versioning & Releases**: Versioning starts at 1.0. Small bug fixes increment the patch version (e.g. 1.0.1), while large feature additions or rebases use larger version increments (e.g. 1.1, 2.0). To create a production release that anyone can download, push a git tag starting with `v` (e.g., `v1.0`).
 - Pushing `.github/workflows/*` needs `workflow` scope on the `gh` token. Fix with `gh auth refresh -h github.com -s workflow`.
 
 ## Tab structure — 3 tabs only
