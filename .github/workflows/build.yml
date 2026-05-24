@@ -106,3 +106,79 @@ jobs:
             --title "${{ steps.tag.outputs.title }}" \
             --notes "Unsigned IPA — sideload with AltStore. Built from \`$SHORT_SHA\` on $(date -u +'%Y-%m-%d %H:%M UTC')" \
             ${{ steps.tag.outputs.prerelease == 'true' && '--prerelease' || '' }}
+
+      - name: Update apps.json on release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.tag.outputs.tag }}
+        run: |
+          # Save details before switching branches
+          export SHORT_SHA="${GITHUB_SHA::7}"
+          export PLIST_VERSION=$(python3 -c "import plistlib; print(plistlib.load(open('Info.plist', 'rb')).get('CFBundleShortVersionString', '1.0.0'))")
+          export IPA_SIZE=$(wc -c < HomeboxCatalog.ipa | tr -d ' ')
+
+          # Fetch and checkout main branch
+          git fetch origin main
+          git checkout -B main origin/main
+
+          # Patch apps.json using python
+          python3 - << 'PYEOF'
+          import json, os, datetime
+
+          tag = os.environ['TAG_NAME']
+          version = tag.lstrip('v')
+          short_sha = os.environ['SHORT_SHA']
+          date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+          plist_version = os.environ['PLIST_VERSION']
+          size = int(os.environ['IPA_SIZE'])
+
+          with open('apps.json') as f:
+              data = json.load(f)
+
+          app = data['apps'][0]
+
+          if tag != 'latest':
+              url = f"https://github.com/nphil/HomeBoy/releases/download/{tag}/HomeboxCatalog.ipa"
+              notes = f"Release build from tag {tag}. Built from {short_sha} on {date}"
+
+              new_ver = {
+                  "version": version,
+                  "buildVersion": version,
+                  "date": date,
+                  "localizedDescription": notes,
+                  "downloadURL": url,
+                  "size": size
+              }
+
+              app['versions'] = [v for v in app['versions'] if v['version'] != version]
+              app['versions'].insert(0, new_ver)
+          else:
+              rolling_version = f"{plist_version}-rolling"
+              url = "https://github.com/nphil/HomeBoy/releases/download/latest/HomeboxCatalog.ipa"
+              notes = f"Rolling release that automatically points to the latest CI build from the main branch. Built from commit {short_sha} on {date}."
+
+              app['versions'] = [v for v in app['versions'] if v['version'] != 'latest' and not v['version'].endswith('-rolling')]
+
+              new_ver = {
+                  "version": rolling_version,
+                  "buildVersion": rolling_version,
+                  "date": date,
+                  "localizedDescription": notes,
+                  "downloadURL": url,
+                  "size": size
+              }
+              
+              app['versions'].append(new_ver)
+
+          with open('apps.json', 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+
+          print(f"Successfully patched apps.json for tag: {tag}")
+          PYEOF
+
+          # Commit and push back to main
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add apps.json
+          git diff --cached --quiet && echo "No changes to apps.json" || (git commit -m "chore: auto-update apps.json for release ${{ steps.tag.outputs.tag }} [skip ci]" && git push origin main)
