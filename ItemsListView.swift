@@ -161,7 +161,7 @@ struct ItemsListView: View {
                     .environmentObject(store).environmentObject(theme)
             }
             .sheet(isPresented: $showBulkEdit) {
-                BulkEditSheet(itemIds: Array(selectedIds)) {
+                BulkEditSheet(items: allItems.filter { selectedIds.contains($0.id) }) {
                     selectMode = false; selectedIds = []
                     Task { await load(force: true) }
                 }
@@ -342,7 +342,14 @@ struct ItemsListView: View {
     @ViewBuilder
     private func itemListRow(_ item: HBItem) -> some View {
         let isSelected = selectedIds.contains(item.id)
-        ZStack(alignment: .topTrailing) {
+        HStack(spacing: 0) {
+            if selectMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
+                    .font(.title3)
+                    .padding(.leading, 12)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
             Group {
                 if selectMode {
                     ItemListRowContent(item: item, thumbStore: thumbStore)
@@ -353,19 +360,14 @@ struct ItemsListView: View {
                     }.buttonStyle(.plain)
                 }
             }
-            .background {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 14)
-                .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                        lineWidth: isSelected ? 2 : 1))
-            if selectMode {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
-                    .font(.title3).padding(10)
-            }
         }
+        .background {
+            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
+        }
+        .overlay(RoundedRectangle(cornerRadius: 14)
+            .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                    lineWidth: isSelected ? 2 : 1))
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             if !selectMode {
                 withAnimation { selectMode = true; selectedIds.insert(item.id) }
@@ -379,7 +381,7 @@ struct ItemsListView: View {
     @ViewBuilder
     private func itemTile(_ item: HBItem) -> some View {
         let isSelected = selectedIds.contains(item.id)
-        ZStack(alignment: .topTrailing) {
+        ZStack(alignment: .topLeading) {
             Group {
                 if selectMode {
                     ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns)
@@ -401,7 +403,10 @@ struct ItemsListView: View {
             if selectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
-                    .font(.body).padding(6)
+                    .font(.body)
+                    .padding(6)
+                    .background(Circle().fill(.ultraThinMaterial).frame(width: 24, height: 24))
+                    .padding(6)
             }
         }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
@@ -682,8 +687,10 @@ struct BulkEditSheet: View {
     @EnvironmentObject var theme: ThemeManager
     @Environment(\.dismiss) var dismiss
 
-    let itemIds: [String]
+    let items: [HBItem]
     var onComplete: () -> Void = {}
+
+    private var itemIds: [String] { items.map { $0.id } }
 
     @State private var applyLocation = false
     @State private var locationId: String?
@@ -694,11 +701,53 @@ struct BulkEditSheet: View {
     @State private var isSaving = false
     @State private var progress = 0
     @State private var errorMsg: String?
+    @State private var showDeleteAlert = false
 
     var body: some View {
         NavigationStack {
             Form {
-                Section { Text("\(itemIds.count) item\(itemIds.count == 1 ? "" : "s") selected").foregroundStyle(.secondary) }
+                Section {
+                    DisclosureGroup {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(items) { item in
+                                    HStack(spacing: 8) {
+                                        Image(systemName: "shippingbox.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(theme.current.accentColor)
+                                        Text(item.name)
+                                            .font(.callout)
+                                            .foregroundColor(.primary)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        if item.quantityInt > 1 {
+                                            Text("×\(item.quantityInt)")
+                                                .font(.caption.monospacedDigit())
+                                                .foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    if item.id != items.last?.id {
+                                        Divider()
+                                    }
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .frame(maxHeight: 120)
+                    } label: {
+                        HStack {
+                            Text("Selected Items")
+                            Spacer()
+                            Text("\(items.count)")
+                                .font(.callout.bold())
+                                .foregroundStyle(theme.current.accentColor)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 2)
+                                .background(theme.current.accentColor.opacity(0.1))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
 
                 Section("Change location") {
                     if !applyLocation {
@@ -738,8 +787,21 @@ struct BulkEditSheet: View {
                     }
                 }
 
+                Section {
+                    Button(role: .destructive) {
+                        showDeleteAlert = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Delete Selected Items")
+                                .bold()
+                            Spacer()
+                        }
+                    }
+                }
+
                 if isSaving {
-                    Section { HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Updating \(progress) of \(itemIds.count)…").font(.callout) } }
+                    Section { HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Updating \(progress) of \(items.count)…").font(.callout) } }
                 }
                 if let errorMsg {
                     Section { Label(errorMsg, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red).font(.callout) }
@@ -758,6 +820,12 @@ struct BulkEditSheet: View {
             }
             .sheet(isPresented: $showLocationPicker) { LocationPickerSheet(selectedId: $locationId).environmentObject(store).environmentObject(theme) }
             .sheet(isPresented: $showTagPicker) { TagPickerSheet(selectedIds: $tagIds).environmentObject(store).environmentObject(theme) }
+            .alert("Delete \(items.count) item\(items.count == 1 ? "" : "s")?", isPresented: $showDeleteAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) { Task { await deleteItems() } }
+            } message: {
+                Text("Are you sure you want to permanently delete these items from Homebox?")
+            }
         }
     }
 
@@ -774,6 +842,23 @@ struct BulkEditSheet: View {
                 progress += 1
             } catch {
                 errorMsg = "Error on item \(progress + 1): \(error.localizedDescription)"
+                isSaving = false; return
+            }
+        }
+        isSaving = false
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        onComplete(); dismiss()
+    }
+
+    private func deleteItems() async {
+        guard let client = store.client else { return }
+        isSaving = true; errorMsg = nil; progress = 0
+        for id in itemIds {
+            do {
+                try await client.deleteItem(id: id)
+                progress += 1
+            } catch {
+                errorMsg = "Error deleting item \(progress + 1): \(error.localizedDescription)"
                 isSaving = false; return
             }
         }
