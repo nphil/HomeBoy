@@ -4,8 +4,10 @@ import SwiftUI
 struct LocationsTabView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
+    @Environment(\.showSiteMenu) var showSiteMenu
+    
+    @Binding var globalSearchQuery: String
 
-    @State private var query = ""
     @State private var showCreate = false
     @State private var collapsedIds: Set<String> = []
     @State private var didInitializeCollapse = false
@@ -43,8 +45,23 @@ struct LocationsTabView: View {
                 }
             }
             .navigationTitle("Locations")
-            .searchable(text: $query, prompt: "Search locations")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        withAnimation { showSiteMenu.wrappedValue.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "shippingbox.fill")
+                                .foregroundStyle(.green)
+                            Text(store.groupName ?? "Homebox")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 if store.isAuthenticated {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         Button {
@@ -115,9 +132,6 @@ struct LocationsTabView: View {
     private var listContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                HStack { BrandMark(); Spacer() }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
                 LazyVStack(spacing: 6) {
                     ForEach(visibleRows, id: \.id) { loc in
                         LocationListRow(
@@ -164,9 +178,6 @@ struct LocationsTabView: View {
 
     private var tileContent: some View {
         ScrollView {
-            HStack { BrandMark(); Spacer() }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12, alignment: .top)],
                 spacing: 12
@@ -190,7 +201,7 @@ struct LocationsTabView: View {
 
     private var visibleRows: [FlatLocation] {
         let all = store.locationsFlat
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
         if !q.isEmpty {
             return all.filter { $0.pathString.lowercased().contains(q) }
         }
@@ -199,7 +210,7 @@ struct LocationsTabView: View {
 
     private var tileRows: [FlatLocation] {
         let all = store.locationsFlat
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
         guard !q.isEmpty else { return all }
         return all.filter { $0.pathString.lowercased().contains(q) }
     }

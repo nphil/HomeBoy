@@ -17,6 +17,9 @@ private struct ItemSection: Identifiable {
 struct ItemsListView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
+    @Environment(\.showSiteMenu) var showSiteMenu
+    
+    @Binding var globalSearchQuery: String
 
     @State private var allItems: [HBItem] = []
     @State private var isLoading = false
@@ -77,30 +80,47 @@ struct ItemsListView: View {
                 }
             }
             .navigationTitle("Items")
-            .searchable(text: $query, prompt: "Search items")
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                        withAnimation { showSiteMenu.wrappedValue.toggle() }
                     } label: {
-                        Image(systemName: hasActiveFilters
-                              ? "line.3.horizontal.decrease.circle.fill"
-                              : "line.3.horizontal.decrease.circle")
-                    }
-
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            viewMode = viewMode == .list ? .tile : .list
+                        HStack(spacing: 4) {
+                            Image(systemName: "shippingbox.fill")
+                                .foregroundStyle(.green)
+                            Text(store.groupName ?? "Homebox")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
                         }
-                    } label: {
-                        Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                    }
+                }
+                if store.isAuthenticated {
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                        } label: {
+                            Image(systemName: hasActiveFilters
+                                  ? "line.3.horizontal.decrease.circle.fill"
+                                  : "line.3.horizontal.decrease.circle")
+                        }
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                viewMode = viewMode == .list ? .tile : .list
+                            }
+                        } label: {
+                            Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                        }
                     }
                 }
             }
             .task { await load() }
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
-            .onChange(of: query) { _, newQuery in updateSemanticSearch(for: newQuery) }
+            .onChange(of: globalSearchQuery) { _, newQuery in updateSemanticSearch(for: newQuery) }
             .navigationDestination(for: ItemDetailRoute.self) { route in
                 ItemDetailView(itemId: route.id, onChange: { Task { await load(force: true) } })
                     .environmentObject(store)
@@ -208,9 +228,6 @@ struct ItemsListView: View {
     private var listView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                HStack { BrandMark(); Spacer() }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
                 if showFilters {
                     filterPanel
                         .padding(.horizontal, 16)
@@ -269,9 +286,6 @@ struct ItemsListView: View {
 
     private var tileView: some View {
         ScrollView {
-            HStack { BrandMark(); Spacer() }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
             if showFilters {
                 filterPanel
                     .padding(.horizontal, 16)
@@ -423,7 +437,7 @@ struct ItemsListView: View {
             Image(systemName: "magnifyingglass").font(.system(size: 40)).foregroundStyle(.secondary)
             Text("No matches").font(.title3.weight(.semibold))
             Text("Try adjusting your search or filters.").font(.callout).foregroundStyle(.secondary)
-            Button("Clear filters") { filterLocationId = nil; filterTagIds = []; query = "" }.buttonStyle(.glass)
+            Button("Clear filters") { filterLocationId = nil; filterTagIds = []; globalSearchQuery = "" }.buttonStyle(.glass)
             Spacer()
         }
     }
@@ -440,19 +454,18 @@ struct ItemsListView: View {
     // MARK: - Filtering & sections
 
     private var filteredItems: [HBItem] {
+        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
         var items = allItems
         if let locId = filterLocationId {
             items = items.filter { $0.location?.id == locId }
         }
-        // Client-side tag filter — works if the summary includes labels/tags.
-        // If the summary omits them, trust the server-side ?labels= filter and don't reject.
         if !filterTagIds.isEmpty {
             items = items.filter { item in
                 guard let labels = item.effectiveLabels else { return true }
                 return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
             }
         }
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        
         if !q.isEmpty {
             let textMatches = items.filter {
                 $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)

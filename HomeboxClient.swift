@@ -101,6 +101,12 @@ struct HBTag: Codable, Identifiable, Hashable {
     let icon: String?
 }
 
+struct HBGroup: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let description: String?
+}
+
 struct HBAttachmentRef: Codable, Identifiable, Hashable {
     let id: String
     let type: String
@@ -421,6 +427,14 @@ struct HomeboxClient {
 
     func deleteLocation(id: String) async throws {
         _ = try await request("v1/locations/\(id)", method: "DELETE")
+    }
+
+    // MARK: Groups
+
+    func listGroups() async throws -> [HBGroup] {
+        let data = try await request("v1/groups/all", method: "GET")
+        do { return try JSONDecoder().decode([HBGroup].self, from: data) }
+        catch { throw HBError.decode(error) }
     }
 
     // MARK: Tags

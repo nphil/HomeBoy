@@ -13,10 +13,12 @@ let HomeboxTagPalette: [String] = [
 struct TagsTabView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
+    @Environment(\.showSiteMenu) var showSiteMenu
+
+    @Binding var globalSearchQuery: String
 
     @State private var tags: [HBTag] = []
     @State private var isLoading = false
-    @State private var query = ""
     @State private var showCreate = false
 
     var body: some View {
@@ -48,7 +50,24 @@ struct TagsTabView: View {
                 }
             }
             .navigationTitle("Tags")
-            .searchable(text: $query, prompt: "Search tags")
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        withAnimation { showSiteMenu.wrappedValue.toggle() }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "shippingbox.fill")
+                                .foregroundStyle(.green)
+                            Text(store.groupName ?? "Homebox")
+                                .font(.headline)
+                                .foregroundStyle(.primary)
+                            Image(systemName: "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
             .task { await load() }
             .sheet(isPresented: $showCreate) {
                 TagEditSheet(mode: .create) { await load() }
@@ -84,9 +103,6 @@ struct TagsTabView: View {
             }
         } else {
             ScrollView {
-                HStack { BrandMark(); Spacer() }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
                 LazyVStack(spacing: 6) {
                     ForEach(filteredTags) { tag in
                         NavigationLink(value: TagDetailRoute(id: tag.id)) {
@@ -107,7 +123,7 @@ struct TagsTabView: View {
     }
 
     private var filteredTags: [HBTag] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
         let base = q.isEmpty ? tags : tags.filter { $0.name.lowercased().contains(q) }
         return base.sorted { $0.name.lowercased() < $1.name.lowercased() }
     }

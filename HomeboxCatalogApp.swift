@@ -35,27 +35,58 @@ struct ContentView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
     @State private var selectedTab = 0
+    @State private var showSiteMenu = false
+    @State private var globalSearchQuery = ""
+    @State private var showSettingsSheet = false
 
     var body: some View {
         if store.isAuthenticated {
-            TabView(selection: $selectedTab) {
-                ItemsListView()
-                    .tabItem { Label("Items", systemImage: "shippingbox.fill") }
-                    .tag(0)
-                LocationsTabView()
-                    .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
-                    .tag(1)
-                TagsTabView()
-                    .tabItem { Label("Tags", systemImage: "tag.fill") }
-                    .tag(2)
+            ZStack {
+                TabView(selection: $selectedTab) {
+                    ItemsListView(globalSearchQuery: $globalSearchQuery)
+                        .tabItem { Label("Items", systemImage: "shippingbox.fill") }
+                        .tag(0)
+                    LocationsTabView(globalSearchQuery: $globalSearchQuery)
+                        .tabItem { Label("Locations", systemImage: "mappin.and.ellipse") }
+                        .tag(1)
+                    TagsTabView(globalSearchQuery: $globalSearchQuery)
+                        .tabItem { Label("Tags", systemImage: "tag.fill") }
+                        .tag(2)
+                }
+                .environment(\.showSiteMenu, $showSiteMenu)
+
+                SiteMenuPopover(isPresented: $showSiteMenu, globalSearchQuery: $globalSearchQuery)
+                    .environmentObject(store)
+                    .environmentObject(theme)
+                    .zIndex(100) // Ensure it floats on top of everything
+            }
+            .task {
+                try? await store.refreshGroup()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showSettings)) { _ in
+                showSettingsSheet = true
+            }
+            .sheet(isPresented: $showSettingsSheet) {
                 SettingsView()
-                    .tabItem { Label("Settings", systemImage: "gearshape.fill") }
-                    .tag(3)
+                    .environmentObject(store)
+                    .environmentObject(theme)
             }
         } else {
             OnboardingView()
                 .transition(.opacity)
         }
+    }
+}
+
+// Environment key for passing the binding down to toolbars
+private struct ShowSiteMenuKey: EnvironmentKey {
+    static let defaultValue: Binding<Bool> = .constant(false)
+}
+
+extension EnvironmentValues {
+    var showSiteMenu: Binding<Bool> {
+        get { self[ShowSiteMenuKey.self] }
+        set { self[ShowSiteMenuKey.self] = newValue }
     }
 }
 

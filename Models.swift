@@ -46,9 +46,10 @@ final class HomeboxStore: ObservableObject {
     // MARK: - In-memory caches
 
     @Published private(set) var locationsFlat: [FlatLocation] = []
-    @Published private(set) var isLoadingLocations = false
     @Published var lastError: String?
+    @Published private(set) var isLoadingLocations = false
     @Published private(set) var cachedItemTotal: Int? = nil
+    @Published private(set) var groupName: String? = nil
 
     var isAuthenticated: Bool { token != nil && serverURL != nil }
 
@@ -90,6 +91,7 @@ final class HomeboxStore: ObservableObject {
         let resp = try await HomeboxClient.login(serverURL: url, username: username, password: password)
         token = resp.token
         savedUsername = username
+        try await refreshGroup()
         try await refreshLocations()
     }
 
@@ -97,9 +99,19 @@ final class HomeboxStore: ObservableObject {
         token = nil
         locationsFlat = []
         cachedItemTotal = nil
+        groupName = nil
     }
 
-    // MARK: - Locations
+    // MARK: - Data fetching
+
+    func refreshGroup() async throws {
+        guard let client else { throw HBError.notConfigured }
+        let groups = try await client.listGroups()
+        Task(priority: .userInitiated) { @MainActor in
+            // Fallback to "Homebox" if no groups are returned, otherwise use first group
+            self.groupName = groups.first?.name ?? "Homebox"
+        }
+    }
 
     func refreshLocations() async throws {
         guard let client else { throw HBError.notConfigured }
