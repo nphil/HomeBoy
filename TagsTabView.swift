@@ -236,8 +236,6 @@ struct TagDetailView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                if let tag { headerCard(tag) }
-
                 HStack {
                     Text("ITEMS").font(.caption.weight(.semibold)).tracking(0.6)
                         .foregroundStyle(theme.current.accentColor.opacity(0.75))
@@ -271,9 +269,18 @@ struct TagDetailView: View {
         }
         .scrollIndicators(.hidden)
         .background(theme.current.backgroundColor.ignoresSafeArea())
-        .navigationTitle(tag?.name ?? "Tag")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            ToolbarItem(placement: .principal) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(Color(hex: tag?.color ?? ""))
+                        .frame(width: 14, height: 14)
+                        .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
+                    Text(tag?.name ?? "Tag")
+                        .font(.headline)
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { showEdit = true } label: { Label("Edit", systemImage: "pencil") }
@@ -300,31 +307,6 @@ struct TagDetailView: View {
             Text("This removes the tag from all items. The items themselves are kept.")
         }
     }
-
-    private func headerCard(_ tag: HBTag) -> some View {
-        HStack(spacing: 14) {
-            Circle()
-                .fill(Color(hex: tag.color ?? ""))
-                .frame(width: 44, height: 44)
-                .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tag.name).font(.title3.weight(.semibold))
-                if let d = tag.description, !d.isEmpty {
-                    Text(d).font(.callout).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
-    }
-
-
 
     private func load() async {
         guard let client = store.client else { return }
