@@ -97,6 +97,10 @@ struct ItemsListView: View {
     @State private var semanticSearchTask: Task<Void, Never>? = nil
     @State private var isSearchActive = false
 
+    @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
+    @State private var showQRScanner = false
+    @State private var qrFoundItemId: String? = nil
+
     enum ViewMode: String { case list, tile }
 
     var body: some View {
@@ -111,16 +115,27 @@ struct ItemsListView: View {
                         Spacer()
                         HStack {
                             Spacer()
-                            Button {
-                                showAddSheet = true
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.title2.weight(.semibold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 56, height: 56)
-                                    .background(theme.current.accentColor)
-                                    .clipShape(Circle())
-                                    .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
+                            VStack(spacing: 12) {
+                                if showQRScannerFAB {
+                                    Button { showQRScanner = true } label: {
+                                        Image(systemName: "qrcode.viewfinder")
+                                            .font(.title3.weight(.semibold))
+                                            .foregroundStyle(.white)
+                                            .frame(width: 46, height: 46)
+                                            .background(theme.current.accentColor.opacity(0.85))
+                                            .clipShape(Circle())
+                                            .shadow(color: theme.current.accentColor.opacity(0.3), radius: 4, x: 0, y: 3)
+                                    }
+                                }
+                                Button { showAddSheet = true } label: {
+                                    Image(systemName: "plus")
+                                        .font(.title2.weight(.semibold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 56, height: 56)
+                                        .background(theme.current.accentColor)
+                                        .clipShape(Circle())
+                                        .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
+                                }
                             }
                             .padding()
                         }
@@ -250,6 +265,24 @@ struct ItemsListView: View {
             .sheet(isPresented: $showAddSheet) {
                 AddItemView()
                     .environmentObject(store).environmentObject(theme)
+            }
+            .sheet(isPresented: $showQRScanner) {
+                BarcodeScannerSheet(mode: .qr) { code in
+                    showQRScanner = false
+                    Task { await lookupAsset(code) }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: Binding(
+                get: { qrFoundItemId != nil },
+                set: { if !$0 { qrFoundItemId = nil } }
+            )) {
+                if let id = qrFoundItemId {
+                    NavigationStack {
+                        ItemDetailView(itemId: id) { Task { await load(force: true) } }
+                            .environmentObject(store).environmentObject(theme)
+                    }
+                }
             }
             .toolbar(selectMode ? .hidden : .visible, for: .tabBar)
             .navigationTitle(selectMode ? (selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected") : "")
@@ -708,6 +741,21 @@ struct ItemsListView: View {
             lastLoadedAt = Date()
         } catch { loadError = error.localizedDescription }
         isLoading = false
+    }
+
+    private func lookupAsset(_ code: String) async {
+        guard let client = store.client else { return }
+        do {
+            if let item = try await client.getAsset(assetId: code) {
+                await MainActor.run { qrFoundItemId = item.id }
+            } else {
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "No item found for that QR code"])
+            }
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Couldn't look up QR code"])
+        }
     }
 
     private func updateSemanticSearch(for newQuery: String) {

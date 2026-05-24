@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var loginError: String?
     @State private var confirmLogout = false
     @FocusState private var focused: Field?
+    @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
 
     enum Field { case server, username, password }
 
@@ -24,6 +25,15 @@ struct SettingsView: View {
                         }
                     }
                     .padding(.vertical, 8)
+                }
+
+                Section("Scanner") {
+                    Toggle(isOn: $showQRScannerFAB) {
+                        Label("Show QR scanner button", systemImage: "qrcode.viewfinder")
+                    }
+                    .tint(theme.current.accentColor)
+                    Text("When on, a QR button appears on the Items tab. Scan a Homebox asset QR label to jump straight to that item.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("Info") {

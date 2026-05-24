@@ -249,6 +249,9 @@ struct EditItemSheet: View {
     @State private var isSaving = false
     @State private var errorMsg: String?
     @State private var attachmentsToDelete: Set<String> = []
+    @State private var showBarcodeScanner = false
+    @State private var showProductMatch = false
+    @State private var pendingProducts: [HBBarcodeProduct] = []
 
     init(original: HBItemDetail, onSaved: @escaping (HBItemDetail) -> Void = { _ in }) {
         self.original = original
@@ -270,7 +273,14 @@ struct EditItemSheet: View {
 
     @ViewBuilder private var itemSection: some View {
         Section("Item") {
-            TextField("Name", text: $name).textInputAutocapitalization(.sentences)
+            HStack {
+                TextField("Name", text: $name).textInputAutocapitalization(.sentences)
+                Button { showBarcodeScanner = true } label: {
+                    Image(systemName: "barcode.viewfinder")
+                        .foregroundStyle(theme.current.accentColor)
+                }
+                .buttonStyle(.borderless)
+            }
             Stepper("Quantity: \(quantity)", value: $quantity, in: 1...9999)
             TextField("Description", text: $description, axis: .vertical).lineLimit(1...4)
         }
@@ -415,6 +425,21 @@ struct EditItemSheet: View {
             .sheet(isPresented: $showCamera) {
                 CameraSheet { img in photo = downscale(img) }.ignoresSafeArea()
             }
+            .sheet(isPresented: $showBarcodeScanner) {
+                BarcodeScannerSheet(mode: .barcode) { code in
+                    showBarcodeScanner = false
+                    Task { await lookupBarcodeForEdit(code) }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showProductMatch) {
+                ProductMatchSheet(
+                    products: pendingProducts,
+                    onAccept: { applyProduct($0) },
+                    onScanAgain: { showBarcodeScanner = true }
+                )
+                .environmentObject(theme)
+            }
             .onChange(of: pickerItem) { _, newItem in
                 guard let newItem else { return }
                 Task {
@@ -425,6 +450,32 @@ struct EditItemSheet: View {
                 }
             }
         }
+    }
+
+    private func lookupBarcodeForEdit(_ code: String) async {
+        guard let client = store.client else { return }
+        do {
+            let products = try await client.searchFromBarcode(data: code)
+            await MainActor.run {
+                if products.isEmpty {
+                    NotificationCenter.default.post(name: .showToast, object: nil,
+                                                    userInfo: ["message": "No product found for that barcode"])
+                } else {
+                    pendingProducts = products
+                    showProductMatch = true
+                }
+            }
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Barcode lookup failed"])
+        }
+    }
+
+    private func applyProduct(_ product: HBBarcodeProduct) {
+        if let n = product.item?.name, !n.isEmpty { name = n }
+        if let mfr = product.manufacturer { manufacturer = mfr }
+        if let m = product.modelNumber { model = m }
+        if let d = product.item?.description, !d.isEmpty { description = d }
     }
 
     private func save() async {
