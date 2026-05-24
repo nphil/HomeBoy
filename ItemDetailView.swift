@@ -421,11 +421,17 @@ struct AuthImage: View {
 
     @State private var image: UIImage?
     @State private var failed = false
+    @State private var showFullScreen = false
 
     var body: some View {
         Group {
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
+                    .contentShape(Rectangle())
+                    .onTapGesture { showFullScreen = true }
+                    .fullScreenCover(isPresented: $showFullScreen) {
+                        FullScreenImageView(image: image)
+                    }
             } else if failed {
                 ZStack {
                     Color.gray.opacity(0.15)
@@ -453,3 +459,115 @@ struct AuthImage: View {
         }
     }
 }
+
+// MARK: - Full Screen Viewer
+
+struct FullScreenImageView: View {
+    let image: UIImage
+    @Environment(\.dismiss) var dismiss
+
+    @State private var scale: CGFloat = 1.0
+    @State private var lastScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var lastOffset: CGSize = .zero
+    @State private var showToast = false
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .scaleEffect(scale)
+                    .offset(offset)
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                let delta = value / lastScale
+                                lastScale = value
+                                scale = min(max(scale * delta, 1), 4)
+                            }
+                            .onEnded { _ in
+                                lastScale = 1.0
+                                if scale < 1 {
+                                    withAnimation { scale = 1; offset = .zero }
+                                }
+                            }
+                    )
+                    .simultaneousGesture(
+                        DragGesture()
+                            .onChanged { value in
+                                if scale > 1 {
+                                    offset = CGSize(
+                                        width: lastOffset.width + value.translation.width,
+                                        height: lastOffset.height + value.translation.height
+                                    )
+                                } else if value.translation.height > 50 {
+                                    dismiss() // Swipe down to dismiss when not zoomed
+                                }
+                            }
+                            .onEnded { _ in
+                                lastOffset = offset
+                                if scale == 1 {
+                                    withAnimation { offset = .zero; lastOffset = .zero }
+                                }
+                            }
+                    )
+                    .onTapGesture(count: 2) {
+                        withAnimation {
+                            if scale > 1 {
+                                scale = 1
+                                offset = .zero
+                                lastOffset = .zero
+                            } else {
+                                scale = 2
+                            }
+                        }
+                    }
+
+                if showToast {
+                    VStack {
+                        Spacer()
+                        Text("Saved to Photos")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 10)
+                            .background(Capsule().fill(Color.black.opacity(0.7)))
+                            .padding(.bottom, 40)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.black.opacity(0.6), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        withAnimation { showToast = true }
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                            withAnimation { showToast = false }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.down.to.line")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: Image(uiImage: image), preview: SharePreview("Homebox Photo", image: Image(uiImage: image))) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
+    }
+}
+

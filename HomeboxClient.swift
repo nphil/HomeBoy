@@ -71,7 +71,7 @@ struct HBItemCreate: Codable {
     let name: String
     let quantity: Double
     let description: String
-    let locationId: String
+    let locationId: String?
     /// `parentId` is for nesting items under other items; we don't use it.
     let parentId: String?
     let tagIds: [String]

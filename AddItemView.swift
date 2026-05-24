@@ -15,8 +15,8 @@ struct AddItemView: View {
     @State private var lockLocation = false
     @State private var lockTags = false
     @State private var selectedTagIds: Set<String> = []
-    @State private var photo: UIImage?
-    @State private var pickerItem: PhotosPickerItem?
+    @State private var photos: [UIImage] = []
+    @State private var pickerItems: [PhotosPickerItem] = []
 
     // Tag suggestions
     @State private var availableTags: [HBTag] = []
@@ -51,6 +51,12 @@ struct AddItemView: View {
                     }
                     .scrollDismissesKeyboard(.interactively)
                     .scrollIndicators(.hidden)
+                    .safeAreaInset(edge: .bottom) {
+                        addButton
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(.ultraThinMaterial)
+                    }
                 }
             }
             .navigationTitle("New Item")
@@ -69,15 +75,18 @@ struct AddItemView: View {
                     .environmentObject(store).environmentObject(theme)
             }
             .sheet(isPresented: $showCamera) {
-                CameraSheet { img in photo = downscale(img) }.ignoresSafeArea()
+                CameraSheet { img in photos.append(downscale(img)) }.ignoresSafeArea()
             }
-            .onChange(of: pickerItem) { _, newItem in
-                guard let newItem else { return }
+            .onChange(of: pickerItems) { _, newItems in
                 Task {
-                    if let data = try? await newItem.loadTransferable(type: Data.self),
-                       let img = UIImage(data: data) {
-                        await MainActor.run { photo = downscale(img) }
+                    var loaded: [UIImage] = []
+                    for item in newItems {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let img = UIImage(data: data) {
+                            loaded.append(downscale(img))
+                        }
                     }
+                    await MainActor.run { photos = loaded }
                 }
             }
             .task { await loadTags() }
@@ -113,8 +122,6 @@ struct AddItemView: View {
                     Text("Keep tags for next item").font(.caption).foregroundStyle(.secondary)
                 }
                 .toggleStyle(.switch).controlSize(.mini).tint(theme.current.accentColor)
-
-                addButton.padding(.top, 4)
             }
         }
         .padding(.horizontal, 16)
@@ -212,40 +219,48 @@ struct AddItemView: View {
 
             Divider().frame(height: 40)
 
-            VStack(spacing: 4) {
-                Text("PHOTO").font(.caption2.weight(.semibold)).tracking(0.4)
+            VStack(spacing: 8) {
+                Text("PHOTOS").font(.caption2.weight(.semibold)).tracking(0.4)
                     .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                if let photo {
-                    ZStack(alignment: .topTrailing) {
-                        Image(uiImage: photo).resizable().scaledToFill()
-                            .frame(width: 44, height: 34).clipShape(RoundedRectangle(cornerRadius: 6))
-                        Button {
-                            self.photo = nil; pickerItem = nil
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption).foregroundStyle(.white)
-                                .background(Circle().fill(Color.black.opacity(0.4)).padding(-1))
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(photos.indices, id: \.self) { idx in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: photos[idx]).resizable().scaledToFill()
+                                    .frame(width: 50, height: 50).clipShape(RoundedRectangle(cornerRadius: 8))
+                                Button {
+                                    photos.remove(at: idx)
+                                    // Also remove from pickerItems if possible, but pickerItems might be out of sync.
+                                    // It's easier to just reset pickerItems when modifying manually.
+                                    pickerItems.removeAll()
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption).foregroundStyle(.white)
+                                        .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
+                                }
+                                .buttonStyle(.plain)
+                                .offset(x: 6, y: -6)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .offset(x: 4, y: -4)
-                    }
-                } else {
-                    HStack(spacing: 6) {
+                        
+                        // Add buttons
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
                             Button { showCamera = true } label: {
-                                Image(systemName: "camera.fill").font(.callout)
+                                Image(systemName: "camera.fill").font(.title3)
                                     .foregroundStyle(theme.current.accentColor)
-                                    .frame(width: 36, height: 34)
+                                    .frame(width: 50, height: 50)
                                     .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
                             }.buttonStyle(.plain)
                         }
-                        PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
-                            Image(systemName: "photo.on.rectangle").font(.callout)
+                        PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
+                            Image(systemName: "photo.on.rectangle").font(.title3)
                                 .foregroundStyle(theme.current.accentColor)
-                                .frame(width: 36, height: 34)
+                                .frame(width: 50, height: 50)
                                 .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
                         }.buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 4).padding(.vertical, 4)
                 }
             }
         }
@@ -286,7 +301,7 @@ struct AddItemView: View {
     }
 
     private var canSubmit: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty && selectedLocationId != nil
+        !name.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     // MARK: - Feedback pills
@@ -333,19 +348,27 @@ struct AddItemView: View {
 
     private func submit() {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty, let client = store.client, let locId = selectedLocationId else { return }
+        guard !trimmedName.isEmpty, let client = store.client else { return }
         submitError = nil; isSubmitting = true
         let payload = HBItemCreate(
             name: trimmedName, quantity: Double(quantity), description: description,
-            locationId: locId, parentId: nil, tagIds: Array(selectedTagIds)
+            locationId: selectedLocationId, parentId: nil, tagIds: Array(selectedTagIds)
         )
-        let photoToUpload = photo
+        let photosToUpload = photos
         Task {
             do {
                 let newId = try await client.createItem(payload)
-                if let photoToUpload, let data = photoToUpload.jpegData(compressionQuality: 0.82) {
-                    let filename = "photo-\(Int(Date().timeIntervalSince1970)).jpg"
-                    try await client.uploadAttachment(itemId: newId, fileData: data, filename: filename, primary: true)
+                if !photosToUpload.isEmpty {
+                    await withTaskGroup(of: Void.self) { group in
+                        for (index, photo) in photosToUpload.enumerated() {
+                            group.addTask {
+                                if let data = photo.jpegData(compressionQuality: 0.82) {
+                                    let filename = "photo-\(Int(Date().timeIntervalSince1970))-\(index).jpg"
+                                    try? await client.uploadAttachment(itemId: newId, fileData: data, filename: filename, primary: index == 0)
+                                }
+                            }
+                        }
+                    }
                 }
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -445,7 +468,7 @@ struct AddItemView: View {
 
     private func resetForm() {
         name = ""; quantity = 1; description = ""
-        photo = nil; pickerItem = nil
+        photos = []; pickerItems = []
         suggestedTagIds = []; suggestionTask?.cancel()
         if !lockTags { selectedTagIds = [] }
         if !lockLocation { selectedLocationId = nil }
