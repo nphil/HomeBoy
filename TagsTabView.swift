@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-struct TagDetailRoute: Hashable { let id: String }
+struct TagDetailRoute: Hashable { let id: String; let name: String; let color: String? }
 
 // Standard Homebox tag palette — matches the web app's color picker.
 let HomeboxTagPalette: [String] = [
@@ -91,7 +91,7 @@ struct TagsTabView: View {
                     .environmentObject(store).environmentObject(theme)
             }
             .navigationDestination(for: TagDetailRoute.self) { route in
-                TagDetailView(tagId: route.id, onChange: { Task { await load() } })
+                TagDetailView(tagId: route.id, initialName: route.name, initialColor: route.color, onChange: { Task { await load() } })
                     .environmentObject(store).environmentObject(theme)
             }
             .navigationDestination(for: ItemDetailRoute.self) { route in
@@ -122,7 +122,7 @@ struct TagsTabView: View {
             ScrollView {
                 LazyVStack(spacing: 6) {
                     ForEach(filteredTags) { tag in
-                        NavigationLink(value: TagDetailRoute(id: tag.id)) {
+                        NavigationLink(value: TagDetailRoute(id: tag.id, name: tag.name, color: tag.color)) {
                             TagRow(tag: tag)
                         }
                         .buttonStyle(.plain)
@@ -224,6 +224,8 @@ struct TagDetailView: View {
     @Environment(\.dismiss) var dismiss
 
     let tagId: String
+    var initialName: String = "Tag"
+    var initialColor: String? = nil
     var onChange: () -> Void = {}
 
     @State private var tag: HBTag? = nil
@@ -274,10 +276,10 @@ struct TagDetailView: View {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 7) {
                     Circle()
-                        .fill(Color(hex: tag?.color ?? ""))
+                        .fill(Color(hex: tag?.color ?? initialColor ?? ""))
                         .frame(width: 14, height: 14)
                         .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
-                    Text(tag?.name ?? "Tag")
+                    Text(tag?.name ?? initialName)
                         .font(.headline)
                 }
             }
