@@ -115,17 +115,59 @@ jobs:
           zip -r HomeboxCatalog.ipa Payload/
           echo "IPA size: $(du -sh HomeboxCatalog.ipa | cut -f1)"
 
-      - name: Commit version bump, tag, and publish release
+      - name: Commit version bump, update apps.json, tag, and publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ steps.ver.outputs.tag }}"
+          VERSION="${{ steps.ver.outputs.version }}"
           SHORT_SHA="${GITHUB_SHA::7}"
+          PUBLISHED_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          IPA_SIZE=$(wc -c < HomeboxCatalog.ipa | tr -d ' ')
+          DOWNLOAD_URL="https://github.com/nphil/HomeBoy/releases/download/$TAG/HomeboxCatalog.ipa"
+          RELEASE_NOTES="Unsigned IPA — sideload with AltStore. Built from \`$SHORT_SHA\` on $(date -u +'%Y-%m-%d %H:%M UTC')"
+
+          # Update apps.json in the same commit so update_repo.yml isn't needed
+          VERSION="$VERSION" PUBLISHED_DATE="$PUBLISHED_DATE" DOWNLOAD_URL="$DOWNLOAD_URL" \
+          IPA_SIZE="$IPA_SIZE" RELEASE_NOTES="$RELEASE_NOTES" \
+          python3 - <<'PYEOF'
+          import json, os
+
+          version = os.environ['VERSION']
+          date    = os.environ['PUBLISHED_DATE']
+          url     = os.environ['DOWNLOAD_URL']
+          size    = int(os.environ['IPA_SIZE'])
+          body    = os.environ['RELEASE_NOTES']
+
+          with open('apps.json') as f:
+              data = json.load(f)
+
+          app = data['apps'][0]
+          new_ver = {
+              "version": version,
+              "buildVersion": version,
+              "date": date,
+              "localizedDescription": body,
+              "downloadURL": url,
+              "size": size
+          }
+
+          # Remove existing entries for this version or any stale rolling entries
+          app['versions'] = [v for v in app['versions']
+                             if v['version'] != version and not v['version'].endswith('-rolling')]
+          app['versions'].insert(0, new_ver)
+
+          with open('apps.json', 'w') as f:
+              json.dump(data, f, indent=2)
+              f.write('\n')
+
+          print(f"apps.json patched for {version} (size {size})")
+          PYEOF
 
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Info.plist project.yml
-          git commit -m "chore: bump version to ${{ steps.ver.outputs.version }} [skip ci]"
+          git add Info.plist project.yml apps.json
+          git commit -m "chore: bump version to $VERSION [skip ci]"
 
           # Rebase in case main advanced while we were building, then push
           git fetch origin main
@@ -138,4 +180,4 @@ jobs:
           gh release create "$TAG" \
             HomeboxCatalog.ipa \
             --title "$TAG" \
-            --notes "Unsigned IPA — sideload with AltStore. Built from \`$SHORT_SHA\` on $(date -u +'%Y-%m-%d %H:%M UTC')"
+            --notes "$RELEASE_NOTES"

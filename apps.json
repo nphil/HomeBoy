@@ -17,10 +17,18 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.12",
+          "buildVersion": "1.0.12",
+          "date": "2026-05-24T21:58:14Z",
+          "localizedDescription": "Unsigned IPA — sideload with AltStore. Built from `3042425` on 2026-05-24 21:58 UTC",
+          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.12/HomeboxCatalog.ipa",
+          "size": 3802528
+        },
+        {
           "version": "1.0.10",
           "buildVersion": "1.0.10",
           "date": "2026-05-24T20:45:36Z",
-          "localizedDescription": "style: replace filter panel frosted glass with transparent gradient fade, bump version to v1.0.10\n\nUnsigned IPA \u2014 sideload with AltStore. Built from `9455c57` on 2026-05-24 20:45 UTC",
+          "localizedDescription": "style: replace filter panel frosted glass with transparent gradient fade, bump version to v1.0.10\n\nUnsigned IPA — sideload with AltStore. Built from `9455c57` on 2026-05-24 20:45 UTC",
           "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.10/HomeboxCatalog.ipa",
           "size": 3803628
         },
@@ -28,7 +36,7 @@
           "version": "1.0.9",
           "buildVersion": "1.0.9",
           "date": "2026-05-24T20:32:19Z",
-          "localizedDescription": "Renamed GitHub project to HomeBoy, updated repo URL references, and bumped build and version numbers.\n\nUnsigned IPA \u2014 sideload with AltStore. Built from `d5afa66` on 2026-05-24 20:32 UTC",
+          "localizedDescription": "Renamed GitHub project to HomeBoy, updated repo URL references, and bumped build and version numbers.\n\nUnsigned IPA — sideload with AltStore. Built from `d5afa66` on 2026-05-24 20:32 UTC",
           "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.9/HomeboxCatalog.ipa",
           "size": 3803446
         },
@@ -39,14 +47,6 @@
           "localizedDescription": "UI Optimization: Glassmorphic filter panel overlay with scroll-under effect, item edit sheet photo management, and automatic primary setting for new uploads.",
           "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.7/HomeboxCatalog.ipa",
           "size": 15000000
-        },
-        {
-          "version": "1.0.10-rolling",
-          "buildVersion": "1.0.10-rolling",
-          "date": "2026-05-24T21:39:53Z",
-          "localizedDescription": "Rolling release that automatically points to the latest CI build from the main branch. Built from commit efd8b06 on 2026-05-24T21:39:53Z.",
-          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/latest/HomeboxCatalog.ipa",
-          "size": 3802526
         }
       ]
     }
