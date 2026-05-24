@@ -5,7 +5,8 @@ struct LocationsTabView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
 
-    @State private var query: String = ""
+    @State private var query = ""
+    @State private var isSearchPresented = false
     @State private var showCreate = false
     @State private var collapsedIds: Set<String> = []
     @State private var didInitializeCollapse = false
@@ -42,9 +43,7 @@ struct LocationsTabView: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: "Search locations")
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, isPresented: $isSearchPresented, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search locations")
             .toolbar { toolbarContent }
             .sheet(isPresented: $showCreate) {
                 CreateLocationSheet()
@@ -85,6 +84,13 @@ struct LocationsTabView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                isSearchPresented = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+        }
         ToolbarItem(placement: .principal) {
             BrandMark()
         }

@@ -17,6 +17,7 @@ struct TagsTabView: View {
     @State private var tags: [HBTag] = []
     @State private var isLoading = false
     @State private var query = ""
+    @State private var isSearchPresented = false
     @State private var showCreate = false
 
     var body: some View {
@@ -47,10 +48,15 @@ struct TagsTabView: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: "Search tags")
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, isPresented: $isSearchPresented, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search tags")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        isSearchPresented = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                }
                 ToolbarItem(placement: .principal) { BrandMark() }
             }
             .task { await load() }

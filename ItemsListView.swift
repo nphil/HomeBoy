@@ -22,6 +22,7 @@ struct ItemsListView: View {
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var query: String = ""
+    @State private var isSearchPresented = false
     @State private var lastLoadedAt: Date? = nil
 
     // View options
@@ -52,16 +53,8 @@ struct ItemsListView: View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    if showFilters {
-                        filterPanel
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                            .padding(.bottom, 4)
-                    }
-                    contentArea
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                contentArea
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -84,9 +77,7 @@ struct ItemsListView: View {
                     }
                 }
             }
-            .searchable(text: $query, prompt: "Search items")
-            .navigationTitle("")
-            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, isPresented: $isSearchPresented, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search items")
             .toolbar { toolbarContent }
             .task { await load() }
             .onAppear { Task { await load() } }
@@ -131,6 +122,13 @@ struct ItemsListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .topBarLeading) {
+            Button {
+                isSearchPresented = true
+            } label: {
+                Image(systemName: "magnifyingglass")
+            }
+        }
         ToolbarItem(placement: .principal) {
             BrandMark()
         }
@@ -225,6 +223,12 @@ struct ItemsListView: View {
     private var listView: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                if showFilters {
+                    filterPanel
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                }
                 LazyVStack(spacing: 6, pinnedViews: .sectionHeaders) {
                     ForEach(itemSections) { section in
                         Section {
@@ -275,6 +279,12 @@ struct ItemsListView: View {
 
     private var tileView: some View {
         ScrollView {
+            if showFilters {
+                filterPanel
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
+            }
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
                 spacing: 10
