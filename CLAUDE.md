@@ -35,7 +35,8 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 
 | File | Purpose |
 |---|---|
-| `HomeboxCatalogApp.swift` | `@main`. Injects `HomeboxStore` + `ThemeManager`, transparent nav appearance, 4-tab TabView (Add / Items / Locations / Settings), `BrandMark` shows "HomeBoy". |
+| `HomeboxCatalogApp.swift` | `@main`. Injects `HomeboxStore` + `ThemeManager`, transparent nav appearance. Conditionally routes to `OnboardingView` (if unauthenticated) or the 5-tab `TabView` (if authenticated). `BrandMark` shows "HomeBoy". |
+| `OnboardingView.swift` | Full-screen welcome and login view. Server URL field + sign-in form. Takes over root until authenticated. |
 | `Theme.swift` | `AppTheme` (30 themes ported from Homebox's `assets/css/main.css`), `ThemeManager`, `Color(h:s:l:)` HSL helper, `ThemeSwatch` previewing actual bg + primary + accent. No orb background — each view uses `theme.current.backgroundColor` as a solid `.background(...)`. |
 | `Models.swift` | `HomeboxStore` ObservableObject — auth state, server URL, in-memory `locationsFlat: [FlatLocation]` (DFS-flattened tree with ancestor chain). Helpers: `pathString(forLocationId:)`. |
 | `HomeboxClient.swift` | Async/await HTTP client for v0.25.x. Codable models: `HBItem`, `HBLocation`, `HBTreeItem` (final class, recursive), `HBItemCreate`, `HBLocationCreate`, plus `HBLoginResponse`/`HBItemListResponse`. `uploadAttachment` builds multipart/form-data by hand. |
@@ -45,7 +46,7 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 | `LocationPickerSheet.swift` | Sheet over `store.locationsFlat` with depth indentation, indent ticks, search, pull-to-refresh. Tap to pick; "Clear" in toolbar to deselect. Reused by AddItemView and CreateLocationSheet. |
 | `LocationsTabView.swift` | Dedicated Locations tab — indented tree, search, plus-button toolbar opens `CreateLocationSheet` (name + optional parent + description; refreshes the store on success). |
 | `ItemsListView.swift` | `GET /v1/items`, sorted newest-first, search (hybrid semantic word+sentence embedding) + pull-to-refresh. Breadcrumb prefers the full path from the cached tree, falls back to the item's immediate location name. |
-| `SettingsView.swift` | Server URL field + sign-in form (auto-prefix `https://` if no scheme). Signed-in summary: user, cached-location count, refresh, sign-out. Theme picker is a 5-column `LazyVGrid` of swatches. About. |
+| `SettingsView.swift` | Signed-in summary: user, server, cached-location count, refresh, sign-out. Theme picker is a 5-column `LazyVGrid` of swatches. About. |
 | `Components.swift` | `GlassCard`, `QuantityControl` (custom -/+ pill — replaces broken `Stepper.labelsHidden()`). |
 | `project.yml` | xcodegen spec — iOS 26 deployment, no signing, asset catalog. Info.plist props: `NSAllowsArbitraryLoads`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`. `CFBundleDisplayName: HomeBoy`. |
 | `.github/workflows/build.yml` | macOS-15 runner: install xcodegen → generate → archive unsigned → zip IPA → publish to "latest" release. |

@@ -35,7 +35,8 @@ These have all been learned through pain. Don't relearn them.
 
 | File | Purpose | Watch out for |
 |---|---|---|
-| `HomeboxCatalogApp.swift` | `@main`, TabView (5 tabs), transparent nav appearance, `BrandMark` view | Tab order: Add / Items / Locations / Tags / Settings. Don't reorder casually — user has muscle memory. |
+| `HomeboxCatalogApp.swift` | `@main`, conditional routing (OnboardingView vs TabView), transparent nav, `BrandMark` | Tab order: Add / Items / Locations / Tags / Settings. Don't reorder casually — user has muscle memory. |
+| `OnboardingView.swift` | Full-screen unauthenticated server config and login form | Takes over root view when `store.isAuthenticated == false`. |
 | `Theme.swift` | 30 themes ported from Homebox web CSS, `ThemeManager`, `Color(h:s:l:)` HSL helper, **`Color(hex:)` non-failable**, `ThemeSwatch` | Don't add another `Color(hex:)`. Don't use orb backgrounds — solid bg only. |
 | `Models.swift` | `HomeboxStore` (ObservableObject), `FlatLocation`, `Route` structs, `HBItem.tagId`s helpers | Locations are DFS-flattened into `locationsFlat` with `ancestors` chain. |
 | `HomeboxClient.swift` | Async/await HTTP client, all Codable models | Bearer token is **raw** — no `"Bearer "` prefix. Multipart upload is hand-rolled. |
@@ -49,7 +50,7 @@ These have all been learned through pain. Don't relearn them.
 | `LocationDetailView.swift` | Edit/delete + children + items in location | |
 | `TagPickerSheet.swift` | Multi-select tag picker + inline "create new" | Distinct from `TagEditSheet` in TagsTabView. |
 | `TagsTabView.swift` | Full tag management: list, create, edit (name+color+desc), delete, view items per tag | Uses `HomeboxTagPalette` — 12 hex colors matching Homebox web. |
-| `SettingsView.swift` | Server URL + login + theme picker (5-col grid) + about | URL auto-prefixes `https://` if scheme missing. |
+| `SettingsView.swift` | Signed-in summary + theme picker (5-col grid) + about + logout | Server config and login moved to `OnboardingView.swift`. |
 | `Components.swift` | `GlassCard`, `QuantityControl`, `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore` | **`ThumbnailStore` is not an ObservableObject** — see §6. |
 | `project.yml` | xcodegen spec | iOS 26 deployment target, `CODE_SIGNING_ALLOWED=NO`, `CFBundleDisplayName: HomeBoy`. |
 | `.github/workflows/build.yml` | CI: xcodegen → archive unsigned → zip IPA → publish to `latest` release | macos-15, Xcode 26. |
