@@ -6,7 +6,7 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 Target: iOS 26, Liquid Glass UI, sideloaded via AltStore (no App Store).
 
 ## Repo
-`https://github.com/nphil/homebox-catalog-ios` — every push to `main` triggers CI and produces an unsigned IPA on the "latest" pre-release.
+`https://github.com/nphil/HomeBoy` — every push to `main` triggers CI and produces an unsigned IPA on the "latest" pre-release.
 
 ## Build / CI
 - **Never run Xcode locally** — use GitHub Actions (`.github/workflows/build.yml`).
@@ -201,7 +201,7 @@ git add <files>
 git commit -m "..."
 git push origin main
 ```
-IPA appears at https://github.com/nphil/homebox-catalog-ios/releases/tag/latest.
+IPA appears at https://github.com/nphil/HomeBoy/releases/tag/latest.
 
 ## Known gotchas
 - xcodegen sources path is `.` — any new `.swift` file in root is auto-included.

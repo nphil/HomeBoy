@@ -20,9 +20,9 @@ These have all been learned through pain. Don't relearn them.
 - **`HomeboxCatalog.xcodeproj` is generated, not committed.** xcodegen runs in CI from `project.yml`.
 - **xcodegen sources path is `.`** — any new `.swift` file in the repo root is auto-included.
 - **Pushing `.github/workflows/*` requires `workflow` scope** on the gh token. Fix: `gh auth refresh -h github.com -s workflow`.
-- **Always end a session** by linking the user to: https://github.com/nphil/homebox-catalog-ios/releases/tag/latest
+- **Always end a session** by linking the user to: https://github.com/nphil/HomeBoy/releases/tag/latest
 - **Versioning Strategy**: Version 1.0 is the official baseline. Going forward, small bug fixes increment the patch version (e.g. 1.0.1, 1.0.2), while large feature additions or rebases use larger version increments (e.g. 1.1, 2.0).
-- **Public Releases**: Pushing a git tag starting with `v` (e.g. `v1.0`) triggers the Build IPA workflow to create a public release with the compiled unsigned IPA. Link the user to `https://github.com/nphil/homebox-catalog-ios/releases/tag/<tag_name>` when a tag is pushed.
+- **Public Releases**: Pushing a git tag starting with `v` (e.g. `v1.0`) triggers the Build IPA workflow to create a public release with the compiled unsigned IPA. Link the user to `https://github.com/nphil/HomeBoy/releases/tag/<tag_name>` when a tag is pushed.
 
 ### Code
 - **No custom `.glass` / `.glassProminent` button styles.** iOS 26 SDK provides these natively. Defining your own → `ambiguous use of 'glass'` compile error.
@@ -433,7 +433,7 @@ The "Add" and "Add Another" buttons use `.safeAreaInset(edge: .bottom)` (NOT ove
 - **Learns by doing**: Briefly explain the *why* as you make each change. Tie new concepts to what was just done. Use analogies.
 - **Vibecoding workflow**: Nitin describes what he wants → LLM implements + commits + pushes → CI makes IPA → Nitin installs via AltStore → tests on iPhone → reports back. Loop.
 - **Token-conscious**: Don't over-explain, don't re-read files you just wrote, don't repeat failed attempts.
-- **Always end a HomeBoy session** with: https://github.com/nphil/homebox-catalog-ios/releases/tag/latest
+- **Always end a HomeBoy session** with: https://github.com/nphil/HomeBoy/releases/tag/latest
 
 ---
 
@@ -505,5 +505,5 @@ App Entry
 | Add sorting options | `SortOption` enum in `ItemsListView.swift` |
 | Fix bottom bar styling | Use `ToolbarItemGroup(placement: .bottomBar)`, not `.safeAreaInset` |
 
-**Repo:** https://github.com/nphil/homebox-catalog-ios  
-**Latest IPA:** https://github.com/nphil/homebox-catalog-ios/releases/tag/latest
+**Repo:** https://github.com/nphil/HomeBoy  
+**Latest IPA:** https://github.com/nphil/HomeBoy/releases/tag/latest

@@ -34,7 +34,7 @@ Three tabs: Items (with list/card toggle, filtering, sorting) · Locations (hier
 ## Sideload
 
 1. Wait for CI to finish (~5–10 min after pushing).
-2. Download `HomeboxCatalog.ipa` from the [`latest` release](https://github.com/nphil/homebox-catalog-ios/releases/tag/latest).
+2. Download `HomeboxCatalog.ipa` from the [`latest` release](https://github.com/nphil/HomeBoy/releases/tag/latest).
 3. AirDrop or share-sheet it to AltStore on your iPhone.
 4. AltStore signs it with your Apple ID and installs it.
 

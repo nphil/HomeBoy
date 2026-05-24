@@ -50,7 +50,7 @@ struct SettingsView: View {
 
                 Section("About") {
                     LabeledContent("Version", value: appVersionString)
-                    Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
+                    Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/HomeBoy")!)
                 }
             }
             .scrollContentBackground(.hidden)
@@ -108,8 +108,8 @@ struct SettingsView: View {
     }
 
     private var appVersionString: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.7"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "8"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0.9"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "10"
         return "\(version) (\(build))"
     }
 }

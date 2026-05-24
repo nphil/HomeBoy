@@ -2,8 +2,8 @@
   "name": "HomeBoy Repo",
   "subtitle": "Repository for the HomeBoy iOS app",
   "description": "An unofficial AltStore/Feather compatible source for the HomeBoy (homebox-catalog) iOS application.",
-  "iconURL": "https://raw.githubusercontent.com/nphil/homebox-catalog-ios/main/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
-  "website": "https://github.com/nphil/homebox-catalog-ios",
+  "iconURL": "https://raw.githubusercontent.com/nphil/HomeBoy/main/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+  "website": "https://github.com/nphil/HomeBoy",
   "tintColor": "#06b6d4",
   "apps": [
     {
@@ -12,16 +12,24 @@
       "developerName": "Nitin",
       "subtitle": "Homebox Catalog iOS App",
       "localizedDescription": "Rapid-input iPhone app for cataloguing items into a self-hosted Homebox instance. Designed with a clean Liquid Glass UI, offering smooth data entry, photo uploads, Tag management, and Location navigation.",
-      "iconURL": "https://raw.githubusercontent.com/nphil/homebox-catalog-ios/main/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
+      "iconURL": "https://raw.githubusercontent.com/nphil/HomeBoy/main/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
       "tintColor": "#06b6d4",
       "category": "utilities",
       "versions": [
+        {
+          "version": "1.0.9",
+          "buildVersion": "1.0.9",
+          "date": "2026-05-24T20:30:00Z",
+          "localizedDescription": "Renamed GitHub project to HomeBoy, updated repo URL references, and bumped build and version numbers.",
+          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.9/HomeboxCatalog.ipa",
+          "size": 15000000
+        },
         {
           "version": "1.0.7",
           "buildVersion": "1.0.7",
           "date": "2026-05-24T20:25:00Z",
           "localizedDescription": "UI Optimization: Glassmorphic filter panel overlay with scroll-under effect, item edit sheet photo management, and automatic primary setting for new uploads.",
-          "downloadURL": "https://github.com/nphil/homebox-catalog-ios/releases/download/v1.0.7/HomeboxCatalog.ipa",
+          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.7/HomeboxCatalog.ipa",
           "size": 15000000
         },
         {
@@ -29,7 +37,7 @@
           "buildVersion": "latest",
           "date": "2026-05-24T00:00:00Z",
           "localizedDescription": "Rolling release that automatically points to the latest CI build from the main branch.",
-          "downloadURL": "https://github.com/nphil/homebox-catalog-ios/releases/download/latest/HomeboxCatalog.ipa",
+          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/latest/HomeboxCatalog.ipa",
           "size": 15000000
         }
       ]
