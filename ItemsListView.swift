@@ -346,21 +346,30 @@ struct ItemsListView: View {
         } else if allItems.isEmpty {
             emptyState
         } else {
-            VStack(spacing: 0) {
-                if showFilters {
-                    filterPanel
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 4)
-                }
-                
+            ZStack(alignment: .top) {
                 if filteredItems.isEmpty {
                     noResultsState
+                        .padding(.top, showFilters ? 50 : 0)
                 } else {
                     switch viewMode {
                     case .list: listView
                     case .tile: tileView
                     }
+                }
+
+                if showFilters {
+                    filterPanel
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 8)
+                        .background(.ultraThinMaterial)
+                        .overlay(
+                            Rectangle()
+                                .fill(theme.current.accentColor.opacity(0.12))
+                                .frame(height: 1),
+                            alignment: .bottom
+                        )
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
         }
@@ -412,6 +421,7 @@ struct ItemsListView: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
             .refreshable { await load(force: true) }
+            .safeAreaPadding(.top, showFilters ? 50 : 0)
             .overlay(alignment: .trailing) {
                 if isSortedAlphabetically && !sectionLetters.isEmpty {
                     AlphabetIndexBar(letters: sectionLetters, currentLetter: $indexLetter) { letter in
@@ -452,6 +462,7 @@ struct ItemsListView: View {
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
         .refreshable { await load(force: true) }
+        .safeAreaPadding(.top, showFilters ? 50 : 0)
     }
 
     // MARK: - Row
