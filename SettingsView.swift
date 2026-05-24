@@ -8,14 +8,16 @@ struct SettingsView: View {
     @State private var isLoggingIn = false
     @State private var loginError: String?
     @State private var confirmLogout = false
-    @FocusState private var focused: Field?
+    @State private var showAddGroup = false
 
+    @FocusState private var focused: Field?
     enum Field { case server, username, password }
 
     var body: some View {
         NavigationStack {
             Form {
-                signedInSection
+                accountsSection
+                addGroupButton
 
                 Section("Theme") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
@@ -52,50 +54,155 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Settings")
-            .alert("Sign out?", isPresented: $confirmLogout) {
+            .alert("Sign out of all groups?", isPresented: $confirmLogout) {
                 Button("Cancel", role: .cancel) {}
-                Button("Sign out", role: .destructive) {
-                    store.logout()
-                }
+                Button("Sign out", role: .destructive) { store.logout() }
             } message: {
-                Text("You'll need to enter your password again to reconnect.")
+                Text("All saved groups will be removed. You'll need to sign in again.")
+            }
+            .sheet(isPresented: $showAddGroup) {
+                AddGroupSheet()
+                    .environmentObject(store)
+                    .environmentObject(theme)
             }
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Accounts section
 
-    private var signedInSection: some View {
-        Section("Signed in") {
-            LabeledContent("Server") { Text(displayServer).font(.callout.monospaced()) }
-            LabeledContent("User",   value: store.savedUsername)
-            HStack {
-                if store.isLoadingLocations {
-                    ProgressView().controlSize(.small)
-                    Text("Loading locations…").foregroundStyle(.secondary)
-                } else {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    Text("\(store.locationsFlat.count) locations cached")
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Refresh") {
-                    Task {
-                        do { try await store.refreshLocations() }
-                        catch { /* error handling */ }
+    private var accountsSection: some View {
+        Section("Groups") {
+            ForEach(store.savedAccounts) { account in
+                HStack(spacing: 10) {
+                    // Active indicator
+                    Image(systemName: account.id == store.activeAccountId
+                          ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(account.id == store.activeAccountId
+                                         ? theme.current.accentColor : .secondary)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(account.groupName)
+                            .font(.body.weight(account.id == store.activeAccountId ? .semibold : .regular))
+                        Text(account.username)
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    // Remove button (only when more than one account saved)
+                    if store.savedAccounts.count > 1 {
+                        Button {
+                            store.removeAccount(account)
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
-                .buttonStyle(.bordered)
             }
+
             Button(role: .destructive) {
                 confirmLogout = true
             } label: {
-                Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                Label("Sign out of all groups", systemImage: "rectangle.portrait.and.arrow.right")
             }
         }
     }
 
-    private var displayServer: String {
-        store.serverURL?.host ?? store.serverURLString
+    // MARK: - Add group button
+
+    private var addGroupButton: some View {
+        Section {
+            Button {
+                showAddGroup = true
+            } label: {
+                Label("Add Another Group", systemImage: "plus.circle")
+                    .foregroundStyle(theme.current.accentColor)
+            }
+        } footer: {
+            Text("Sign in to a different Homebox group or server. You can then switch between them from the HomeBoy menu.")
+        }
+    }
+}
+
+// MARK: - Add Group Sheet
+
+struct AddGroupSheet: View {
+    @EnvironmentObject var store: HomeboxStore
+    @EnvironmentObject var theme: ThemeManager
+    @Environment(\.dismiss) var dismiss
+
+    @State private var serverURL = ""
+    @State private var username  = ""
+    @State private var password  = ""
+    @State private var isSaving  = false
+    @State private var errorMsg: String?
+
+    @FocusState private var focused: Field?
+    enum Field { case server, username, password }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Server") {
+                    TextField("https://homebox.example.com", text: $serverURL)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .focused($focused, equals: .server)
+                }
+                Section("Credentials") {
+                    TextField("Username / email", text: $username)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .focused($focused, equals: .username)
+                    SecureField("Password", text: $password)
+                        .focused($focused, equals: .password)
+                }
+                if let errorMsg {
+                    Section {
+                        Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .font(.callout)
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.current.backgroundColor.ignoresSafeArea())
+            .navigationTitle("Add Group")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if isSaving { ProgressView().controlSize(.small) }
+                        else        { Text("Sign In").bold() }
+                    }
+                    .disabled(isSaving || serverURL.isEmpty || username.isEmpty || password.isEmpty)
+                }
+            }
+            .onAppear { focused = .server }
+        }
+    }
+
+    private func save() async {
+        isSaving = true
+        errorMsg = nil
+        do {
+            try await store.addAccount(serverURLString: serverURL,
+                                       username: username,
+                                       password: password)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+        } catch {
+            errorMsg = error.localizedDescription
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
+        isSaving = false
     }
 }

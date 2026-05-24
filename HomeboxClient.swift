@@ -431,6 +431,14 @@ struct HomeboxClient {
 
     // MARK: Groups
 
+    /// `GET /v1/groups` — the single group this token is scoped to.
+    func currentGroup() async throws -> HBGroup {
+        let data = try await request("v1/groups", method: "GET")
+        do { return try JSONDecoder().decode(HBGroup.self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
+
+    /// `GET /v1/groups/all` — all groups visible to this token (may be admin-only).
     func listGroups() async throws -> [HBGroup] {
         let data = try await request("v1/groups/all", method: "GET")
         do { return try JSONDecoder().decode([HBGroup].self, from: data) }

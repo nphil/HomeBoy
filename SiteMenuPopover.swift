@@ -23,12 +23,12 @@ struct SiteMenuPopover: View {
 
                 // Popover card — zooms out from the top-leading chevron button
                 VStack(spacing: 10) {
-                    if store.groups.isEmpty {
-                        // Groups not yet loaded — show a placeholder card
+                    if store.savedAccounts.isEmpty {
+                        // Not yet populated (first launch before login completes)
                         placeholderCard
                     } else {
-                        ForEach(store.groups) { group in
-                            groupCard(group)
+                        ForEach(store.savedAccounts) { account in
+                            accountCard(account)
                         }
                     }
 
@@ -68,15 +68,15 @@ struct SiteMenuPopover: View {
         }
     }
 
-    // MARK: - Group card
+    // MARK: - Account card
 
     @ViewBuilder
-    private func groupCard(_ group: HBGroup) -> some View {
-        let isActive = group.id == store.activeGroupId
+    private func accountCard(_ account: SavedAccount) -> some View {
+        let isActive = account.id == store.activeAccountId
 
         Button {
             guard !isActive, !isSwitching else { return }
-            Task { await switchGroup(group) }
+            Task { await switchTo(account) }
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -84,28 +84,23 @@ struct SiteMenuPopover: View {
                         Image(systemName: isActive ? "cube.fill" : "cube")
                             .foregroundStyle(theme.current.accentColor)
                             .font(.subheadline)
-                        Text(group.name)
+                        Text(account.groupName)
                             .font(.headline)
                             .foregroundStyle(.primary)
                     }
-                    HStack(spacing: 12) {
-                        if isActive {
+                    if isActive {
+                        HStack(spacing: 12) {
                             Label("\(store.locationsFlat.count)", systemImage: "mappin.and.ellipse")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                             Label("\(store.cachedItemTotal ?? 0)", systemImage: "shippingbox")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                        } else if let desc = group.description, !desc.isEmpty {
-                            Text(desc)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        } else {
-                            Text("Tap to switch")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
                         }
+                    } else {
+                        Text(account.username)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
@@ -133,7 +128,7 @@ struct SiteMenuPopover: View {
         .disabled(isSwitching)
     }
 
-    // MARK: - Placeholder (shown before groups load)
+    // MARK: - Placeholder (shown before accounts load)
 
     @ViewBuilder
     private var placeholderCard: some View {
@@ -171,20 +166,19 @@ struct SiteMenuPopover: View {
         )
     }
 
-    // MARK: - Group switch
+    // MARK: - Switch
 
-    private func switchGroup(_ group: HBGroup) async {
+    private func switchTo(_ account: SavedAccount) async {
         isSwitching = true
-        await store.setActiveGroup(group)
+        await store.switchAccount(account)
         isSwitching = false
-        // Dismiss first, then show toast above tab bar
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             isPresented = false
         }
         NotificationCenter.default.post(
             name: .showToast,
             object: nil,
-            userInfo: ["message": "Switched to \(group.name)"]
+            userInfo: ["message": "Switched to \(account.groupName)"]
         )
     }
 }
