@@ -418,6 +418,7 @@ struct AuthImage: View {
     @EnvironmentObject var store: HomeboxStore
     let itemId: String
     let attachmentId: String
+    var allowsFullScreen: Bool = true
 
     @State private var image: UIImage?
     @State private var failed = false
@@ -426,12 +427,16 @@ struct AuthImage: View {
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image).resizable().scaledToFill()
-                    .contentShape(Rectangle())
-                    .onTapGesture { showFullScreen = true }
-                    .fullScreenCover(isPresented: $showFullScreen) {
-                        FullScreenImageView(image: image)
-                    }
+                if allowsFullScreen {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .contentShape(Rectangle())
+                        .onTapGesture { showFullScreen = true }
+                        .fullScreenCover(isPresented: $showFullScreen) {
+                            FullScreenImageView(image: image)
+                        }
+                } else {
+                    Image(uiImage: image).resizable().scaledToFill()
+                }
             } else if failed {
                 ZStack {
                     Color.gray.opacity(0.15)

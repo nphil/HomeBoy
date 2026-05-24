@@ -218,7 +218,7 @@ struct ItemListRowContent: View {
                 ProgressView().controlSize(.small)
             }
         } else if let attId = thumbAttId {
-            AuthImage(itemId: item.id, attachmentId: attId).scaledToFill()
+            AuthImage(itemId: item.id, attachmentId: attId, allowsFullScreen: false).scaledToFill()
         } else {
             ZStack {
                 RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.12))

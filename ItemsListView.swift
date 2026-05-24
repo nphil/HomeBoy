@@ -12,6 +12,52 @@ private struct ItemSection: Identifiable {
     let items: [HBItem]
 }
 
+// MARK: - SortOption
+
+enum SortOption: String, CaseIterable, Identifiable {
+    case nameAZ = "nameAZ"
+    case nameZA = "nameZA"
+    case dateNewest = "dateNewest"
+    case dateOldest = "dateOldest"
+    case quantityHighToLow = "quantityHighToLow"
+    case quantityLowToHigh = "quantityLowToHigh"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .nameAZ: return "Name: A-Z"
+        case .nameZA: return "Name: Z-A"
+        case .dateNewest: return "Date: Newest"
+        case .dateOldest: return "Date: Oldest"
+        case .quantityHighToLow: return "Quantity: High to Low"
+        case .quantityLowToHigh: return "Quantity: Low to High"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .nameAZ: return "Sort: A-Z"
+        case .nameZA: return "Sort: Z-A"
+        case .dateNewest: return "Sort: Newest"
+        case .dateOldest: return "Sort: Oldest"
+        case .quantityHighToLow: return "Sort: Qty High-Low"
+        case .quantityLowToHigh: return "Sort: Qty Low-High"
+        }
+    }
+
+    var iconName: String {
+        switch self {
+        case .nameAZ: return "text.sort.ascending"
+        case .nameZA: return "text.sort.descending"
+        case .dateNewest: return "clock.fill"
+        case .dateOldest: return "clock"
+        case .quantityHighToLow: return "arrow.up.circle.fill"
+        case .quantityLowToHigh: return "arrow.down.circle.fill"
+        }
+    }
+}
+
 // MARK: - ItemsListView
 
 struct ItemsListView: View {
@@ -29,6 +75,7 @@ struct ItemsListView: View {
 
     // View options
     @AppStorage("itemsViewMode") private var viewMode: ViewMode = .list
+    @AppStorage("itemsSortOption") private var sortOption: SortOption = .nameAZ
     @State private var tileColumns = 2
 
     // Filters
@@ -197,6 +244,34 @@ struct ItemsListView: View {
                 onTap: { if !filterTagIds.isEmpty { filterTagIds = [] } else { showTagFilterPicker = true } },
                 onLongPress: { showTagFilterPicker = true }
             )
+            
+            Menu {
+                Picker("Sort By", selection: $sortOption) {
+                    ForEach(SortOption.allCases) { option in
+                        Label(option.displayName, systemImage: option.iconName)
+                            .tag(option)
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: sortOption.iconName)
+                        .foregroundStyle(sortOption != .nameAZ ? .white : theme.current.accentColor)
+                        .font(.caption)
+                    Text(sortOption.shortLabel)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(sortOption != .nameAZ ? .white : .secondary)
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(sortOption != .nameAZ ? theme.current.accentColor : Color.secondary.opacity(0.15))
+                .foregroundStyle(sortOption != .nameAZ ? .white : .primary)
+                .clipShape(Capsule())
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+
             Spacer()
             if hasActiveFilters {
                 Button("Clear") { filterLocationId = nil; filterTagIds = [] }
@@ -207,19 +282,22 @@ struct ItemsListView: View {
 
     private func filterChip(label: String, icon: String, isActive: Bool,
                             onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
-        Button { onTap() } label: {
-            HStack(spacing: 4) {
-                Image(systemName: icon).foregroundStyle(isActive ? .white : theme.current.accentColor).font(.caption)
-                Text(label).font(.caption.weight(.medium)).lineLimit(1)
-                if isActive { Image(systemName: "xmark").font(.caption2) }
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(isActive ? theme.current.accentColor : Color.secondary.opacity(0.15))
-            .foregroundStyle(isActive ? .white : .primary)
-            .clipShape(Capsule())
+        HStack(spacing: 4) {
+            Image(systemName: icon).foregroundStyle(isActive ? .white : theme.current.accentColor).font(.caption)
+            Text(label).font(.caption.weight(.medium)).lineLimit(1)
+            if isActive { Image(systemName: "xmark").font(.caption2) }
         }
-        .buttonStyle(.plain)
-        .simultaneousGesture(LongPressGesture().onEnded { _ in onLongPress() })
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(isActive ? theme.current.accentColor : Color.secondary.opacity(0.15))
+        .foregroundStyle(isActive ? .white : .primary)
+        .clipShape(Capsule())
+        .contentShape(Capsule())
+        .onTapGesture {
+            onTap()
+        }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            onLongPress()
+        }
     }
 
     // MARK: - Content
@@ -256,29 +334,36 @@ struct ItemsListView: View {
                         .padding(.bottom, 4)
                 }
                 LazyVStack(spacing: 6, pinnedViews: .sectionHeaders) {
-                    ForEach(itemSections) { section in
-                        Section {
-                            ForEach(section.items) { item in
-                                itemListRow(item)
-                                    .padding(.horizontal, 16)
+                    if isSortedAlphabetically {
+                        ForEach(itemSections) { section in
+                            Section {
+                                ForEach(section.items) { item in
+                                    itemListRow(item)
+                                        .padding(.horizontal, 16)
+                                }
+                            } header: {
+                                HStack(spacing: 8) {
+                                    Text(section.letter)
+                                        .font(.caption.weight(.bold))
+                                        .tracking(0.5)
+                                        .foregroundStyle(theme.current.accentColor)
+                                    
+                                    Rectangle()
+                                        .fill(theme.current.accentColor.opacity(0.4))
+                                        .frame(height: 1)
+                                    
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 8)
+                                .background(Color.clear)
+                                .id(section.letter)
                             }
-                        } header: {
-                            HStack(spacing: 8) {
-                                Text(section.letter)
-                                    .font(.caption.weight(.bold))
-                                    .tracking(0.5)
-                                    .foregroundStyle(theme.current.accentColor)
-                                
-                                Rectangle()
-                                    .fill(theme.current.accentColor.opacity(0.4))
-                                    .frame(height: 1)
-                                
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
-                            .background(Color.clear)
-                            .id(section.letter)
+                        }
+                    } else {
+                        ForEach(sortedItems) { item in
+                            itemListRow(item)
+                                .padding(.horizontal, 16)
                         }
                     }
                 }
@@ -290,7 +375,7 @@ struct ItemsListView: View {
             .scrollIndicators(.hidden)
             .refreshable { await load(force: true) }
             .overlay(alignment: .trailing) {
-                if !sectionLetters.isEmpty {
+                if isSortedAlphabetically && !sectionLetters.isEmpty {
                     AlphabetIndexBar(letters: sectionLetters, currentLetter: $indexLetter) { letter in
                         withAnimation { proxy.scrollTo(letter, anchor: .center) }
                     }
@@ -299,7 +384,7 @@ struct ItemsListView: View {
                 }
             }
             .overlay {
-                if let letter = indexLetter {
+                if isSortedAlphabetically, let letter = indexLetter {
                     LetterPopupBox(letter: letter, accent: theme.current.accentColor)
                         .allowsHitTesting(false)
                         .transition(.opacity)
@@ -322,7 +407,7 @@ struct ItemsListView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
                 spacing: 10
             ) {
-                ForEach(filteredItems.sorted { $0.name.lowercased() < $1.name.lowercased() }) { item in
+                ForEach(sortedItems) { item in
                     itemTile(item)
                 }
             }
@@ -422,25 +507,50 @@ struct ItemsListView: View {
     private var bulkActionBar: some View {
         VStack(spacing: 12) {
             HStack {
-                Text("\(selectedIds.count) selected").font(.callout.weight(.medium))
+                Text("\(selectedIds.count) selected").font(.body.weight(.semibold))
                 Spacer()
                 Button("Done") {
                     withAnimation { selectMode = false; selectedIds = [] }
-                }.font(.callout.bold()).foregroundStyle(theme.current.accentColor)
+                }.font(.body.bold()).foregroundStyle(theme.current.accentColor)
             }
             HStack(spacing: 8) {
-                Button("Select All") { selectedIds = Set(filteredItems.map { $0.id }) }
-                    .buttonStyle(.glass).frame(maxWidth: .infinity)
-                Button("Deselect All") { selectedIds = [] }
-                    .buttonStyle(.glass).frame(maxWidth: .infinity)
-                Button("Edit") { showBulkEdit = true }
-                    .buttonStyle(.glass).frame(maxWidth: .infinity)
-                    .disabled(selectedIds.isEmpty)
+                Button {
+                    selectedIds = Set(filteredItems.map { $0.id })
+                } label: {
+                    Text("Select All")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .tint(theme.current.accentColor)
+
+                Button {
+                    selectedIds = []
+                } label: {
+                    Text("Deselect All")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.bordered)
+                .tint(.secondary)
+
+                Button {
+                    showBulkEdit = true
+                } label: {
+                    Text("Edit")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(theme.current.accentColor)
+                .disabled(selectedIds.isEmpty)
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(.ultraThinMaterial)
-        .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Color.primary.opacity(0.1)), alignment: .top)
+        .background(Color.clear)
     }
 
     // MARK: - Empty / error states
@@ -509,6 +619,46 @@ struct ItemsListView: View {
         return items
     }
 
+    private var isSortedAlphabetically: Bool {
+        sortOption == .nameAZ || sortOption == .nameZA
+    }
+
+    private var sortedItems: [HBItem] {
+        let items = filteredItems
+        switch sortOption {
+        case .nameAZ:
+            return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .nameZA:
+            return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedDescending }
+        case .dateNewest:
+            return items.sorted { a, b in
+                guard let da = a.createdAt else { return false }
+                guard let db = b.createdAt else { return true }
+                return da > db
+            }
+        case .dateOldest:
+            return items.sorted { a, b in
+                guard let da = a.createdAt else { return false }
+                guard let db = b.createdAt else { return true }
+                return da < db
+            }
+        case .quantityHighToLow:
+            return items.sorted { a, b in
+                if a.quantityInt == b.quantityInt {
+                    return a.name.localizedStandardCompare(b.name) == .orderedAscending
+                }
+                return a.quantityInt > b.quantityInt
+            }
+        case .quantityLowToHigh:
+            return items.sorted { a, b in
+                if a.quantityInt == b.quantityInt {
+                    return a.name.localizedStandardCompare(b.name) == .orderedAscending
+                }
+                return a.quantityInt < b.quantityInt
+            }
+        }
+    }
+
     private var itemSections: [ItemSection] {
         var groups: [String: [HBItem]] = [:]
         for item in filteredItems {
@@ -516,12 +666,30 @@ struct ItemsListView: View {
             if let c = item.name.first, c.isLetter { key = String(c).uppercased() } else { key = "#" }
             groups[key, default: []].append(item)
         }
-        return groups.keys.sorted { a, b in
-            if a == "#" { return false }
-            if b == "#" { return true }
-            return a < b
-        }.map { key in
-            ItemSection(letter: key, items: groups[key]!.sorted { $0.name.lowercased() < $1.name.lowercased() })
+        
+        let isZA = sortOption == .nameZA
+        
+        let sortedKeys = groups.keys.sorted { a, b in
+            if isZA {
+                if a == "#" { return true }
+                if b == "#" { return false }
+                return a > b
+            } else {
+                if a == "#" { return false }
+                if b == "#" { return true }
+                return a < b
+            }
+        }
+        
+        return sortedKeys.map { key in
+            let sortedSectionItems = groups[key]!.sorted { a, b in
+                if isZA {
+                    return a.name.localizedStandardCompare(b.name) == .orderedDescending
+                } else {
+                    return a.name.localizedStandardCompare(b.name) == .orderedAscending
+                }
+            }
+            return ItemSection(letter: key, items: sortedSectionItems)
         }
     }
 
@@ -663,7 +831,7 @@ private struct ItemTileContent: View {
         if !thumbLoaded {
             ZStack { theme.current.accentColor.opacity(0.10); ProgressView().controlSize(.small) }
         } else if let attId = thumbAttId {
-            AuthImage(itemId: item.id, attachmentId: attId).scaledToFill()
+            AuthImage(itemId: item.id, attachmentId: attId, allowsFullScreen: false).scaledToFill()
         } else {
             ZStack {
                 theme.current.accentColor.opacity(0.10)
