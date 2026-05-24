@@ -21,35 +21,24 @@ struct SiteMenuPopover: View {
 
                 // Popover Card
                 VStack(spacing: 16) {
-                    // Search Bar
-                    HStack {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField("Search", text: $globalSearchQuery)
-                            .textFieldStyle(.plain)
-                            .autocorrectionDisabled()
-                    }
-                    .padding(10)
-                    .background(Color(UIColor.tertiarySystemFill))
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-
                     // Site Info Card
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             HStack {
                                 Image(systemName: "bolt.fill") // Using bolt or shippingbox
-                                    .foregroundStyle(.green)
+                                    .foregroundStyle(theme.current.accentColor)
                                     .font(.subheadline)
                                 Text(store.groupName ?? "Homebox")
                                     .font(.headline)
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(.primary)
                             }
                             HStack(spacing: 12) {
                                 Label("\(store.locationsFlat.count)", systemImage: "mappin.and.ellipse")
                                     .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.8))
+                                    .foregroundStyle(.secondary)
                                 Label("\(store.cachedItemTotal ?? 0)", systemImage: "shippingbox")
                                     .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.8))
+                                    .foregroundStyle(.secondary)
                             }
                         }
                         Spacer()
@@ -58,7 +47,7 @@ struct SiteMenuPopover: View {
                             .foregroundStyle(theme.current.accentColor)
                     }
                     .padding()
-                    .background(Color.blue.opacity(0.6)) // UniFi blue card look
+                    .background(theme.current.accentColor.opacity(0.15))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
 
                     // Settings Button
@@ -79,12 +68,12 @@ struct SiteMenuPopover: View {
                             Spacer()
                         }
                         .padding()
-                        .background(Color.blue)
+                        .background(theme.current.accentColor)
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                 }
                 .padding(16)
-                .background(.ultraThinMaterial)
+                .background(theme.current.backgroundColor)
                 .clipShape(RoundedRectangle(cornerRadius: 20))
                 .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
                 .padding(.horizontal, 16)

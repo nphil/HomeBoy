@@ -43,8 +43,6 @@ struct LocationsTabView: View {
                         }
                     }
                 }
-            }
-            .navigationTitle("Locations")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
@@ -52,8 +50,8 @@ struct LocationsTabView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "shippingbox.fill")
-                                .foregroundStyle(.green)
-                            Text(store.groupName ?? "Homebox")
+                                .foregroundStyle(theme.current.accentColor)
+                            Text("HomeBox")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
                             Image(systemName: "chevron.down")
