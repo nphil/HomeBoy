@@ -52,7 +52,7 @@ struct LocationsTabView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "shippingbox.fill")
                                 .foregroundStyle(theme.current.accentColor)
-                            Text("HomeBox")
+                            Text("HomeBoy")
                                 .font(.headline)
                                 .foregroundStyle(.primary)
                             Image(systemName: "chevron.down")

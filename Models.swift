@@ -50,6 +50,8 @@ final class HomeboxStore: ObservableObject {
     @Published private(set) var isLoadingLocations = false
     @Published private(set) var cachedItemTotal: Int? = nil
     @Published private(set) var groupName: String? = nil
+    @Published private(set) var groups: [HBGroup] = []
+    @Published private(set) var activeGroupId: String? = nil
 
     var isAuthenticated: Bool { token != nil && serverURL != nil }
 
@@ -93,6 +95,7 @@ final class HomeboxStore: ObservableObject {
         savedUsername = username
         try await refreshGroup()
         try await refreshLocations()
+        await refreshItemTotal()
     }
 
     func logout() {
@@ -100,17 +103,39 @@ final class HomeboxStore: ObservableObject {
         locationsFlat = []
         cachedItemTotal = nil
         groupName = nil
+        groups = []
+        activeGroupId = nil
     }
 
     // MARK: - Data fetching
 
     func refreshGroup() async throws {
         guard let client else { throw HBError.notConfigured }
-        let groups = try await client.listGroups()
-        Task(priority: .userInitiated) { @MainActor in
-            // Fallback to "Homebox" if no groups are returned, otherwise use first group
-            self.groupName = groups.first?.name ?? "Homebox"
+        let fetched = try await client.listGroups()
+        self.groups = fetched
+        // Set active group to the first one if not already set
+        if activeGroupId == nil, let first = fetched.first {
+            activeGroupId = first.id
         }
+        // Derive display name from the active group
+        self.groupName = fetched.first { $0.id == activeGroupId }?.name ?? fetched.first?.name
+    }
+
+    /// Fetch only the total item count (pageSize=1 is enough to get the `total` field).
+    func refreshItemTotal() async {
+        guard let client else { return }
+        if let resp = try? await client.listItems(page: 1, pageSize: 1),
+           let total = resp.total {
+            cachedItemTotal = total
+        }
+    }
+
+    /// Switch to a different group and refresh all data.
+    func setActiveGroup(_ group: HBGroup) async {
+        activeGroupId = group.id
+        groupName = group.name
+        try? await refreshLocations()
+        await refreshItemTotal()
     }
 
     func refreshLocations() async throws {

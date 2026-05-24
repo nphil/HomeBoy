@@ -38,6 +38,7 @@ struct ContentView: View {
     @State private var showSiteMenu = false
     @State private var globalSearchQuery = ""
     @State private var showSettingsSheet = false
+    @State private var toastMessage: String?
 
     var body: some View {
         if store.isAuthenticated {
@@ -58,13 +59,42 @@ struct ContentView: View {
                 SiteMenuPopover(isPresented: $showSiteMenu, globalSearchQuery: $globalSearchQuery)
                     .environmentObject(store)
                     .environmentObject(theme)
-                    .zIndex(100) // Ensure it floats on top of everything
+                    .zIndex(100)
+
+                // Toast notification — floats above everything including the popover
+                VStack {
+                    Spacer()
+                    if let msg = toastMessage {
+                        Text(msg)
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(Color.black.opacity(0.78))
+                            .clipShape(Capsule())
+                            .padding(.bottom, 90)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: toastMessage)
+                .allowsHitTesting(false)
+                .zIndex(200)
             }
             .task {
-                try? await store.refreshGroup()
+                // Refresh group list, location tree, and item count concurrently on every launch
+                async let g: Void = store.refreshGroup()
+                async let l: Void = store.refreshLocations()
+                try? await g
+                try? await l
+                await store.refreshItemTotal()
             }
             .onReceive(NotificationCenter.default.publisher(for: .showSettings)) { _ in
                 showSettingsSheet = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .showToast)) { notif in
+                if let msg = notif.userInfo?["message"] as? String {
+                    showToast(msg)
+                }
             }
             .sheet(isPresented: $showSettingsSheet) {
                 SettingsView()
@@ -74,6 +104,14 @@ struct ContentView: View {
         } else {
             OnboardingView()
                 .transition(.opacity)
+        }
+    }
+
+    private func showToast(_ message: String) {
+        toastMessage = message
+        Task {
+            try? await Task.sleep(for: .seconds(2.5))
+            toastMessage = nil
         }
     }
 }
