@@ -70,5 +70,8 @@ struct BrandMark: View {
             Text("HomeBoy")
                 .font(.system(size: 18, weight: .semibold))
         }
+        .fixedSize()
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(.isStaticText)
     }
 }
