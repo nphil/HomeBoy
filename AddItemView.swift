@@ -52,10 +52,10 @@ struct AddItemView: View {
                     .scrollDismissesKeyboard(.interactively)
                     .scrollIndicators(.hidden)
                     .safeAreaInset(edge: .bottom) {
-                        addButton
+                        actionButtons
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
-                            .background(.ultraThinMaterial)
+                            .background(Color.clear)
                     }
                 }
             }
@@ -286,22 +286,52 @@ struct AddItemView: View {
             .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
     }
 
-    private var addButton: some View {
-        Button { submit() } label: {
-            HStack {
-                if isSubmitting { ProgressView().controlSize(.small) }
-                Label(isSubmitting ? "Adding…" : "Add to Homebox", systemImage: "plus.circle.fill")
-                    .font(.title3.weight(.semibold))
+    private var actionButtons: some View {
+        HStack(spacing: 12) {
+            // Add Another button
+            Button {
+                submit(andDismiss: false)
+            } label: {
+                HStack {
+                    if isSubmitting {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "plus.square.on.square")
+                            .font(.body.weight(.semibold))
+                    }
+                    Text("Add Another")
+                        .font(.body.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 6)
+            .buttonStyle(.glass)
+            .disabled(isSubmitting || !canSubmit)
+
+            // Add button
+            Button {
+                submit(andDismiss: true)
+            } label: {
+                HStack {
+                    if isSubmitting {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.body.weight(.semibold))
+                    }
+                    Text("Add")
+                        .font(.body.weight(.semibold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.glassProminent)
+            .disabled(isSubmitting || !canSubmit)
         }
-        .buttonStyle(.glassProminent)
-        .disabled(isSubmitting || !canSubmit)
     }
 
     private var canSubmit: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty
+        !name.trimmingCharacters(in: .whitespaces).isEmpty && selectedLocationId != nil
     }
 
     // MARK: - Feedback pills
@@ -346,9 +376,9 @@ struct AddItemView: View {
 
     // MARK: - Submit
 
-    private func submit() {
+    private func submit(andDismiss: Bool) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty, let client = store.client else { return }
+        guard !trimmedName.isEmpty, selectedLocationId != nil, let client = store.client else { return }
         submitError = nil; isSubmitting = true
         let payload = HBItemCreate(
             name: trimmedName, quantity: Double(quantity), description: description,
@@ -374,7 +404,9 @@ struct AddItemView: View {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                     showSuccessPill("\"\(trimmedName)\"")
                     resetForm()
-                    dismiss()
+                    if andDismiss {
+                        dismiss()
+                    }
                 }
             } catch {
                 await MainActor.run {
