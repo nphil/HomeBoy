@@ -55,13 +55,13 @@ struct AddItemView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarRole(.editor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { BrandMark() }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showLocationPicker) {
                 LocationPickerSheet(selectedId: $selectedLocationId)
                     .environmentObject(store).environmentObject(theme)

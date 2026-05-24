@@ -87,8 +87,8 @@ struct ItemsListView: View {
             .searchable(text: $query, prompt: "Search items")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarRole(.editor)
             .toolbar { toolbarContent }
+            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
             .task { await load() }
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }

@@ -50,10 +50,10 @@ struct TagsTabView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .searchable(text: $query, prompt: "Search tags")
-            .toolbarRole(.editor)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { BrandMark() }
             }
+            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
             .task { await load() }
             .sheet(isPresented: $showCreate) {
                 TagEditSheet(mode: .create) { await load() }

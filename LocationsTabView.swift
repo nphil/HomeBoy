@@ -45,8 +45,8 @@ struct LocationsTabView: View {
             .searchable(text: $query, prompt: "Search locations")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarRole(.editor)
             .toolbar { toolbarContent }
+            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
             .sheet(isPresented: $showCreate) {
                 CreateLocationSheet()
                     .environmentObject(store)
