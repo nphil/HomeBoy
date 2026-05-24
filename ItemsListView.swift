@@ -43,6 +43,8 @@ struct ItemsListView: View {
 
     @State private var thumbStore = ThumbnailStore()
     @State private var indexLetter: String? = nil
+    @State private var semanticResults: [HBItem]? = nil
+    @State private var semanticSearchTask: Task<Void, Never>? = nil
 
     enum ViewMode { case list, tile }
 
@@ -82,12 +84,14 @@ struct ItemsListView: View {
                     }
                 }
             }
+            .searchable(text: $query, prompt: "Search items")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .task { await load() }
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
+            .onChange(of: query) { _, newQuery in updateSemanticSearch(for: newQuery) }
             .navigationDestination(for: ItemDetailRoute.self) { route in
                 ItemDetailView(itemId: route.id, onChange: { Task { await load(force: true) } })
                     .environmentObject(store)
@@ -118,7 +122,7 @@ struct ItemsListView: View {
                     .environmentObject(store).environmentObject(theme)
             }
             .safeAreaInset(edge: .bottom) {
-                if selectMode && !selectedIds.isEmpty { bulkActionBar }
+                if selectMode { bulkActionBar }
             }
         }
     }
@@ -127,7 +131,7 @@ struct ItemsListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) { BrandMark() }
+        ToolbarItem(placement: .topBarLeading) { BrandMark() }
         ToolbarItemGroup(placement: .topBarTrailing) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
@@ -155,12 +159,6 @@ struct ItemsListView: View {
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
-            }
-
-            Button {
-                withAnimation { selectMode.toggle(); if !selectMode { selectedIds = [] } }
-            } label: {
-                Text(selectMode ? "Done" : "Select").font(.callout)
             }
         }
     }
@@ -263,7 +261,6 @@ struct ItemsListView: View {
                 .padding(.bottom, 80)
             }
             .scrollIndicators(.hidden)
-            .searchable(text: $query, prompt: "Search items")
             .refreshable { await load(force: true) }
             .overlay(alignment: .trailing) {
                 if !sectionLetters.isEmpty {
@@ -302,7 +299,6 @@ struct ItemsListView: View {
         .scrollIndicators(.hidden)
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
-        .searchable(text: $query, prompt: "Search items")
         .refreshable { await load(force: true) }
     }
 
@@ -335,6 +331,12 @@ struct ItemsListView: View {
                     .font(.title3).padding(10)
             }
         }
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+            if !selectMode {
+                withAnimation { selectMode = true; selectedIds.insert(item.id) }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
+        })
     }
 
     // MARK: - Tile
@@ -367,18 +369,36 @@ struct ItemsListView: View {
                     .font(.body).padding(6)
             }
         }
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+            if !selectMode {
+                withAnimation { selectMode = true; selectedIds.insert(item.id) }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
+        })
     }
 
     // MARK: - Bulk bar
 
     private var bulkActionBar: some View {
-        HStack(spacing: 12) {
-            Text("\(selectedIds.count) selected").font(.callout.weight(.medium))
-            Spacer()
-            Button("Edit") { showBulkEdit = true }.buttonStyle(.glassProminent).controlSize(.small)
-            Button("Deselect All") { selectedIds = [] }.buttonStyle(.glass).controlSize(.small)
+        VStack(spacing: 12) {
+            HStack {
+                Text("\(selectedIds.count) selected").font(.callout.weight(.medium))
+                Spacer()
+                Button("Done") {
+                    withAnimation { selectMode = false; selectedIds = [] }
+                }.font(.callout.bold()).foregroundStyle(theme.current.accentColor)
+            }
+            HStack(spacing: 8) {
+                Button("Select All") { selectedIds = Set(filteredItems.map { $0.id }) }
+                    .buttonStyle(.glass).frame(maxWidth: .infinity)
+                Button("Deselect All") { selectedIds = [] }
+                    .buttonStyle(.glass).frame(maxWidth: .infinity)
+                Button("Edit") { showBulkEdit = true }
+                    .buttonStyle(.glass).frame(maxWidth: .infinity)
+                    .disabled(selectedIds.isEmpty)
+            }
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.vertical, 12)
         .background(.ultraThinMaterial)
         .overlay(Rectangle().frame(height: 0.5).foregroundStyle(Color.primary.opacity(0.1)), alignment: .top)
     }
@@ -442,37 +462,10 @@ struct ItemsListView: View {
             let textMatches = items.filter {
                 $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
             }
-            if textMatches.isEmpty && q.count >= 3,
-               let sentEmbedding = NLEmbedding.sentenceEmbedding(for: .english),
-               let wordEmbedding = NLEmbedding.wordEmbedding(for: .english) {
-                
-                let tokenizer = NLTokenizer(unit: .word)
-                tokenizer.string = q
-                let queryWords = tokenizer.tokens(for: q.startIndex..<q.endIndex).map { String(q[$0]) }
-                
-                items = items.compactMap { item -> (HBItem, Double)? in
-                    let name = item.name.lowercased()
-                    let d1 = sentEmbedding.distance(between: q, and: name, distanceType: .cosine)
-                    
-                    tokenizer.string = name
-                    let targetWords = tokenizer.tokens(for: name.startIndex..<name.endIndex).map { String(name[$0]) }
-                    
-                    var minWordDist = 2.0
-                    for qw in queryWords {
-                        for tw in targetWords {
-                            let wd = wordEmbedding.distance(between: qw, and: tw, distanceType: .cosine)
-                            if wd < minWordDist { minWordDist = wd }
-                        }
-                    }
-                    
-                    let dist = min(d1, minWordDist)
-                    return dist < 1.15 ? (item, dist) : nil
-                }
-                .sorted { $0.1 < $1.1 }
-                .map { $0.0 }
-            } else {
-                items = textMatches
+            if textMatches.isEmpty, let semantic = semanticResults {
+                return semantic
             }
+            return textMatches
         }
         return items
     }
@@ -512,6 +505,70 @@ struct ItemsListView: View {
             lastLoadedAt = Date()
         } catch { loadError = error.localizedDescription }
         isLoading = false
+    }
+
+    private func updateSemanticSearch(for newQuery: String) {
+        let q = newQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty {
+            semanticSearchTask?.cancel()
+            semanticResults = nil
+            return
+        }
+        
+        let textMatches = allItems.filter {
+            $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
+        }
+        
+        if !textMatches.isEmpty || q.count < 3 {
+            semanticSearchTask?.cancel()
+            semanticResults = nil
+            return
+        }
+        
+        semanticSearchTask?.cancel()
+        var baseItems = allItems
+        if let locId = filterLocationId { baseItems = baseItems.filter { $0.location?.id == locId } }
+        if !filterTagIds.isEmpty {
+            baseItems = baseItems.filter { item in
+                guard let labels = item.effectiveLabels else { return true }
+                return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
+            }
+        }
+        
+        semanticSearchTask = Task.detached(priority: .userInitiated) {
+            guard let sentEmbedding = NLEmbedding.sentenceEmbedding(for: .english),
+                  let wordEmbedding = NLEmbedding.wordEmbedding(for: .english) else { return }
+            
+            let tokenizer = NLTokenizer(unit: .word)
+            tokenizer.string = q
+            let queryWords = tokenizer.tokens(for: q.startIndex..<q.endIndex).map { String(q[$0]) }
+            
+            let results = baseItems.compactMap { item -> (HBItem, Double)? in
+                if Task.isCancelled { return nil }
+                let name = item.name.lowercased()
+                let d1 = sentEmbedding.distance(between: q, and: name, distanceType: .cosine)
+                
+                tokenizer.string = name
+                let targetWords = tokenizer.tokens(for: name.startIndex..<name.endIndex).map { String(name[$0]) }
+                
+                var minWordDist = 2.0
+                for qw in queryWords {
+                    for tw in targetWords {
+                        let wd = wordEmbedding.distance(between: qw, and: tw, distanceType: .cosine)
+                        if wd < minWordDist { minWordDist = wd }
+                    }
+                }
+                
+                let dist = min(d1, minWordDist)
+                return dist < 1.15 ? (item, dist) : nil
+            }
+            .sorted { $0.1 < $1.1 }
+            .map { $0.0 }
+            
+            if !Task.isCancelled {
+                await MainActor.run { self.semanticResults = results }
+            }
+        }
     }
 }
 
@@ -610,32 +667,40 @@ struct BulkEditSheet: View {
                 Section { Text("\(itemIds.count) item\(itemIds.count == 1 ? "" : "s") selected").foregroundStyle(.secondary) }
 
                 Section("Change location") {
-                    Toggle("Apply to all selected", isOn: $applyLocation).tint(theme.current.accentColor)
-                    if applyLocation {
+                    if !applyLocation {
+                        Button { applyLocation = true; showLocationPicker = true } label: {
+                            Label("Set Location", systemImage: "mappin.and.ellipse").foregroundStyle(theme.current.accentColor)
+                        }
+                    } else {
                         Button { showLocationPicker = true } label: {
                             HStack {
                                 Image(systemName: "mappin.and.ellipse")
-                                Text(locationId.flatMap { store.pathString(forLocationId: $0) } ?? "Pick location")
-                                    .foregroundStyle(locationId == nil ? .secondary : .primary)
+                                Text(locationId.flatMap { store.pathString(forLocationId: $0) } ?? "No Location (Clear)")
+                                    .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                             }.contentShape(Rectangle())
                         }.buttonStyle(.plain)
+                        Button("Cancel Location Change", role: .destructive) { applyLocation = false; locationId = nil }
                     }
                 }
 
                 Section("Change tags") {
-                    Toggle("Apply to all selected", isOn: $applyTags).tint(theme.current.accentColor)
-                    if applyTags {
+                    if !applyTags {
+                        Button { applyTags = true; showTagPicker = true } label: {
+                            Label("Set Tags", systemImage: "tag").foregroundStyle(theme.current.accentColor)
+                        }
+                    } else {
                         Button { showTagPicker = true } label: {
                             HStack {
                                 Image(systemName: "tag")
-                                Text(tagIds.isEmpty ? "Pick tags" : "\(tagIds.count) tag\(tagIds.count == 1 ? "" : "s")")
-                                    .foregroundStyle(tagIds.isEmpty ? .secondary : .primary)
+                                Text(tagIds.isEmpty ? "No Tags (Clear)" : "\(tagIds.count) tag\(tagIds.count == 1 ? "" : "s")")
+                                    .foregroundStyle(.primary)
                                 Spacer()
                                 Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                             }.contentShape(Rectangle())
                         }.buttonStyle(.plain)
+                        Button("Cancel Tags Change", role: .destructive) { applyTags = false; tagIds = [] }
                     }
                 }
 
@@ -654,7 +719,7 @@ struct BulkEditSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Apply") { Task { await save() } }.bold()
-                        .disabled(isSaving || (!applyLocation && !applyTags) || (applyLocation && locationId == nil))
+                        .disabled(isSaving || (!applyLocation && !applyTags))
                 }
             }
             .sheet(isPresented: $showLocationPicker) { LocationPickerSheet(selectedId: $locationId).environmentObject(store).environmentObject(theme) }

@@ -42,6 +42,7 @@ struct LocationsTabView: View {
                     }
                 }
             }
+            .searchable(text: $query, prompt: "Search locations")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
@@ -86,7 +87,7 @@ struct LocationsTabView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .principal) { BrandMark() }
+        ToolbarItem(placement: .topBarLeading) { BrandMark() }
         if store.isAuthenticated {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Button {
@@ -139,7 +140,6 @@ struct LocationsTabView: View {
                 .padding(.bottom, 60)
             }
             .scrollIndicators(.hidden)
-            .searchable(text: $query, prompt: "Search locations")
             .refreshable { try? await store.refreshLocations() }
             .overlay(alignment: .trailing) {
                 if !locationIndexLetters.isEmpty {
@@ -182,7 +182,6 @@ struct LocationsTabView: View {
         .scrollIndicators(.hidden)
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
-        .searchable(text: $query, prompt: "Search locations")
         .refreshable { try? await store.refreshLocations() }
     }
 

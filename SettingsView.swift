@@ -54,7 +54,7 @@ struct SettingsView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .principal) { BrandMark() }
+                ToolbarItem(placement: .topBarLeading) { BrandMark() }
             }
             .alert("Sign out?", isPresented: $confirmLogout) {
                 Button("Cancel", role: .cancel) {}

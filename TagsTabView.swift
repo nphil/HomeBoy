@@ -49,8 +49,9 @@ struct TagsTabView: View {
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $query, prompt: "Search tags")
             .toolbar {
-                ToolbarItem(placement: .principal) { BrandMark() }
+                ToolbarItem(placement: .topBarLeading) { BrandMark() }
             }
             .task { await load() }
             .sheet(isPresented: $showCreate) {
@@ -99,7 +100,6 @@ struct TagsTabView: View {
                 .padding(.vertical, 8).padding(.bottom, 60)
             }
             .scrollIndicators(.hidden)
-            .searchable(text: $query, prompt: "Search tags")
             .refreshable { await load() }
         }
     }
