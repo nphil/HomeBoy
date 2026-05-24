@@ -420,7 +420,7 @@ private struct LocationTile: View {
                         .foregroundStyle(theme.current.accentColor)
                 }
                 NavigationLink(value: LocationDetailRoute(id: loc.id)) {
-                    Image(systemName: "arrow.up.right.circle.fill")
+                    Image(systemName: "info.circle.fill")
                         .font(.title2)
                         .foregroundStyle(theme.current.accentColor)
                 }
