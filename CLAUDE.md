@@ -72,6 +72,7 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 | `GET/PUT/DELETE /items/{id}` | Item CRUD. PUT uses the large `HBItemUpdate` struct — always seed from `HBItemUpdate(from: detail)`. |
 | `POST /items/{id}/attachments` (multipart) | Upload photo. Fields: `file`, `name`, `primary`. Type inferred from filename extension. |
 | `GET /items/{id}/attachments/{aid}` | Fetch attachment bytes (raw). |
+| `DELETE /items/{id}/attachments/{aid}` | Delete a photo attachment. Used by `EditItemSheet`. |
 | `GET/POST/PUT/DELETE /locations/{id}` | Location CRUD. |
 | `GET/POST/PUT/DELETE /tags` | Tag CRUD. `TagCreatePayload` used for both create and update. |
 | `GET /groups/all` | All groups the user can access. Used to populate `store.groups` in `SiteMenuPopover`. |
@@ -101,7 +102,9 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 | `SettingsView.swift` | Server URL + login, theme picker (5-col grid of swatches), About. Presented as a sheet from `SiteMenuPopover`. |
 | `Components.swift` | `ConditionalSearchable` (viewModifier for programmatic searchable toggle), `GlassCard`, `QuantityControl` (replaces broken `Stepper.labelsHidden()`), `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore` (plain `@MainActor class`, NOT ObservableObject), `ItemListRowContent` (shared item row). |
 | `project.yml` | xcodegen spec — iOS 26 deployment, no signing. `CFBundleDisplayName: HomeBoy`. |
-| `.github/workflows/build.yml` | macOS-15: xcodegen → archive unsigned → zip IPA → publish to "latest" release. |
+| `.github/workflows/build.yml` | macOS-15: xcodegen → archive unsigned → zip IPA → publish to "latest" release. On tagged releases (`v*`), also patches `apps.json` with the new version + IPA size and commits it back. |
+| `.github/workflows/update_repo.yml` | Triggered on release events. Downloads the IPA from the release asset, patches `apps.json` size/date fields, commits back to main. Backup in case `build.yml` misses a release. |
+| `apps.json` | AltStore source manifest. Lists all HomeBoy releases with version, date, download URL, size. Hosted on this repo so users can add `https://raw.githubusercontent.com/nphil/HomeBoy/main/apps.json` as an AltStore source. **Never edit by hand** — CI patches it automatically on each tagged release. |
 | `Assets.xcassets/` | App icon: 1024×1024 isometric box on warm peach gradient. |
 
 ## Architecture rules — never violate
@@ -196,7 +199,7 @@ Replace `Assets.xcassets/AppIcon.appiconset/AppIcon.png` with a new 1024×1024 P
 
 ### Push and trigger a build
 ```bash
-cd "/Users/nitin/Documents/antigravity/HomeBoy"
+cd "/Users/nitin/AI Playground/homebox-catalog-ios"
 git add <files>
 git commit -m "..."
 git push origin main

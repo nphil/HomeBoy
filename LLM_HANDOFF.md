@@ -115,7 +115,9 @@ The magnifying glass in the toolbar sets `isSearchActive = true`, which opens th
 | `SettingsView.swift` | Server + login, theme picker, About, logout. | Presented as a sheet from SiteMenuPopover's Settings button. |
 | `Components.swift` | `ConditionalSearchable` (search bar toggle modifier), `GlassCard`, `QuantityControl`, `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore`, `ItemListRowContent` | **`ThumbnailStore` is NOT ObservableObject** — see §8. `ConditionalSearchable` is used on all tab NavigationStacks. |
 | `project.yml` | xcodegen spec. `CFBundleDisplayName: HomeBoy`, iOS 26, no signing. | |
-| `.github/workflows/build.yml` | CI: xcodegen → archive → zip → "latest" release. | macos-15, Xcode 26. |
+| `.github/workflows/build.yml` | CI: xcodegen → archive → zip → "latest" release. On tagged `v*` releases also auto-patches `apps.json`. | macos-15, Xcode 26. |
+| `.github/workflows/update_repo.yml` | Triggered on release events. Patches `apps.json` size/date. Backup if `build.yml` misses it. | |
+| `apps.json` | AltStore source manifest. CI patches automatically on every tagged release. **Never edit by hand.** | Add as AltStore source: `https://raw.githubusercontent.com/nphil/HomeBoy/main/apps.json` |
 
 ---
 
@@ -139,6 +141,7 @@ All under `${serverURL}/api/v1/`. Bearer token in `Authorization` header (no `Be
 | `GET /items?page=1&pageSize=1` | `refreshItemTotal()` uses this to cheaply get total count. |
 | `PUT /items/{id}` | Uses the large `HBItemUpdate` — always seed via `HBItemUpdate(from: detail)`. |
 | `POST /items/{id}/attachments` | **Multipart**, hand-rolled. `name` field is required. Type inferred from filename extension. |
+| `DELETE /items/{id}/attachments/{aid}` | Delete a photo attachment. Used by `EditItemSheet` when user swipes to delete a photo. |
 | `GET /groups/all` | Returns all groups. Used by `store.groups` / `SiteMenuPopover`. |
 
 ---
