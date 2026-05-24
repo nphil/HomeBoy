@@ -45,7 +45,7 @@ These have all been learned through pain. Don't relearn them.
 | `AddItemView.swift` | The main form — single-screen, no step flow | Presented as a modal sheet with interactive scroll dismissal. Auto-focuses name field 0.15s after appear. `lockLocation` and `lockTags` toggles preserve fields across submissions. |
 | `LocationPickerSheet.swift` | Indented-tree picker, used by AddItem and CreateLocationSheet | Shared component — don't fork it. |
 | `LocationsTabView.swift` | Tree list + tile grid view, A-Z index bar, search | Has `viewMode` toggle (list/tile) in toolbar. List view supports collapse/expand per node — state held in `collapsedIds` and strictly collapses on load. Tile view uses an inline accordion expansion for child locations. |
-| `ItemsListView.swift` | Item list with section headers, tag filter, location filter, A-Z bar | Uses a FAB to present AddItemView. Tag filter uses `effectiveLabels` to handle API version variance — see §5. |
+| `ItemsListView.swift` | Item list with section headers, tag filter, location filter, A-Z bar | Uses a FAB to present AddItemView. Tag filter uses `effectiveLabels`. Search runs fast substring matches synchronously and falls back to async semantic matching. Multiselect via long-press on items triggers a bottom Bulk Action Bar. |
 | `ItemDetailView.swift` | Photos + full fields + edit + delete | |
 | `LocationDetailView.swift` | Edit/delete + children + items in location | |
 | `TagPickerSheet.swift` | Multi-select tag picker + inline "create new" | Distinct from `TagEditSheet` in TagsTabView. |
@@ -165,6 +165,13 @@ Always uppercase, `tracking(0.6)`, accent color at 0.75 opacity.
 - Bind the FAB to show a modal `.sheet`.
 - Within the sheet, wrap the form in a `ScrollView` and use `.scrollDismissesKeyboard(.interactively)` rather than putting a "Done" button on the keyboard toolbar.
 
+### Navigation and Search Layout
+- For top-level navigation on main tabs, left-align the app logo using `ToolbarItem(placement: .topBarLeading) { BrandMark() }`.
+- When using `.searchable()`, apply it to the outermost container view (e.g. `ZStack`) instead of an inner `ScrollView`. This prevents the keyboard from spuriously dismissing when the data array empties out and the view conditionally swaps to a "No Matches" empty state.
+
+### Multiselect in Lists
+- Do not use a static "Select" button in the toolbar. Instead, use `.simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { ... })` directly on list rows or tiles to trigger multiselect mode. Display a bulk action bar at the bottom with theme-compliant buttons (`.buttonStyle(.glass)`).
+
 ### Navigation route structs
 ```swift
 struct ItemDetailRoute: Hashable { let id: String }
@@ -245,12 +252,12 @@ Watch CI: `gh run watch` or visit the Actions tab. IPA appears at https://github
 ## 12. Semantic Search Implementation
 
 Apple's `NLEmbedding.sentenceEmbedding` natively scores single-word synonyms poorly (e.g. "seat" vs "couch" gets a terrible 1.33 distance).
-To fix this, `ItemsListView` uses a **hybrid search model**:
-1. It tokenizes the item names into individual words.
-2. It calculates the minimum cosine distance between query words and item words using `wordEmbedding`.
+To fix this, `ItemsListView` uses a **hybrid search model** running asynchronously in a detached task:
+1. The main thread runs a lightning-fast substring `.contains()` match on `allItems`.
+2. If the user types 3+ characters and there are NO string matches, an async background task calculates the minimum cosine distance between query words and item words using `wordEmbedding`.
 3. It also calculates the full string distance using `sentenceEmbedding`.
 4. It takes `min(wordDist, sentDist)` and applies a relaxed threshold of `1.15`.
-**Rule:** Do not revert to a pure `sentenceEmbedding < 0.75` check, or single-word synonym matches will break again.
+**Rule:** Do not revert to a pure `sentenceEmbedding < 0.75` check, or single-word synonym matches will break again. Ensure semantic embedding generation runs asynchronously so typing does not stutter.
 
 ---
 
