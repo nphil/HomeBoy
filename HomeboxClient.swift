@@ -229,6 +229,28 @@ struct HBLocationUpdate: Codable {
     var parentId: String?
 }
 
+struct HBBarcodeItem: Codable {
+    let name: String?
+    let quantity: Double?
+    let description: String?
+}
+
+struct HBBarcodeProduct: Codable {
+    let barcode: String?
+    let imageBase64: String?
+    let imageURL: String?
+    let item: HBBarcodeItem?
+    let manufacturer: String?
+    let modelNumber: String?
+    let notes: String?
+    let searchEngineName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case barcode, imageBase64, imageURL, item, manufacturer, modelNumber, notes
+        case searchEngineName = "search_engine_name"
+    }
+}
+
 // MARK: - Errors
 
 enum HBError: LocalizedError {
@@ -500,5 +522,25 @@ struct HomeboxClient {
     /// Delete an attachment from an item.
     func deleteAttachment(itemId: String, attachmentId: String) async throws {
         _ = try await request("v1/items/\(itemId)/attachments/\(attachmentId)", method: "DELETE")
+    }
+
+    // MARK: Barcode / Asset
+
+    /// `GET /v1/products/search-from-barcode?data=<code>`
+    func searchFromBarcode(data: String) async throws -> [HBBarcodeProduct] {
+        let d = try await request("v1/products/search-from-barcode", method: "GET",
+                                  query: [URLQueryItem(name: "data", value: data)])
+        do { return try JSONDecoder().decode([HBBarcodeProduct].self, from: d) }
+        catch { throw HBError.decode(error) }
+    }
+
+    /// `GET /v1/assets/{numericId}` — look up an item by its asset ID string (e.g. "000-001").
+    /// Strips non-digit characters before calling the endpoint.
+    func getAsset(assetId: String) async throws -> HBItem? {
+        let numeric = assetId.filter(\.isNumber)
+        guard !numeric.isEmpty else { return nil }
+        let d = try await request("v1/assets/\(numeric)", method: "GET")
+        do { return try JSONDecoder().decode(HBItemListResponse.self, from: d).items.first }
+        catch { throw HBError.decode(error) }
     }
 }

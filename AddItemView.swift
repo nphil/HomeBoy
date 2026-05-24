@@ -28,6 +28,9 @@ struct AddItemView: View {
     @State private var showLocationPicker = false
     @State private var showTagPicker = false
     @State private var showCamera = false
+    @State private var showBarcodeScanner = false
+    @State private var showProductMatch = false
+    @State private var pendingProducts: [HBBarcodeProduct] = []
 
     // Submission
     @State private var isSubmitting = false
@@ -77,6 +80,21 @@ struct AddItemView: View {
             .sheet(isPresented: $showCamera) {
                 CameraSheet { img in photos.append(downscale(img)) }.ignoresSafeArea()
             }
+            .sheet(isPresented: $showBarcodeScanner) {
+                BarcodeScannerSheet(mode: .barcode) { code in
+                    showBarcodeScanner = false
+                    Task { await lookupBarcode(code) }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showProductMatch) {
+                ProductMatchSheet(
+                    products: pendingProducts,
+                    onAccept: { applyProduct($0) },
+                    onScanAgain: { showBarcodeScanner = true }
+                )
+                .environmentObject(theme)
+            }
             .onChange(of: pickerItems) { _, newItems in
                 Task {
                     var loaded: [UIImage] = []
@@ -125,20 +143,29 @@ struct AddItemView: View {
                 .foregroundStyle(theme.current.accentColor.opacity(0.75))
                 .padding(.horizontal, 14)
 
-            TextField("What is it?", text: $name)
-                .font(.title3.weight(.semibold))
-                .textInputAutocapitalization(.sentences)
-                .focused($nameFocused)
-                .submitLabel(.next)
-                .onSubmit { descFocused = true }
-                .padding(.horizontal, 14).padding(.vertical, 12)
-                .background {
-                    RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
+            HStack(spacing: 8) {
+                TextField("What is it?", text: $name)
+                    .font(.title3.weight(.semibold))
+                    .textInputAutocapitalization(.sentences)
+                    .focused($nameFocused)
+                    .submitLabel(.next)
+                    .onSubmit { descFocused = true }
+
+                Button { showBarcodeScanner = true } label: {
+                    Image(systemName: "barcode.viewfinder")
+                        .font(.title3)
+                        .foregroundStyle(theme.current.accentColor)
                 }
-                .overlay(RoundedRectangle(cornerRadius: 14)
-                    .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
-                            lineWidth: name.isEmpty ? 1.5 : 1))
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background {
+                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
+                        lineWidth: name.isEmpty ? 1.5 : 1))
         }
     }
 
@@ -571,6 +598,30 @@ struct AddItemView: View {
         if !lockTags { selectedTagIds = [] }
         if !lockLocation { selectedLocationId = nil }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { nameFocused = true }
+    }
+
+    private func lookupBarcode(_ code: String) async {
+        guard let client = store.client else { return }
+        do {
+            let products = try await client.searchFromBarcode(data: code)
+            await MainActor.run {
+                if products.isEmpty {
+                    NotificationCenter.default.post(name: .showToast, object: nil,
+                                                    userInfo: ["message": "No product found for that barcode"])
+                } else {
+                    pendingProducts = products
+                    showProductMatch = true
+                }
+            }
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Barcode lookup failed"])
+        }
+    }
+
+    private func applyProduct(_ product: HBBarcodeProduct) {
+        if let n = product.item?.name, !n.isEmpty { name = n }
+        if let d = product.item?.description, !d.isEmpty { description = d }
     }
 
     private func showSuccessPill(_ text: String) {
