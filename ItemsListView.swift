@@ -208,6 +208,9 @@ struct ItemsListView: View {
     private var listView: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                HStack { BrandMark(); Spacer() }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 if showFilters {
                     filterPanel
                         .padding(.horizontal, 16)
@@ -266,6 +269,9 @@ struct ItemsListView: View {
 
     private var tileView: some View {
         ScrollView {
+            HStack { BrandMark(); Spacer() }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             if showFilters {
                 filterPanel
                     .padding(.horizontal, 16)

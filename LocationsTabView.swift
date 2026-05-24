@@ -115,6 +115,9 @@ struct LocationsTabView: View {
     private var listContent: some View {
         ScrollViewReader { proxy in
             ScrollView {
+                HStack { BrandMark(); Spacer() }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 LazyVStack(spacing: 6) {
                     ForEach(visibleRows, id: \.id) { loc in
                         LocationListRow(
@@ -161,6 +164,9 @@ struct LocationsTabView: View {
 
     private var tileContent: some View {
         ScrollView {
+            HStack { BrandMark(); Spacer() }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             LazyVGrid(
                 columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12, alignment: .top)],
                 spacing: 12

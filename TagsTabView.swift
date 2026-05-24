@@ -84,6 +84,9 @@ struct TagsTabView: View {
             }
         } else {
             ScrollView {
+                HStack { BrandMark(); Spacer() }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                 LazyVStack(spacing: 6) {
                     ForEach(filteredTags) { tag in
                         NavigationLink(value: TagDetailRoute(id: tag.id)) {
