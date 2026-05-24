@@ -53,12 +53,6 @@ struct TagsTabView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     Button {
-                        isSearchActive = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-
-                    Button {
                         withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
                             showSiteMenu.wrappedValue.toggle()
                         }
@@ -75,8 +69,15 @@ struct TagsTabView: View {
                         }
                     }
                 }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button {
+                        isSearchActive = true
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                }
             }
-            .searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search tags…")
+            .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search tags…"))
             .task { await load() }
             .onChange(of: store.activeGroupId) { _, _ in
                 tags = []

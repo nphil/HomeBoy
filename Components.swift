@@ -1,5 +1,21 @@
 import SwiftUI
 
+// MARK: - Search Modifier
+
+struct ConditionalSearchable: ViewModifier {
+    @Binding var text: String
+    @Binding var isPresented: Bool
+    let prompt: String
+
+    func body(content: Content) -> some View {
+        if isPresented || !text.isEmpty {
+            content.searchable(text: $text, isPresented: $isPresented, prompt: prompt)
+        } else {
+            content
+        }
+    }
+}
+
 // MARK: - Alphabet index bar (iOS Contacts-style)
 
 /// Invisible right-edge touch strip. On press+drag, fires onSelect with the letter under the finger.

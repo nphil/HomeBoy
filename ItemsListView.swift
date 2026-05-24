@@ -83,12 +83,6 @@ struct ItemsListView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     Button {
-                        isSearchActive = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-
-                    Button {
                         withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
                             showSiteMenu.wrappedValue.toggle()
                         }
@@ -107,6 +101,12 @@ struct ItemsListView: View {
                 }
                 if store.isAuthenticated {
                     ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            isSearchActive = true
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
                         } label: {
@@ -129,7 +129,7 @@ struct ItemsListView: View {
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
             .onChange(of: globalSearchQuery) { _, newQuery in updateSemanticSearch(for: newQuery) }
-            .searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search items…")
+            .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search items…"))
             .onChange(of: store.activeGroupId) { _, _ in
                 // Collection switched — wipe local caches and re-fetch with the new tenant
                 allItems = []

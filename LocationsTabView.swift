@@ -48,12 +48,6 @@ struct LocationsTabView: View {
             .toolbar {
                 ToolbarItemGroup(placement: .topBarLeading) {
                     Button {
-                        isSearchActive = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-
-                    Button {
                         withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
                             showSiteMenu.wrappedValue.toggle()
                         }
@@ -72,6 +66,12 @@ struct LocationsTabView: View {
                 }
                 if store.isAuthenticated {
                     ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button {
+                            isSearchActive = true
+                        } label: {
+                            Image(systemName: "magnifyingglass")
+                        }
+
                         Button {
                             withAnimation(.easeInOut(duration: 0.2)) {
                                 viewMode = viewMode == .list ? .tile : .list
@@ -109,7 +109,7 @@ struct LocationsTabView: View {
                 collapsedIds = []
                 didInitializeCollapse = false
             }
-            .searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search locations…")
+            .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search locations…"))
             .navigationDestination(for: LocationDetailRoute.self) { route in
                 LocationDetailView(locationId: route.id,
                                    onChange: { Task { try? await store.refreshLocations() } })
