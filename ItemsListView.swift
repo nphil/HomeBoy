@@ -63,6 +63,7 @@ struct ItemsListView: View {
     @State private var selectMode = false
     @State private var selectedIds: Set<String> = []
     @State private var showBulkEdit = false
+    @State private var showAddSheet = false
 
     @State private var thumbStore = ThumbnailStore()
     @State private var indexLetter: String? = nil
@@ -81,6 +82,28 @@ struct ItemsListView: View {
                             .padding(.bottom, 4)
                     }
                     contentArea
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if store.isAuthenticated {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button {
+                                showAddSheet = true
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.title2.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 56, height: 56)
+                                    .background(theme.current.accentColor)
+                                    .clipShape(Circle())
+                                    .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
+                            }
+                            .padding()
+                        }
+                    }
                 }
             }
             .navigationTitle("")
@@ -113,6 +136,10 @@ struct ItemsListView: View {
                     Task { await load(force: true) }
                 }
                 .environmentObject(store).environmentObject(theme)
+            }
+            .sheet(isPresented: $showAddSheet) {
+                AddItemView()
+                    .environmentObject(store).environmentObject(theme)
             }
             .safeAreaInset(edge: .bottom) {
                 if selectMode && !selectedIds.isEmpty { bulkActionBar }

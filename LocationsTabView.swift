@@ -19,6 +19,28 @@ struct LocationsTabView: View {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
                 content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if store.isAuthenticated {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Button {
+                                showCreate = true
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.title2.weight(.semibold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 56, height: 56)
+                                    .background(theme.current.accentColor)
+                                    .clipShape(Circle())
+                                    .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
+                            }
+                            .padding()
+                        }
+                    }
+                }
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -67,11 +89,6 @@ struct LocationsTabView: View {
                     }
                 } label: {
                     Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                }
-                Button {
-                    showCreate = true
-                } label: {
-                    Image(systemName: "plus.circle.fill").font(.title2)
                 }
             }
         }
