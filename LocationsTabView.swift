@@ -92,6 +92,11 @@ struct LocationsTabView: View {
                     try? await store.refreshLocations()
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                if store.isAuthenticated {
+                    Task { try? await store.refreshLocations() }
+                }
+            }
             .onChange(of: store.locationsFlat) { _, flat in
                 guard !didInitializeCollapse, !flat.isEmpty else { return }
                 collapsedIds = Set(flat.compactMap { $0.parentId })
@@ -299,13 +304,13 @@ private struct LocationListRow: View {
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(theme.current.accentColor.opacity(0.7))
-                        .frame(width: 36)
+                        .frame(width: 48)
                         .frame(maxHeight: .infinity)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             } else {
-                Spacer().frame(width: 36)
+                Spacer().frame(width: 48)
             }
 
             // Depth indentation — visual hierarchy lines come after the chevron
@@ -348,7 +353,8 @@ private struct LocationListRow: View {
             .buttonStyle(.plain)
         }
         .padding(.vertical, 10)
-        .padding(.horizontal, 10)
+        .padding(.trailing, 10)
+        .padding(.leading, 0)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)

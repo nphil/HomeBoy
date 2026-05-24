@@ -79,6 +79,9 @@ struct TagsTabView: View {
             }
             .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search tags…"))
             .task { await load() }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task { await load() }
+            }
             .onChange(of: store.activeGroupId) { _, _ in
                 tags = []
                 Task { await load() }

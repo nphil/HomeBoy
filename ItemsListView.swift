@@ -127,6 +127,9 @@ struct ItemsListView: View {
             }
             .task { await load() }
             .onAppear { Task { await load() } }
+            .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task { await load(force: true) }
+            }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
             .onChange(of: globalSearchQuery) { _, newQuery in updateSemanticSearch(for: newQuery) }
             .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search items…"))
