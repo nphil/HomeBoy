@@ -17,6 +17,14 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.10",
+          "buildVersion": "1.0.10",
+          "date": "2026-05-24T20:45:36Z",
+          "localizedDescription": "style: replace filter panel frosted glass with transparent gradient fade, bump version to v1.0.10\n\nUnsigned IPA — sideload with AltStore. Built from `9455c57` on 2026-05-24 20:45 UTC",
+          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.10/HomeboxCatalog.ipa",
+          "size": 3803628
+        },
+        {
           "version": "1.0.9",
           "buildVersion": "1.0.9",
           "date": "2026-05-24T20:32:19Z",
