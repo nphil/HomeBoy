@@ -368,7 +368,7 @@ struct ItemsListView: View {
         .overlay(RoundedRectangle(cornerRadius: 14)
             .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
                     lineWidth: isSelected ? 2 : 1))
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             if !selectMode {
                 withAnimation { selectMode = true; selectedIds.insert(item.id) }
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -409,7 +409,7 @@ struct ItemsListView: View {
                     .padding(6)
             }
         }
-        .simultaneousGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             if !selectMode {
                 withAnimation { selectMode = true; selectedIds.insert(item.id) }
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
