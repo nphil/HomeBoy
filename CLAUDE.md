@@ -24,11 +24,12 @@ Target: iOS 26, Liquid Glass UI, sideloaded via AltStore (no App Store).
 - **Unauthenticated state**: `ContentView` shows `OnboardingView` when `!store.isAuthenticated` (covers the whole screen instead of the tab view).
 
 ## Navigation — SiteMenuPopover
-Every tab has a **"HomeBoy" button in the top-left toolbar** (shippingbox icon + "HomeBoy" text + chevron.down). Tapping it toggles `showSiteMenu: Bool` in `ContentView`.
+Every tab has a **top-left toolbar `ToolbarItemGroup`** containing two buttons: a magnifying glass (activates search) and the "HomeBoy" pill (shippingbox + "HomeBoy" + chevron.down). Tapping the pill toggles `showSiteMenu: Bool` in `ContentView`.
 
 `SiteMenuPopover` is a `ZStack` overlay in `ContentView` at `zIndex(100)`, above all tabs:
-- **Animation**: zooms in from the top-leading corner (`.scale(scale: 0.01, anchor: .topLeading)` + `.opacity`), giving the feeling it grows out from the chevron button.
-- Shows all groups from `store.groups` as individual cards. Active group has an accent-coloured border (2.5 pt) + filled checkmark.
+- **Animation**: `popoverSpring = .spring(duration: 0.25, bounce: 0.22)`. Transition is `.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity)`.
+- Shows all groups from `store.groups` as individual cards. Active group has an accent-coloured border (2.5 pt) + filled checkmark. **All cards show live counts** (location count + item count) — active uses live store values, inactive uses `store.cachedGroupStats`.
+- Opening the popover triggers `store.refreshAllGroupStats()` to keep inactive card counts fresh.
 - Tapping an inactive group calls `store.setActiveGroup()`, refreshes locations + item count, dismisses the popover, and fires a `.showToast` notification.
 - **Settings button** fires `NotificationCenter.default.post(name: .showSettings)`.
 - Dimmed background tap dismisses it.
@@ -37,7 +38,7 @@ The `showSiteMenu` binding flows to child views via a **custom `EnvironmentKey`*
 ```swift
 @Environment(\.showSiteMenu) var showSiteMenu
 // Toggle:
-withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
     showSiteMenu.wrappedValue.toggle()
 }
 ```
@@ -50,10 +51,12 @@ NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["messa
 `ContentView` renders the toast as a `Capsule` overlay at `zIndex(200)` with a 2.5 s auto-dismiss. Both `.showSettings` and `.showToast` notification names are declared in `SiteMenuPopover.swift`.
 
 ## Global search
-`globalSearchQuery: String` is a `@Binding` passed from `ContentView` down to all three tab views. Typing in one tab filters across all tabs.
+`globalSearchQuery: String` is a `@Binding` passed from `ContentView` down to all three tab views. Each tab also has `@State private var isSearchActive = false` wired to `.searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "…")` on its `NavigationStack`. The magnifying glass icon in the toolbar pill sets `isSearchActive = true` to programmatically present the native search bar with keyboard.
 
 ## Homebox API surface used (v0.25.x)
 All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` header — **raw token, no `"Bearer "` prefix**.
+
+**Multi-tenant (Collections/Groups)**: Homebox uses the `X-Tenant: <groupUUID>` request header to scope all responses to a specific group. The same auth token works for every group. `HomeboxClient.tenantId` is sent as this header automatically. Switching groups = change `activeGroupId` → `store.client` picks it up → all subsequent API calls are scoped to the new group. There is **no re-login** needed.
 
 | Endpoint | Why |
 |---|---|
@@ -82,13 +85,13 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 | `SiteMenuPopover.swift` | Floating popover: loops `store.groups` as individual cards; active group gets accent border + checkmark; tapping switches group. Zoom-from-chevron animation. `Notification.Name.showSettings` + `.showToast` declared here. |
 | `OnboardingView.swift` | Full-screen unauthenticated view — server URL + login form. Replaces the tab view until `store.isAuthenticated`. |
 | `Theme.swift` | 30 `AppTheme` cases (ported from Homebox CSS), `ThemeManager`, **`Color(hex:)` non-failable**, `Color(h:s:l:)` HSL helper, `ThemeSwatch`. No orb backgrounds — solid bg only. |
-| `Models.swift` | `HomeboxStore` (@MainActor ObservableObject): auth, `locationsFlat: [FlatLocation]`, `cachedItemTotal`, `groupName`, `groups: [HBGroup]`, `activeGroupId`. Key methods: `login()`, `refreshGroup()` (stores full group list + sets activeGroupId), `refreshLocations()`, `refreshItemTotal()` (pageSize=1 fast count), `setActiveGroup()` (switches + refreshes). |
-| `HomeboxClient.swift` | Async/await HTTP client. All Codable models: `HBItem` (with `effectiveLabels`), `HBLocation`, `HBTreeItem` (final class, recursive), `HBItemCreate`, `HBItemUpdate`, `HBGroup`, `HBTag`, etc. `uploadAttachment` hand-rolls multipart/form-data. `listGroups()` → `GET /v1/groups/all`. |
+| `Models.swift` | `HomeboxStore` (@MainActor ObservableObject): auth, `locationsFlat: [FlatLocation]`, `cachedItemTotal`, `groupName`, `groups: [HBGroup]`, `activeGroupId: String?` (persisted), `cachedGroupStats: [String: GroupStats]`. Key methods: `login()`, `refreshGroups()` (stores full group list + sets activeGroupId), `refreshLocations()`, `refreshItemTotal()` (pageSize=1 fast count), `setActiveGroup()` (switches X-Tenant, refreshes), `refreshAllGroupStats()` (per-group scoped clients). `GroupStats { locationCount, itemTotal }` struct. |
+| `HomeboxClient.swift` | Async/await HTTP client. `tenantId: String?` on the struct — when set, sends `X-Tenant: tenantId` on every request to scope responses to that group. All Codable models: `HBItem` (with `effectiveLabels`), `HBLocation`, `HBTreeItem` (final class, recursive), `HBItemCreate`, `HBItemUpdate`, `HBGroup`, `HBTag`, etc. `uploadAttachment` hand-rolls multipart/form-data. `listGroups()` → `GET /v1/groups/all`. |
 | `Keychain.swift` | Minimal `SecItem` wrapper. Token only (`AccessibleAfterFirstUnlockThisDeviceOnly`). |
 | `PhotoSource.swift` | `CameraSheet` (UIImagePickerController wrapper) + `downscale(_:maxDimension:)` — keeps JPEGs under a few hundred KB. |
 | `AddItemView.swift` | Single-screen add form. `lockLocation` + `lockTags` toggles persist fields across submissions. AI tag suggestions via FoundationModels (0.8 s debounce, silently skips if Apple Intelligence unavailable). Presented as sheet from Items FAB. |
 | `ItemsListView.swift` | Items tab. Hybrid semantic search (NaturalLanguage `min(wordEmbedding, sentenceEmbedding)`, threshold 1.15). FAB opens AddItemView. List/tile view toggle. Filter panel (location + tag). `globalSearchQuery` binding. |
-| `LocationsTabView.swift` | Locations tab. Tree with collapse/expand, tile view, A-Z scrubber. FAB opens `CreateLocationSheet`. `globalSearchQuery` binding. |
+| `LocationsTabView.swift` | Locations tab. Tree with collapse/expand, tile view, A-Z scrubber. FAB opens `CreateLocationSheet`. `globalSearchQuery` binding. In `LocationListRow`, the expand/collapse chevron is pinned to the far left (before depth-indent lines), `frame(width: 36).frame(maxHeight: .infinity)` for a large tap target. |
 | `LocationDetailView.swift` | Location detail + edit + delete. |
 | `ItemDetailView.swift` | Item detail + edit + delete + photo. |
 | `LocationPickerSheet.swift` | Reusable indented tree picker with search. |
@@ -116,6 +119,10 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 - **`showSiteMenu` flows via `ShowSiteMenuKey` EnvironmentKey** as `Binding<Bool>`. Each tab reads `@Environment(\.showSiteMenu) var showSiteMenu`.
 - **`ThumbnailStore` is NOT ObservableObject** — plain `@MainActor class`. Rows use local `@State`. Making it ObservableObject causes full-list re-renders on every thumbnail load.
 - **Semantic search threshold is 1.15** with hybrid `min(wordEmbedding, sentenceEmbedding)`. Do not revert to pure sentenceEmbedding < 0.75.
+- **Group switching uses `X-Tenant` header** — never re-login, never store multiple tokens. `store.client` always passes `activeGroupId` as `tenantId`. To switch: `await store.setActiveGroup(group)`.
+- **Each tab has `.onChange(of: store.activeGroupId)`** to wipe local caches and reload on group switch. If you add a new tab, wire this too.
+- **Toolbar leading slot is a `ToolbarItemGroup`** on all tabs — search icon first, HomeBoy pill second. Don't replace it with a single `ToolbarItem`.
+- **Search bar**: each tab has `@State private var isSearchActive = false` + `.searchable(text: $globalSearchQuery, isPresented: $isSearchActive)` on the `NavigationStack`. The magnifying glass button in the toolbar sets `isSearchActive = true`.
 
 ## Common tasks
 

@@ -45,13 +45,14 @@ Tags tab           → TagsTabView       (tag.fill)
 - **Add Item** — FAB (floating circle button, bottom-right) on the Items tab, presents `AddItemView` as a sheet.
 
 ### SiteMenuPopover
-Each tab toolbar has a **"HomeBoy" button** (shippingbox.fill + "HomeBoy" + chevron.down) at the top-left. Tapping it toggles `showSiteMenu: Bool` in `ContentView`.
+Each tab toolbar has a **`ToolbarItemGroup(placement: .topBarLeading)`** with two items: a magnifying glass (search) and the HomeBoy pill (shippingbox.fill + "HomeBoy" + chevron.down). Tapping the pill toggles `showSiteMenu: Bool` in `ContentView`.
 
 `SiteMenuPopover` is a `ZStack` overlay in `ContentView` at `zIndex(100)` — it floats above all three tabs. **Never put it inside a `NavigationStack`.**
 
-- **Animation**: `.scale(scale: 0.01, anchor: .topLeading).combined(with: .opacity)` — zooms from the top-left corner where the button is.
-- **Group cards**: loops `store.groups`. Active group = accent border (2.5 pt) + filled checkmark. Inactive = dashed border + "Tap to switch".
-- **Switching groups**: calls `store.setActiveGroup()` → refreshes locations + item count → posts `.showToast` → dismisses.
+- **Animation**: `popoverSpring = .spring(duration: 0.25, bounce: 0.22)`. Transition: `.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity)` — fast, springy, grows from top-left.
+- **Group cards**: loops `store.groups`. Active group = accent border (2.5 pt) + filled checkmark + live `store.locationsFlat.count` + `store.cachedItemTotal`. Inactive groups show counts from `store.cachedGroupStats[group.id]` (populated by `refreshAllGroupStats()`).
+- **Opening the popover** triggers `store.refreshAllGroupStats()` to keep inactive card counts fresh.
+- **Switching groups**: calls `store.setActiveGroup()` → sets `activeGroupId` → changes `X-Tenant` header on `store.client` → tabs see the `.onChange(of: store.activeGroupId)` and reload → posts `.showToast` → dismisses popover.
 - **Settings button**: posts `.showSettings` notification.
 
 `showSiteMenu` flows to child views via a custom `EnvironmentKey`:
@@ -65,7 +66,7 @@ extension EnvironmentValues {
 }
 // In each tab:
 @Environment(\.showSiteMenu) var showSiteMenu
-withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
     showSiteMenu.wrappedValue.toggle()
 }
 ```
@@ -79,7 +80,13 @@ NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["messa
 Both `Notification.Name.showSettings` and `.showToast` are declared in `SiteMenuPopover.swift`.
 
 ### Global search
-`globalSearchQuery: String` is a `@Binding` passed from `ContentView` into all three tabs. Typing in one tab filters across the app.
+`globalSearchQuery: String` is a `@Binding` passed from `ContentView` into all three tabs. Each tab has:
+```swift
+@State private var isSearchActive = false
+// On NavigationStack:
+.searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search …")
+```
+The magnifying glass in the toolbar pill sets `isSearchActive = true`, which opens the native iOS search bar with keyboard animation. iOS resets it to `false` + clears the text when the user taps Cancel.
 
 ---
 
@@ -91,20 +98,20 @@ Both `Notification.Name.showSettings` and `.showToast` are declared in `SiteMenu
 | `SiteMenuPopover.swift` | Group cards, zoom animation, group switching, `Notification.Name.showSettings` + `.showToast` | Always in the view hierarchy (state persists). Never render it conditionally at the parent level. |
 | `OnboardingView.swift` | Full-screen unauthenticated server config + login | Replaces the tab view entirely when `!store.isAuthenticated`. |
 | `Theme.swift` | 30 themes, `ThemeManager`, **`Color(hex:)` non-failable**, `Color(h:s:l:)`, `ThemeSwatch` | Don't add another `Color(hex:)`. Solid backgrounds only — no orb backgrounds. |
-| `Models.swift` | `HomeboxStore` — auth, `locationsFlat`, `cachedItemTotal`, `groupName`, **`groups: [HBGroup]`**, **`activeGroupId`**. Methods: `login()`, `refreshGroup()`, `refreshLocations()`, **`refreshItemTotal()`** (pageSize=1), **`setActiveGroup()`** | Class is `@MainActor final`. `refreshGroup()` stores the full groups array and sets `activeGroupId` to the first group on first run. |
-| `HomeboxClient.swift` | Async/await HTTP client, all Codable models, `listGroups()` → `GET /v1/groups/all` | Bearer token = raw string, no "Bearer " prefix. `HBItem.effectiveLabels` = `labels ?? tags`. |
+| `Models.swift` | `HomeboxStore` — auth, `locationsFlat`, `cachedItemTotal`, `groupName`, **`groups: [HBGroup]`**, **`activeGroupId: String?`** (persisted in UserDefaults), **`cachedGroupStats: [String: GroupStats]`**. Methods: `login()`, `refreshGroups()`, `refreshLocations()`, **`refreshItemTotal()`** (pageSize=1), **`setActiveGroup()`**, **`refreshAllGroupStats()`**. `GroupStats { locationCount, itemTotal }` struct. | Class is `@MainActor final`. `store.client` is a computed property that constructs a `HomeboxClient` with `activeGroupId` as `tenantId` — switching activeGroupId automatically scopes all subsequent requests. |
+| `HomeboxClient.swift` | Async/await HTTP client, all Codable models, `listGroups()` → `GET /v1/groups/all`. **`tenantId: String?`** on the struct; when set, every request gets `X-Tenant: tenantId` header. | Bearer token = raw string, no "Bearer " prefix. `HBItem.effectiveLabels` = `labels ?? tags`. |
 | `Keychain.swift` | `SecItem` wrapper. Token only. | Password is never persisted. |
 | `PhotoSource.swift` | `CameraSheet` + `downscale()` | Keeps JPEGs under a few hundred KB. |
 | `AddItemView.swift` | Add form. `lockLocation` + `lockTags` toggles. AI tag suggestions (FoundationModels, 0.8 s debounce). | Presented as a modal sheet from Items FAB. AI suggestions silently skipped if Apple Intelligence unavailable. |
 | `ItemsListView.swift` | Items tab. Hybrid semantic search (NaturalLanguage). FAB → AddItemView. Filter panel. List/tile toggle. | `ThumbnailStore` is a plain `@MainActor class`, NOT ObservableObject. |
-| `LocationsTabView.swift` | Locations tab. Tree with collapse/expand, tile view, A-Z scrubber, FAB → CreateLocationSheet. | |
+| `LocationsTabView.swift` | Locations tab. Tree with collapse/expand, tile view, A-Z scrubber, FAB → CreateLocationSheet. | In `LocationListRow`, the chevron is at the far left (before depth-indent lines), 36 px wide × full row height. Don't move it back inside the depth indentation — that's what made it hard to tap. |
 | `ItemDetailView.swift` | Item detail + edit + delete + photo. | |
 | `LocationDetailView.swift` | Location detail + edit + delete. | |
 | `LocationPickerSheet.swift` | Shared indented tree picker (used by AddItem + CreateLocationSheet). | Don't fork it. |
 | `TagPickerSheet.swift` | Multi-select tag picker + inline create (used by AddItem + ItemDetail). | Distinct from `TagEditSheet` in TagsTabView. |
 | `TagsTabView.swift` | Tags tab. FAB → TagEditSheet. Detail view shows items with that tag. | Uses `HomeboxTagPalette` — 12 hex colors matching Homebox web app. |
 | `SettingsView.swift` | Server + login, theme picker, About, logout. | Presented as a sheet from SiteMenuPopover's Settings button. |
-| `Components.swift` | `GlassCard`, `QuantityControl`, `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore`, `ItemListRowContent` | **`ThumbnailStore` is NOT ObservableObject** — see §7. |
+| `Components.swift` | `GlassCard`, `QuantityControl`, `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore`, `ItemListRowContent` | **`ThumbnailStore` is NOT ObservableObject** — see §8. |
 | `project.yml` | xcodegen spec. `CFBundleDisplayName: HomeBoy`, iOS 26, no signing. | |
 | `.github/workflows/build.yml` | CI: xcodegen → archive → zip → "latest" release. | macos-15, Xcode 26. |
 
@@ -134,7 +141,28 @@ All under `${serverURL}/api/v1/`. Bearer token in `Authorization` header (no `Be
 
 ---
 
-## 6. The Tag Filter Story (Critical Context)
+## 6. Multi-Tenant Group Switching (X-Tenant Header)
+
+Homebox's backend middleware reads `X-Tenant: <groupUUID>` on every request and scopes the response to that group. The same auth token works for all groups the user belongs to.
+
+**How it's wired in HomeBoy:**
+1. `HomeboxClient` has `tenantId: String?`. When set, every `request()` call adds `X-Tenant: tenantId` to the headers.
+2. `HomeboxStore.client` is a **computed property** that creates a new `HomeboxClient(serverURL:token:tenantId: activeGroupId)` on every access.
+3. Changing `activeGroupId` in `HomeboxStore` automatically scopes all subsequent API calls — no re-login, no token swap.
+4. `setActiveGroup(_ group: HBGroup)` sets `activeGroupId`, clears stale caches, refreshes locations + item count, and updates `cachedGroupStats[group.id]`.
+5. Each tab has `.onChange(of: store.activeGroupId)` that wipes its local `@State` caches and triggers a fresh load.
+
+**`cachedGroupStats: [String: GroupStats]`** stores `{ locationCount, itemTotal }` per group so the SiteMenuPopover can show counts on inactive cards without live API calls:
+```swift
+// SiteMenuPopover reads:
+let locCount: Int = isActive ? store.locationsFlat.count
+                             : (store.cachedGroupStats[group.id]?.locationCount ?? 0)
+```
+`refreshAllGroupStats()` constructs a temporary scoped `HomeboxClient` for each group and fetches its counts concurrently. Called when the popover opens and at app launch.
+
+---
+
+## 7. The Tag Filter Story (Critical Context)
 
 ```swift
 let filtered = items.filter { item in
@@ -156,7 +184,7 @@ let filtered = items.filter { item in
 
 ---
 
-## 7. Performance: ThumbnailStore Pattern
+## 8. Performance: ThumbnailStore Pattern
 
 **Problem:** Naive thumbnail loading caused all rows to re-render whenever any thumbnail finished loading → visible scroll stutter.
 
@@ -170,7 +198,7 @@ let filtered = items.filter { item in
 
 ---
 
-## 8. UI Patterns You'll See Everywhere
+## 9. UI Patterns You'll See Everywhere
 
 ### Themed card background
 ```swift
@@ -217,7 +245,7 @@ Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push
 
 ---
 
-## 9. Theming
+## 10. Theming
 
 - **30 themes** ported from Homebox web app CSS.
 - Each has `backgroundColor`, `accentColor`, `preferredColorScheme`.
@@ -228,7 +256,7 @@ Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push
 
 ---
 
-## 10. Things That Are Easy to Get Wrong
+## 11. Things That Are Easy to Get Wrong
 
 - **Don't add a `Color(hex:)` extension.** Theme.swift has the canonical non-failable one. Compiler error: `invalid redeclaration of 'init(hex:)'`.
 - **Don't define custom `.glass` styles.** Native iOS 26 conflict.
@@ -243,19 +271,22 @@ Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push
 - **Don't add a 4th tab.** Tabs are frozen at 3. Settings = sheet. Add = FAB.
 - **Don't put `SiteMenuPopover` inside a NavigationStack.** It's a ZStack overlay in ContentView at zIndex(100).
 - **Don't build custom toast UI.** Post `.showToast` notification; ContentView handles it at zIndex(200).
+- **Don't re-login to switch groups.** Use `store.setActiveGroup()` — it updates `activeGroupId`, which changes the `X-Tenant` header on `store.client`. No new token, no new credentials.
+- **Don't replace the leading `ToolbarItemGroup` with a single `ToolbarItem`.** It needs both the search icon (first) and the HomeBoy pill.
+- **Don't move the LocationListRow chevron back inside the depth lines.** It's intentionally at the far left for tap-target size.
 
 ---
 
-## 11. Open / Known Issues
+## 12. Open / Known Issues
 
 - **No pagination.** `pageSize=1000` works for the current inventory. Build proper paging if >1000 items.
 - **No token refresh.** 401 forces re-login via Settings. Wire `POST /v1/users/refresh` if this becomes annoying.
-- **Group switching is cosmetic for single-group users.** Homebox tokens are scoped to one group at login. `setActiveGroup()` refreshes data but the data won't change unless the user genuinely has access to multiple groups. The UI is ready for multi-group if the API ever supports it.
+- **Group switching is fully functional** via `X-Tenant` header — same token, different data per group. All three tabs respond to `store.activeGroupId` changes and reload automatically.
 - **Sendable warning** in `AddItemView.swift` (`theme.current.accentColor` in PhotosPicker label closure). Warning only — not an error with Swift 5.10. Fix by capturing `let accent = theme.current.accentColor` outside the closure when migrating to Swift 6.
 
 ---
 
-## 12. Semantic Search Implementation
+## 13. Semantic Search Implementation
 
 `ItemsListView` uses a **hybrid search** running asynchronously:
 1. Fast synchronous substring `.contains()` on `allItems`.
@@ -266,7 +297,7 @@ Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push
 
 ---
 
-## 13. AI Tag Suggestions
+## 14. AI Tag Suggestions
 
 `AddItemView` uses `FoundationModels` (`LanguageModelSession`) to suggest tags as the user types the item name:
 - 0.8 s debounce after name changes (≥ 4 chars).
@@ -277,7 +308,7 @@ Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push
 
 ---
 
-## 14. The User (Nitin)
+## 15. The User (Nitin)
 
 - **Programming background**: Last did C++ in high school ~20 years ago. Knows variables, constants, if/else, for loops. Does **not** know: pointers, concurrency primitives, OOP beyond basics, Swift idioms, networking specifics.
 - **Has ADHD**: Keep explanations **short and focused**. One concept per change. No walls of text.
@@ -288,7 +319,7 @@ Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push
 
 ---
 
-## 15. Quick Reference
+## 16. Quick Reference
 
 | Want to... | Look at |
 |---|---|
