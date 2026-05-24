@@ -14,55 +14,48 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                // Custom header
-                HStack(spacing: 12) {
-                    BrandMark()
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
+            Form {
+                signedInSection
 
-                Form {
-                    signedInSection
-
-                    Section("Theme") {
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
-                            ForEach(AppTheme.allCases) { t in
-                                ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
-                            }
+                Section("Theme") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
+                        ForEach(AppTheme.allCases) { t in
+                            ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
                         }
-                        .padding(.vertical, 8)
                     }
+                    .padding(.vertical, 8)
+                }
 
-                    Section("Info") {
-                        if let total = store.cachedItemTotal {
-                            LabeledContent("Items") {
-                                Text("\(total)")
-                                    .font(.callout.monospacedDigit().weight(.medium))
-                            }
-                        } else {
-                            LabeledContent("Items") {
-                                Text("Open Items tab to load")
-                                    .font(.callout).foregroundStyle(.secondary)
-                            }
-                        }
-                        LabeledContent("Locations") {
-                            Text("\(store.locationsFlat.count)")
+                Section("Info") {
+                    if let total = store.cachedItemTotal {
+                        LabeledContent("Items") {
+                            Text("\(total)")
                                 .font(.callout.monospacedDigit().weight(.medium))
                         }
+                    } else {
+                        LabeledContent("Items") {
+                            Text("Open Items tab to load")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
                     }
-
-                    Section("About") {
-                        LabeledContent("Version", value: "0.6")
-                        Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
+                    LabeledContent("Locations") {
+                        Text("\(store.locationsFlat.count)")
+                            .font(.callout.monospacedDigit().weight(.medium))
                     }
                 }
-                .scrollContentBackground(.hidden)
+
+                Section("About") {
+                    LabeledContent("Version", value: "0.6")
+                    Link("Source on GitHub", destination: URL(string: "https://github.com/nphil/homebox-catalog-ios")!)
+                }
             }
+            .scrollContentBackground(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
-            .toolbar(.hidden, for: .navigationBar)
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { BrandMark() }
+            }
             .alert("Sign out?", isPresented: $confirmLogout) {
                 Button("Cancel", role: .cancel) {}
                 Button("Sign out", role: .destructive) {

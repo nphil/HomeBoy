@@ -53,17 +53,13 @@ struct AddItemView: View {
                     .scrollIndicators(.hidden)
                 }
             }
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    BrandMark()
-                    Spacer()
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { BrandMark() }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button("Cancel") { dismiss() }
-                        .foregroundStyle(theme.current.accentColor)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(theme.current.backgroundColor)
             }
             .sheet(isPresented: $showLocationPicker) {
                 LocationPickerSheet(selectedId: $selectedLocationId)

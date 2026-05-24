@@ -53,37 +53,10 @@ struct ItemsListView: View {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
                 VStack(spacing: 0) {
-                    // Custom header — outside toolbar to avoid iOS 26 Liquid Glass
-                    HStack(spacing: 12) {
-                        BrandMark()
-                        Spacer()
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
-                        } label: {
-                            Image(systemName: hasActiveFilters
-                                  ? "line.3.horizontal.decrease.circle.fill"
-                                  : "line.3.horizontal.decrease.circle")
-                                .font(.title3)
-                                .foregroundStyle(theme.current.accentColor)
-                        }
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                viewMode = viewMode == .list ? .tile : .list
-                            }
-                        } label: {
-                            Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                                .font(.title3)
-                                .foregroundStyle(theme.current.accentColor)
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
                     if showFilters {
                         filterPanel
                             .padding(.horizontal, 16)
-                            .padding(.top, 4)
+                            .padding(.top, 8)
                             .padding(.bottom, 4)
                     }
                     contentArea
@@ -114,7 +87,7 @@ struct ItemsListView: View {
             .searchable(text: $query, prompt: "Search items")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+            .toolbar { toolbarContent }
             .task { await load() }
             .onAppear { Task { await load() } }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
@@ -150,6 +123,32 @@ struct ItemsListView: View {
             }
             .safeAreaInset(edge: .bottom) {
                 if selectMode { bulkActionBar }
+            }
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            BrandMark()
+        }
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+            } label: {
+                Image(systemName: hasActiveFilters
+                      ? "line.3.horizontal.decrease.circle.fill"
+                      : "line.3.horizontal.decrease.circle")
+            }
+
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewMode = viewMode == .list ? .tile : .list
+                }
+            } label: {
+                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
             }
         }
     }

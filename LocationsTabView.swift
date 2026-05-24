@@ -18,31 +18,8 @@ struct LocationsTabView: View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    // Custom header
-                    HStack(spacing: 12) {
-                        BrandMark()
-                        Spacer()
-                        if store.isAuthenticated {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    viewMode = viewMode == .list ? .tile : .list
-                                }
-                            } label: {
-                                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                                    .font(.title3)
-                                    .foregroundStyle(theme.current.accentColor)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
-
-                    content
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -68,7 +45,7 @@ struct LocationsTabView: View {
             .searchable(text: $query, prompt: "Search locations")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+            .toolbar { toolbarContent }
             .sheet(isPresented: $showCreate) {
                 CreateLocationSheet()
                     .environmentObject(store)
@@ -100,6 +77,26 @@ struct LocationsTabView: View {
                 ItemDetailView(itemId: route.id)
                     .environmentObject(store)
                     .environmentObject(theme)
+            }
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            BrandMark()
+        }
+        if store.isAuthenticated {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewMode = viewMode == .list ? .tile : .list
+                    }
+                } label: {
+                    Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                }
             }
         }
     }

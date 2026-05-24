@@ -23,20 +23,8 @@ struct TagsTabView: View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                VStack(spacing: 0) {
-                    // Custom header
-                    HStack(spacing: 12) {
-                        BrandMark()
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
-
-                    content
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -62,7 +50,9 @@ struct TagsTabView: View {
             .searchable(text: $query, prompt: "Search tags")
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .principal) { BrandMark() }
+            }
             .task { await load() }
             .sheet(isPresented: $showCreate) {
                 TagEditSheet(mode: .create) { await load() }
