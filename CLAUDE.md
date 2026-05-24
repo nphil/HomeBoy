@@ -1,7 +1,7 @@
 # HomeBoy (Homebox Catalog iOS) — Project Reference
 
 ## What this is
-Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https://homebox.software/) instance (v0.25.x). Connects directly to the Homebox v1 REST API — every Add posts to the server, every list view reflects what's actually there. Display name is "HomeBoy"; repo + bundle id keep the original "homebox-catalog" naming so AltStore reinstalls stay in-place.
+Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https://homebox.software/) instance (v0.25.x). Connects directly to the Homebox v1 REST API — every Add posts to the server, every list view reflects what's actually there. Display name is "HomeBoy"; repo + bundle id keep the original `homebox-catalog` naming so AltStore reinstalls stay in-place.
 
 Target: iOS 26, Liquid Glass UI, sideloaded via AltStore (no App Store).
 
@@ -16,65 +16,124 @@ Target: iOS 26, Liquid Glass UI, sideloaded via AltStore (no App Store).
 - **Always commit + push after any meaningful change** — CI does the rest.
 - Pushing `.github/workflows/*` needs `workflow` scope on the `gh` token. Fix with `gh auth refresh -h github.com -s workflow`.
 
+## Tab structure — 3 tabs only
+**Items / Locations / Tags**
+
+- **Settings** is NOT a tab. It's a sheet presented via `NotificationCenter.default.post(name: .showSettings, object: nil)`, which `ContentView` listens for.
+- **Add Item** is NOT a tab. It's a FAB (floating action button, bottom-right circle) on the Items tab that presents `AddItemView` as a sheet.
+- **Unauthenticated state**: `ContentView` shows `OnboardingView` when `!store.isAuthenticated` (covers the whole screen instead of the tab view).
+
+## Navigation — SiteMenuPopover
+Every tab has a **"HomeBoy" button in the top-left toolbar** (shippingbox icon + "HomeBoy" text + chevron.down). Tapping it toggles `showSiteMenu: Bool` in `ContentView`.
+
+`SiteMenuPopover` is a `ZStack` overlay in `ContentView` at `zIndex(100)`, above all tabs:
+- **Animation**: zooms in from the top-leading corner (`.scale(scale: 0.01, anchor: .topLeading)` + `.opacity`), giving the feeling it grows out from the chevron button.
+- Shows all groups from `store.groups` as individual cards. Active group has an accent-coloured border (2.5 pt) + filled checkmark.
+- Tapping an inactive group calls `store.setActiveGroup()`, refreshes locations + item count, dismisses the popover, and fires a `.showToast` notification.
+- **Settings button** fires `NotificationCenter.default.post(name: .showSettings)`.
+- Dimmed background tap dismisses it.
+
+The `showSiteMenu` binding flows to child views via a **custom `EnvironmentKey`** (`ShowSiteMenuKey` in `HomeboxCatalogApp.swift`):
+```swift
+@Environment(\.showSiteMenu) var showSiteMenu
+// Toggle:
+withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
+    showSiteMenu.wrappedValue.toggle()
+}
+```
+
+## Toast notifications
+Any part of the app can show a bottom toast pill by posting:
+```swift
+NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Your message"])
+```
+`ContentView` renders the toast as a `Capsule` overlay at `zIndex(200)` with a 2.5 s auto-dismiss. Both `.showSettings` and `.showToast` notification names are declared in `SiteMenuPopover.swift`.
+
+## Global search
+`globalSearchQuery: String` is a `@Binding` passed from `ContentView` down to all three tab views. Typing in one tab filters across all tabs.
+
 ## Homebox API surface used (v0.25.x)
-All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` header (raw token — no `Bearer ` prefix).
+All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` header — **raw token, no `"Bearer "` prefix**.
 
 | Endpoint | Why |
 |---|---|
 | `POST /users/login` (form-encoded) | Sign in. Returns `{ token, expiresAt }`. |
-| `GET /locations` | Flat list of LocationOutCount — no parent info. We don't use this; we use `/tree` instead. |
-| `GET /locations/tree?withItems=false` | Nested TreeItem array. Flattened DFS into `FlatLocation[]` (with ancestor chain) for the picker and Locations tab. |
+| `GET /locations` | Flat list with itemCount — used to build count map for FlatLocation. |
+| `GET /locations/tree?withItems=false` | Nested TreeItem. DFS-flattened into `FlatLocation[]` with ancestor chain. |
 | `POST /locations` (JSON) | `{ name, parentId?, description }`. Used by CreateLocationSheet. |
-| `GET /items?page=1&pageSize=1000` | Paginated ItemSummary list. Items tab uses this. |
-| `POST /items` (JSON) | Create item: `{ name, quantity, description, locationId, parentId?, tagIds }`. Returns ItemOut; we decode just `id`. |
-| `POST /items/{id}/attachments` (multipart/form-data) | Upload a photo. Fields: `file`, `name` (required), `primary` (bool). `type` is auto-detected from filename extension. |
+| `GET /items?page=1&pageSize=1000` | Paginated ItemSummary list. Items tab. |
+| `GET /items?page=1&pageSize=1` | Used by `refreshItemTotal()` — just needs the `total` field, not the items. |
+| `GET /items?labels=<id>` | Tag filter — **repeated param**, not comma-joined. |
+| `POST /items` (JSON) | Create: `{ name, quantity, description, locationId, tagIds }`. `locationId` required. |
+| `GET/PUT/DELETE /items/{id}` | Item CRUD. PUT uses the large `HBItemUpdate` struct — always seed from `HBItemUpdate(from: detail)`. |
+| `POST /items/{id}/attachments` (multipart) | Upload photo. Fields: `file`, `name`, `primary`. Type inferred from filename extension. |
+| `GET /items/{id}/attachments/{aid}` | Fetch attachment bytes (raw). |
+| `GET/POST/PUT/DELETE /locations/{id}` | Location CRUD. |
+| `GET/POST/PUT/DELETE /tags` | Tag CRUD. `TagCreatePayload` used for both create and update. |
+| `GET /groups/all` | All groups the user can access. Used to populate `store.groups` in `SiteMenuPopover`. |
 
-**Important**: the `/v1/entities` endpoints described on homebox.software are unreleased main-branch APIs and do **not** exist in v0.25.x. Always cross-check against the routes.go file at the target release tag.
+**Important**: the `/v1/entities` endpoints on homebox.software are unreleased main-branch APIs — they do **not** exist in v0.25.x. Always cross-check `backend/app/api/routes.go` at the target release tag.
 
 ## File map
 
 | File | Purpose |
 |---|---|
-| `HomeboxCatalogApp.swift` | `@main`. Injects `HomeboxStore` + `ThemeManager`, transparent nav appearance. Conditionally routes to `OnboardingView` (if unauthenticated) or the 4-tab `TabView` (if authenticated). `BrandMark` shows "HomeBoy". |
-| `OnboardingView.swift` | Full-screen welcome and login view. Server URL field + sign-in form. Takes over root until authenticated. |
-| `Theme.swift` | `AppTheme` (30 themes ported from Homebox's `assets/css/main.css`), `ThemeManager`, `Color(h:s:l:)` HSL helper, `ThemeSwatch` previewing actual bg + primary + accent. No orb background — each view uses `theme.current.backgroundColor` as a solid `.background(...)`. |
-| `Models.swift` | `HomeboxStore` ObservableObject — auth state, server URL, in-memory `locationsFlat: [FlatLocation]` (DFS-flattened tree with ancestor chain). Helpers: `pathString(forLocationId:)`. |
-| `HomeboxClient.swift` | Async/await HTTP client for v0.25.x. Codable models: `HBItem`, `HBLocation`, `HBTreeItem` (final class, recursive), `HBItemCreate`, `HBLocationCreate`, plus `HBLoginResponse`/`HBItemListResponse`. `uploadAttachment` builds multipart/form-data by hand. |
-| `Keychain.swift` | Minimal `SecItem` wrapper for the bearer token (`AccessibleAfterFirstUnlockThisDeviceOnly`). |
-| `PhotoSource.swift` | `CameraSheet` (UIViewControllerRepresentable over UIImagePickerController) + `downscale(_:maxDimension:)` helper that keeps JPEGs under a few hundred KB. |
-| `AddItemView.swift` | Main form. Name → Qty pill → location picker → photo card (Camera/Library buttons or attached-thumbnail with Remove/Replace) → optional description → submit. On submit: POST `/v1/items`, then if a photo is set POST `/v1/items/{id}/attachments` (primary=true). Uses `PhotosPicker` (iOS 16+) for library + `CameraSheet` for capture. Now presented as a modal sheet with interactive scroll dismissal. |
-| `LocationPickerSheet.swift` | Sheet over `store.locationsFlat` with depth indentation, indent ticks, search, pull-to-refresh. Tap to pick; "Clear" in toolbar to deselect. Reused by AddItemView and CreateLocationSheet. |
-| `LocationsTabView.swift` | Dedicated Locations tab — indented tree, search, FAB to open `CreateLocationSheet` (name + optional parent + description; refreshes the store on success). The tree collapses down to top-level items by default. Tiles in grid view use a smooth spring accordion expansion to show child locations inline instead of navigating. |
-| `ItemsListView.swift` | `GET /v1/items`, sorted newest-first, search (hybrid semantic word+sentence embedding) + pull-to-refresh. Breadcrumb prefers the full path from the cached tree, falls back to the item's immediate location name. Uses a FAB (Floating Action Button) to present AddItemView. |
-| `SettingsView.swift` | Signed-in summary: user, server, cached-location count, refresh, sign-out. Theme picker is a 5-column `LazyVGrid` of swatches. About. |
-| `Components.swift` | `GlassCard`, `QuantityControl` (custom -/+ pill — replaces broken `Stepper.labelsHidden()`), `ThumbnailStore` and `ItemListRowContent` for rendering consistent item rows with async thumbnails. |
-| `project.yml` | xcodegen spec — iOS 26 deployment, no signing, asset catalog. Info.plist props: `NSAllowsArbitraryLoads`, `NSCameraUsageDescription`, `NSPhotoLibraryUsageDescription`. `CFBundleDisplayName: HomeBoy`. |
-| `.github/workflows/build.yml` | macOS-15 runner: install xcodegen → generate → archive unsigned → zip IPA → publish to "latest" release. |
-| `Assets.xcassets/` | App icon (1024×1024 isometric cardboard box with green inventory label on a warm peach gradient — homage to Homebox's PWA icon). |
+| `HomeboxCatalogApp.swift` | `@main`. `ContentView`: 3-tab ZStack + `SiteMenuPopover` overlay (zIndex 100) + toast overlay (zIndex 200). `ShowSiteMenuKey` environment key passes `Binding<Bool>` into tab toolbars. `.task` refreshes group list, locations, and item total concurrently on every authenticated launch. `BrandMark` struct (unused in tabs but kept). |
+| `SiteMenuPopover.swift` | Floating popover: loops `store.groups` as individual cards; active group gets accent border + checkmark; tapping switches group. Zoom-from-chevron animation. `Notification.Name.showSettings` + `.showToast` declared here. |
+| `OnboardingView.swift` | Full-screen unauthenticated view — server URL + login form. Replaces the tab view until `store.isAuthenticated`. |
+| `Theme.swift` | 30 `AppTheme` cases (ported from Homebox CSS), `ThemeManager`, **`Color(hex:)` non-failable**, `Color(h:s:l:)` HSL helper, `ThemeSwatch`. No orb backgrounds — solid bg only. |
+| `Models.swift` | `HomeboxStore` (@MainActor ObservableObject): auth, `locationsFlat: [FlatLocation]`, `cachedItemTotal`, `groupName`, `groups: [HBGroup]`, `activeGroupId`. Key methods: `login()`, `refreshGroup()` (stores full group list + sets activeGroupId), `refreshLocations()`, `refreshItemTotal()` (pageSize=1 fast count), `setActiveGroup()` (switches + refreshes). |
+| `HomeboxClient.swift` | Async/await HTTP client. All Codable models: `HBItem` (with `effectiveLabels`), `HBLocation`, `HBTreeItem` (final class, recursive), `HBItemCreate`, `HBItemUpdate`, `HBGroup`, `HBTag`, etc. `uploadAttachment` hand-rolls multipart/form-data. `listGroups()` → `GET /v1/groups/all`. |
+| `Keychain.swift` | Minimal `SecItem` wrapper. Token only (`AccessibleAfterFirstUnlockThisDeviceOnly`). |
+| `PhotoSource.swift` | `CameraSheet` (UIImagePickerController wrapper) + `downscale(_:maxDimension:)` — keeps JPEGs under a few hundred KB. |
+| `AddItemView.swift` | Single-screen add form. `lockLocation` + `lockTags` toggles persist fields across submissions. AI tag suggestions via FoundationModels (0.8 s debounce, silently skips if Apple Intelligence unavailable). Presented as sheet from Items FAB. |
+| `ItemsListView.swift` | Items tab. Hybrid semantic search (NaturalLanguage `min(wordEmbedding, sentenceEmbedding)`, threshold 1.15). FAB opens AddItemView. List/tile view toggle. Filter panel (location + tag). `globalSearchQuery` binding. |
+| `LocationsTabView.swift` | Locations tab. Tree with collapse/expand, tile view, A-Z scrubber. FAB opens `CreateLocationSheet`. `globalSearchQuery` binding. |
+| `LocationDetailView.swift` | Location detail + edit + delete. |
+| `ItemDetailView.swift` | Item detail + edit + delete + photo. |
+| `LocationPickerSheet.swift` | Reusable indented tree picker with search. |
+| `TagPickerSheet.swift` | Multi-select tag picker + inline create. Used in AddItemView / ItemDetailView. |
+| `TagsTabView.swift` | Tags tab. FAB opens `TagEditSheet(mode: .create)`. Tag detail shows items with that tag. `globalSearchQuery` binding. |
+| `SettingsView.swift` | Server URL + login, theme picker (5-col grid of swatches), About. Presented as a sheet from `SiteMenuPopover`. |
+| `Components.swift` | `GlassCard`, `QuantityControl` (replaces broken `Stepper.labelsHidden()`), `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore` (plain `@MainActor class`, NOT ObservableObject), `ItemListRowContent` (shared item row). |
+| `project.yml` | xcodegen spec — iOS 26 deployment, no signing. `CFBundleDisplayName: HomeBoy`. |
+| `.github/workflows/build.yml` | macOS-15: xcodegen → archive unsigned → zip IPA → publish to "latest" release. |
+| `Assets.xcassets/` | App icon: 1024×1024 isometric box on warm peach gradient. |
 
-## Architecture rules
+## Architecture rules — never violate
 
-- **No custom `.glass` / `.glassProminent` button-style definitions** — iOS 26 SDK provides these natively. Custom ones cause "ambiguous use of 'glass'" errors.
-- **Background pattern**: apply `.background(theme.current.backgroundColor.ignoresSafeArea())` as a modifier on the ScrollView / List / Form — **do not** wrap in a `ZStack { background; ScrollView }`. The ZStack sizes to its largest child; a background with `.ignoresSafeArea()` extends beyond the safe area, which corrupts the ScrollView's effective width and shifts content off-screen.
-- **Tokens go in Keychain**, server URL and username in UserDefaults. Never persist passwords.
-- **`POST /v1/items` requires `locationId`** — Add button is disabled until a location is picked. Items can technically be nested under other items via `parentId`, but we never set it.
-- **Attachments are multipart/form-data**, not JSON. `HomeboxClient.uploadAttachment` constructs the body by hand; the request runs through the same `request()` helper so it picks up the auth token automatically. Type (photo vs attachment) is inferred from filename extension server-side — that's why uploads use `photo-<epoch>.jpg`.
-- **`Stepper(...).labelsHidden()` is broken on iOS 26** — it reserves layout space for the hidden label and blows out the row. Use `QuantityControl` instead.
-- **Recursive Codable**: `HBTreeItem` is a `final class` (not struct) because Codable structs can't be self-referential. Conform via `Hashable` on `id`.
-- **UX Patterns**: Use Floating Action Buttons (FABs) fixed in a `.bottomTrailing` alignment for primary actions (like Add/Create). For forms, wrap in a `ScrollView` and use `.scrollDismissesKeyboard(.interactively)`. For top-level navigation, left-align `BrandMark()` in `ToolbarItem(placement: .topBarLeading)`. Apply `.searchable()` to the outermost container view (e.g. `ZStack`) rather than inner `ScrollView`s to prevent keyboard dismissal bugs on empty states. For multiselect lists, use `.simultaneousGesture(LongPressGesture...` on rows instead of a toolbar "Select" button.
+- **3 tabs only**: Items / Locations / Tags. Settings = sheet via NotificationCenter. Add Item = FAB sheet.
+- **SiteMenuPopover is a ZStack overlay at zIndex(100)** in ContentView. Never put it inside a NavigationStack.
+- **Toast overlay is at zIndex(200)** in ContentView. Trigger via `NotificationCenter.default.post(name: .showToast, ...)`. Never build separate toast UI.
+- **No custom `.glass` / `.glassProminent` button styles** — iOS 26 SDK provides these natively. Custom ones → `ambiguous use of 'glass'` error.
+- **Background pattern**: `.background(theme.current.backgroundColor.ignoresSafeArea())` as a modifier on the ScrollView/List/Form. Never wrap in `ZStack { background; content }` — breaks safe area and layout.
+- **`Stepper(...).labelsHidden()` broken on iOS 26** — use `QuantityControl` from Components.swift.
+- **`HBTreeItem` is a `final class`** — Codable structs can't be self-referential.
+- **`Color(hex:)` in Theme.swift is non-failable** — never add another one, never write `?? someColor` after it.
+- **Bearer token is raw** — no `"Bearer "` prefix in the Authorization header.
+- **`HBItem.effectiveLabels`** = `labels ?? tags`. Never access `.labels` or `.tags` directly.
+- **Tag filter nil guard**: `guard let labels = item.effectiveLabels else { return true }` — nil means server already filtered server-side.
+- **`showSiteMenu` flows via `ShowSiteMenuKey` EnvironmentKey** as `Binding<Bool>`. Each tab reads `@Environment(\.showSiteMenu) var showSiteMenu`.
+- **`ThumbnailStore` is NOT ObservableObject** — plain `@MainActor class`. Rows use local `@State`. Making it ObservableObject causes full-list re-renders on every thumbnail load.
+- **Semantic search threshold is 1.15** with hybrid `min(wordEmbedding, sentenceEmbedding)`. Do not revert to pure sentenceEmbedding < 0.75.
 
 ## Common tasks
 
-### Add a new optional field (e.g. serial number)
-1. Add it to `HBItemCreate` in `HomeboxClient.swift`.
-2. Add a `@State` var + UI in `AddItemView.swift` (probably in a "More" disclosure).
-3. Include it in the `payload` constructed in `submit()`.
+### Add a new optional field to items
+1. Add property to `HBItemCreate` (and `HBItemUpdate`) in `HomeboxClient.swift`.
+2. Add `@State` + UI in `AddItemView.swift`.
+3. Wire into `payload` in `submit()`.
 
 ### Wire a new endpoint
-Add a method on `HomeboxClient`. Reuse the private `request(path:method:body:contentType:query:)` helper — it sets the auth header and handles 401/transport errors uniformly.
+Method on `HomeboxClient`. Reuse `request(path:method:body:contentType:query:)` — sets auth, handles 401/transport errors.
+
+### Show a toast from anywhere
+```swift
+NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Done!"])
+```
 
 ### Force re-login on token expiry
-Currently the app surfaces a "Not signed in" error on 401 and the user re-logs in via Settings. To auto-refresh, wire `POST /v1/users/refresh` and call it on `HBError.unauthorized` in a retry loop inside `HomeboxClient.request`.
+Wire `POST /v1/users/refresh` inside `HomeboxClient.request` on `HBError.unauthorized`, retry once.
 
 ### Change the app icon
 Replace `Assets.xcassets/AppIcon.appiconset/AppIcon.png` with a new 1024×1024 PNG.
@@ -86,11 +145,14 @@ git add <files>
 git commit -m "..."
 git push origin main
 ```
+IPA appears at https://github.com/nphil/homebox-catalog-ios/releases/tag/latest.
 
 ## Known gotchas
 - xcodegen sources path is `.` — any new `.swift` file in root is auto-included.
-- `SKIP_INSTALL=NO` and `INSTALL_PATH="/Applications"` required in archive command or `.app` won't appear in xcarchive.
-- Homebox's `Authorization` header takes the **raw token string** (no `Bearer ` prefix).
-- The "API docs" at homebox.software show the **unreleased** `/v1/entities` unified-entity API. Released versions (v0.25.x) still use separate `/v1/items` + `/v1/locations`. Always cross-check `backend/app/api/routes.go` at the target release tag.
-- For very large inventories (>1000 items), we'd need pagination. Currently we ask for `pageSize=1000` in one shot.
-- **Semantic Search**: `ItemsListView` uses a hybrid `min(sentenceEmbedding, wordEmbedding)` with a 1.15 threshold because `sentenceEmbedding` alone breaks on single-word synonyms (like seat/couch). Do not revert to a strict sentence embedding check.
+- `SKIP_INSTALL=NO` and `INSTALL_PATH="/Applications"` required in archive or `.app` won't appear in xcarchive.
+- Authorization header takes **raw token** — no `"Bearer "` prefix.
+- `homebox.software` docs show the **unreleased** `/v1/entities` API. v0.25.x uses `/v1/items` + `/v1/locations`. Always check `routes.go` at the target release tag.
+- For >1000 items, pagination is needed. Currently `pageSize=1000` in one shot.
+- `refreshItemTotal()` uses `pageSize=1` — it only needs the `total` field from `HBItemListResponse`, not the items themselves.
+- **Semantic Search**: hybrid `min(sentenceEmbedding, wordEmbedding)` threshold 1.15. Do not revert to strict sentence embedding — single-word synonyms break.
+- **AI tag suggestions**: FoundationModels (Apple Intelligence). Check `SystemLanguageModel.default.isAvailable` before use; silently skip if unavailable.
