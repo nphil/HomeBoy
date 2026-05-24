@@ -19,10 +19,10 @@
         {
           "version": "1.0.9",
           "buildVersion": "1.0.9",
-          "date": "2026-05-24T20:30:00Z",
-          "localizedDescription": "Renamed GitHub project to HomeBoy, updated repo URL references, and bumped build and version numbers.",
+          "date": "2026-05-24T20:32:19Z",
+          "localizedDescription": "Renamed GitHub project to HomeBoy, updated repo URL references, and bumped build and version numbers.\n\nUnsigned IPA — sideload with AltStore. Built from `d5afa66` on 2026-05-24 20:32 UTC",
           "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.9/HomeboxCatalog.ipa",
-          "size": 15000000
+          "size": 3803446
         },
         {
           "version": "1.0.7",
