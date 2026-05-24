@@ -274,6 +274,10 @@ Each tab registers `.navigationDestination(for:)` in its `NavigationStack`. Push
 - **Don't re-login to switch groups.** Use `store.setActiveGroup()` — it updates `activeGroupId`, which changes the `X-Tenant` header on `store.client`. No new token, no new credentials.
 - **Don't replace the leading `ToolbarItemGroup` with a single `ToolbarItem`.** It needs both the search icon (first) and the HomeBoy pill.
 - **Don't move the LocationListRow chevron back inside the depth lines.** It's intentionally at the far left for tap-target size.
+- **Don't use `.simultaneousGesture` on scroll/list-nested buttons (like chips).** It causes gesture events to bleed through to elements underneath. Use direct `.onTapGesture` and `.onLongPressGesture` instead.
+- **Don't allow tap-to-fullscreen on rows or grid cards.** Set `allowsFullScreen: false` on list/grid card thumbnails so tap gestures correctly trigger navigation or select-toggles. Keep fullscreen zoom viewer local to `ItemDetailView` only.
+- **Don't use custom-styled buttons (like `.glass` style) inside standard system bottom bars.** System toolbars compress custom shapes, truncating labels into circles with ellipses (`...`). Use native borderless buttons instead.
+- **Don't place custom status labels in the leading toolbar slot during edit states.** They truncate to `S...` on compact screens. Use native `.navigationTitle` and `.navigationBarTitleDisplayMode(.inline)` instead.
 
 ---
 

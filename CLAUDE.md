@@ -123,6 +123,10 @@ All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` head
 - **Each tab has `.onChange(of: store.activeGroupId)`** to wipe local caches and reload on group switch. If you add a new tab, wire this too.
 - **Toolbar leading slot is a `ToolbarItemGroup`** on all tabs — search icon first, HomeBoy pill second. Don't replace it with a single `ToolbarItem`.
 - **Search bar**: each tab has `@State private var isSearchActive = false` + `.searchable(text: $globalSearchQuery, isPresented: $isSearchActive)` on the `NavigationStack`. The magnifying glass button in the toolbar sets `isSearchActive = true`.
+- **Gesture propagation & filters**: Do not use `Button` with `.simultaneousGesture(LongPressGesture())` inside lists or scroll views; touches will propagate underneath. Use standard gestures (`.onTapGesture` and `.onLongPressGesture`) directly on custom container shapes instead.
+- **AuthImage fullscreen**: Set `allowsFullScreen: false` on list rows and grid thumbnails. Tapping row/tile images should toggle selection or open details, never launch fullscreen image viewers directly from the main list.
+- **Bottom bar custom buttons**: Use standard borderless text buttons inside `ToolbarItemGroup(placement: .bottomBar)`. Custom shapes (like `.glass` style) get squeezed by the OS toolbar layout engine and truncate labels into circles with ellipses (`...`).
+- **Selection header title**: Use standard `.navigationTitle` with `.navigationBarTitleDisplayMode(.inline)` for selection status headers instead of custom leading toolbar items to prevent `S...` truncation on narrow/compact devices.
 
 ## Common tasks
 
