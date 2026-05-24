@@ -26,6 +26,8 @@ targets:
           - "**/*.md"
           - "project.yml"
           - ".github/**"
+          - ".git/**"
+          - "build/**"
     info:
       path: Info.plist
       properties:
