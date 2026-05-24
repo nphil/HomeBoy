@@ -111,18 +111,6 @@ struct AddItemView: View {
 
             if let submitError { errorPill(submitError) }
             if let justAdded   { successPill(justAdded) }
-
-            VStack(spacing: 6) {
-                Toggle(isOn: $lockLocation) {
-                    Text("Keep location for next item").font(.caption).foregroundStyle(.secondary)
-                }
-                .toggleStyle(.switch).controlSize(.mini).tint(theme.current.accentColor)
-
-                Toggle(isOn: $lockTags) {
-                    Text("Keep tags for next item").font(.caption).foregroundStyle(.secondary)
-                }
-                .toggleStyle(.switch).controlSize(.mini).tint(theme.current.accentColor)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -190,79 +178,158 @@ struct AddItemView: View {
     }
 
     private var compactOptionals: some View {
-        HStack(spacing: 10) {
-            VStack(spacing: 4) {
-                Text("QTY").font(.caption2.weight(.semibold)).tracking(0.4)
-                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                QuantityControl(value: $quantity)
-            }
-
-            Divider().frame(height: 40)
-
-            Button { showTagPicker = true } label: {
+        VStack(alignment: .leading, spacing: 12) {
+            // ROW 1: QTY & TAGS
+            HStack(spacing: 0) {
+                // QTY Left side
                 VStack(spacing: 4) {
-                    Text("TAGS").font(.caption2.weight(.semibold)).tracking(0.4)
+                    Text("QTY").font(.caption2.weight(.semibold)).tracking(0.4)
                         .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    HStack(spacing: 4) {
-                        Image(systemName: "tag.fill").font(.caption)
-                            .foregroundStyle(theme.current.accentColor)
-                        Text(selectedTagIds.isEmpty ? "None" : "\(selectedTagIds.count)")
-                            .font(.callout.weight(.medium))
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 5)
-                    .background(Capsule().fill(.ultraThinMaterial))
-                    .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
-                    .contentShape(Rectangle())
+                    QuantityControl(value: $quantity)
                 }
+                .frame(maxWidth: .infinity)
+                
+                Divider().frame(height: 36)
+                
+                // TAGS Right side
+                Button { showTagPicker = true } label: {
+                    VStack(spacing: 4) {
+                        Text("TAGS").font(.caption2.weight(.semibold)).tracking(0.4)
+                            .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                        HStack(spacing: 4) {
+                            Image(systemName: "tag.fill").font(.caption)
+                                .foregroundStyle(theme.current.accentColor)
+                            Text(selectedTagIds.isEmpty ? "None" : "\(selectedTagIds.count) tag\(selectedTagIds.count == 1 ? "" : "s")")
+                                .font(.callout.weight(.medium))
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(Capsule().fill(.ultraThinMaterial))
+                        .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.top, 4)
 
-            Divider().frame(height: 40)
+            Divider()
 
-            VStack(spacing: 8) {
+            // ROW 2: PHOTOS
+            VStack(alignment: .leading, spacing: 6) {
                 Text("PHOTOS").font(.caption2.weight(.semibold)).tracking(0.4)
                     .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                    .padding(.horizontal, 4)
                 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(photos.indices, id: \.self) { idx in
-                            ZStack(alignment: .topTrailing) {
-                                Image(uiImage: photos[idx]).resizable().scaledToFill()
-                                    .frame(width: 50, height: 50).clipShape(RoundedRectangle(cornerRadius: 8))
-                                Button {
-                                    photos.remove(at: idx)
-                                    // Also remove from pickerItems if possible, but pickerItems might be out of sync.
-                                    // It's easier to just reset pickerItems when modifying manually.
-                                    pickerItems.removeAll()
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.caption).foregroundStyle(.white)
-                                        .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
-                                }
-                                .buttonStyle(.plain)
-                                .offset(x: 6, y: -6)
-                            }
-                        }
-                        
-                        // Add buttons
+                if photos.isEmpty {
+                    // When no photos are present, display both camera and library buttons side-by-side without a ScrollView
+                    HStack(spacing: 12) {
                         if UIImagePickerController.isSourceTypeAvailable(.camera) {
                             Button { showCamera = true } label: {
-                                Image(systemName: "camera.fill").font(.title3)
+                                Label("Camera", systemImage: "camera.fill")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(theme.current.accentColor)
+                                    .padding(.vertical, 10).padding(.horizontal, 16)
+                                    .frame(maxWidth: .infinity)
+                                    .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        
+                        PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
+                            Label("Photo Library", systemImage: "photo.on.rectangle")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(theme.current.accentColor)
+                                .padding(.vertical, 10).padding(.horizontal, 16)
+                                .frame(maxWidth: .infinity)
+                                .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 4)
+                } else {
+                    // ScrollView when there are photos
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(photos.indices, id: \.self) { idx in
+                                ZStack(alignment: .topTrailing) {
+                                    Image(uiImage: photos[idx]).resizable().scaledToFill()
+                                        .frame(width: 50, height: 50).clipShape(RoundedRectangle(cornerRadius: 8))
+                                    Button {
+                                        photos.remove(at: idx)
+                                        pickerItems.removeAll()
+                                    } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                            .font(.caption).foregroundStyle(.white)
+                                            .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .offset(x: 6, y: -6)
+                                }
+                            }
+                            
+                            // Compact buttons inside ScrollView when we already have photos
+                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                Button { showCamera = true } label: {
+                                    Image(systemName: "camera.fill").font(.title3)
+                                        .foregroundStyle(theme.current.accentColor)
+                                        .frame(width: 50, height: 50)
+                                        .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
+                                }.buttonStyle(.plain)
+                            }
+                            PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
+                                Image(systemName: "photo.on.rectangle").font(.title3)
                                     .foregroundStyle(theme.current.accentColor)
                                     .frame(width: 50, height: 50)
                                     .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
                             }.buttonStyle(.plain)
                         }
-                        PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
-                            Image(systemName: "photo.on.rectangle").font(.title3)
-                                .foregroundStyle(theme.current.accentColor)
-                                .frame(width: 50, height: 50)
-                                .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
-                        }.buttonStyle(.plain)
+                        .padding(.horizontal, 4).padding(.vertical, 4)
                     }
-                    .padding(.horizontal, 4).padding(.vertical, 4)
                 }
             }
+
+            Divider()
+
+            // ROW 3: SAVE SETTINGS
+            HStack(spacing: 12) {
+                // Keep Location Toggle
+                Toggle(isOn: $lockLocation) {
+                    HStack(spacing: 4) {
+                        Image(systemName: lockLocation ? "mappin.and.ellipse" : "mappin")
+                            .font(.caption)
+                            .foregroundStyle(lockLocation ? theme.current.accentColor : .secondary)
+                        Text("Keep Location")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(theme.current.accentColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                
+                Divider().frame(height: 24)
+
+                // Keep Tags Toggle
+                Toggle(isOn: $lockTags) {
+                    HStack(spacing: 4) {
+                        Image(systemName: lockTags ? "tag.fill" : "tag")
+                            .font(.caption)
+                            .foregroundStyle(lockTags ? theme.current.accentColor : .secondary)
+                        Text("Keep Tags")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(theme.current.accentColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(.horizontal, 4)
+            .padding(.bottom, 4)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .frame(maxWidth: .infinity)
