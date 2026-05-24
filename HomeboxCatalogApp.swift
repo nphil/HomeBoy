@@ -82,7 +82,7 @@ struct ContentView: View {
             }
             .task {
                 // Refresh group list, location tree, and item count concurrently on every launch
-                async let g: Void = store.refreshGroup()
+                async let g: Void = store.refreshGroups()
                 async let l: Void = store.refreshLocations()
                 try? await g
                 try? await l

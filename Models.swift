@@ -27,25 +27,19 @@ struct FlatLocation: Identifiable, Hashable {
     }
 }
 
-// MARK: - SavedAccount
-
-/// One stored login — server URL + credentials + group name.
-/// Each account has its own token in Keychain at "homebox.token.<id>".
-/// Switching accounts swaps the active credentials so the API returns different data.
-struct SavedAccount: Codable, Identifiable, Hashable {
-    let id: String            // UUID, stable across launches
-    let serverURLString: String
-    var groupName: String     // updated after login via GET /v1/groups
-    let username: String
-}
-
 // MARK: - HomeboxStore
 
 /// Central state for Homebox connectivity + cached data.
+///
+/// Homebox is multi-tenant per request — one user can belong to many groups
+/// (a.k.a. "collections"). Switching collections is purely client-side: we just
+/// change `activeGroupId` and re-fetch. The HTTP client stamps every outgoing
+/// request with `X-Tenant: <activeGroupId>` so the server scopes the response
+/// to the right group. Same auth token works for every group the user belongs to.
 @MainActor
 final class HomeboxStore: ObservableObject {
 
-    // MARK: Active credentials (persisted — drive the live API client)
+    // MARK: Auth + config (persisted)
 
     @Published var serverURLString: String {
         didSet { UserDefaults.standard.set(serverURLString, forKey: Keys.serverURL) }
@@ -59,16 +53,21 @@ final class HomeboxStore: ObservableObject {
     @Published var savedUsername: String {
         didSet { UserDefaults.standard.set(savedUsername, forKey: Keys.username) }
     }
-
-    // MARK: Multi-account roster
-
-    /// All saved accounts, shown in the SiteMenuPopover.
-    @Published private(set) var savedAccounts: [SavedAccount] = []
-    /// Which account is currently active.
-    @Published private(set) var activeAccountId: String? = nil
+    /// Currently-selected group/collection — sent as `X-Tenant` on every request.
+    /// `nil` means use the user's default group on the server.
+    @Published private(set) var activeGroupId: String? {
+        didSet {
+            if let id = activeGroupId {
+                UserDefaults.standard.set(id, forKey: Keys.activeGroupId)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Keys.activeGroupId)
+            }
+        }
+    }
 
     // MARK: In-memory caches
 
+    @Published private(set) var groups: [HBGroup] = []
     @Published private(set) var locationsFlat: [FlatLocation] = []
     @Published var lastError: String?
     @Published private(set) var isLoadingLocations = false
@@ -84,194 +83,94 @@ final class HomeboxStore: ObservableObject {
         return URL(string: withScheme)
     }
 
+    /// HTTP client wired with the active token AND active group id. All API
+    /// calls go through here, so switching `activeGroupId` automatically scopes
+    /// every subsequent request to that group.
     var client: HomeboxClient? {
         guard let serverURL else { return nil }
-        return HomeboxClient(serverURL: serverURL, token: token)
+        return HomeboxClient(serverURL: serverURL, token: token, tenantId: activeGroupId)
     }
 
     private enum Keys {
-        static let serverURL      = "homebox.serverURL"
-        static let username       = "homebox.username"
-        static let token          = "homebox.token"        // active token (legacy key, kept for compatibility)
-        static let savedAccounts  = "homebox.savedAccounts"
-        static let activeAccountId = "homebox.activeAccountId"
+        static let serverURL     = "homebox.serverURL"
+        static let username      = "homebox.username"
+        static let token         = "homebox.token"
+        static let activeGroupId = "homebox.activeGroupId"
     }
 
-    // MARK: - Init + migration
+    // MARK: - Init
 
     init() {
-        // ── 1. Load active credentials (unchanged from legacy path) ──────────
         let savedURL = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
         serverURLString = savedURL
         savedUsername   = UserDefaults.standard.string(forKey: Keys.username) ?? ""
+        activeGroupId   = UserDefaults.standard.string(forKey: Keys.activeGroupId)
 
         if savedURL.isEmpty {
             token = nil
-            Keychain.delete(Keys.token)
+            Keychain.delete(Keys.token) // Clean up dangling token from previous installs
         } else {
             token = Keychain.get(Keys.token)
         }
-
-        // ── 2. Load saved accounts ──────────────────────────────────────────
-        let activeId = UserDefaults.standard.string(forKey: Keys.activeAccountId)
-
-        if let data = UserDefaults.standard.data(forKey: Keys.savedAccounts),
-           let decoded = try? JSONDecoder().decode([SavedAccount].self, from: data) {
-            savedAccounts  = decoded
-            activeAccountId = activeId
-        } else if !savedURL.isEmpty, let existingToken = Keychain.get(Keys.token) {
-            // ── Migration: wrap the existing single-account credentials ──────
-            let migrated = SavedAccount(
-                id: UUID().uuidString,
-                serverURLString: savedURL,
-                groupName: "My Home",   // overwritten next time refreshGroup() runs
-                username: savedUsername
-            )
-            Keychain.set(existingToken, key: "homebox.token.\(migrated.id)")
-            savedAccounts  = [migrated]
-            activeAccountId = migrated.id
-            persistAccounts()
-        }
     }
 
-    // MARK: - Single-account login (OnboardingView / Settings re-login)
+    // MARK: - Auth
 
     func login(username: String, password: String) async throws {
         guard let url = serverURL else { throw HBError.badURL }
         let resp = try await HomeboxClient.login(serverURL: url, username: username, password: password)
         token        = resp.token
         savedUsername = username
-
-        // Discover the group this token is scoped to
-        try await refreshGroup()
-
-        // Save / update account in the roster
-        let name = groupName ?? "My Home"
-        upsertAccount(serverURLString: serverURLString,
-                      username: username,
-                      token: resp.token,
-                      groupName: name)
-
+        // Clear stale group selection from previous logins
+        activeGroupId = nil
+        groups        = []
+        try await refreshGroups()
         try await refreshLocations()
         await refreshItemTotal()
     }
 
-    // MARK: - Add a *second* account without disturbing the active session
-
-    func addAccount(serverURLString rawURL: String, username: String, password: String) async throws {
-        let trimmed = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { throw HBError.badURL }
-        let urlStr = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        guard let url = URL(string: urlStr) else { throw HBError.badURL }
-
-        // Login on a temporary client — does NOT touch self.token or self.serverURLString
-        let resp = try await HomeboxClient.login(serverURL: url, username: username, password: password)
-
-        // Discover group name for this new token
-        let tempClient = HomeboxClient(serverURL: url, token: resp.token)
-        var newGroupName = "My Home"
-        if let group = try? await tempClient.currentGroup() {
-            newGroupName = group.name
-        } else if let groups = try? await tempClient.listGroups(), let first = groups.first {
-            newGroupName = first.name
-        }
-
-        upsertAccount(serverURLString: urlStr,
-                      username: username,
-                      token: resp.token,
-                      groupName: newGroupName)
+    func logout() {
+        token         = nil
+        activeGroupId = nil
+        groups        = []
+        locationsFlat = []
+        cachedItemTotal = nil
+        groupName     = nil
     }
 
-    // MARK: - Switch active account (the real group-switching mechanism)
+    // MARK: - Group switching (the X-Tenant story)
 
-    func switchAccount(_ account: SavedAccount) async {
-        guard let newToken = Keychain.get("homebox.token.\(account.id)") else { return }
+    /// Switch the active group/collection. Same auth token, just a different
+    /// `X-Tenant` header on subsequent requests → different data comes back.
+    func setActiveGroup(_ group: HBGroup) async {
+        activeGroupId = group.id
+        groupName     = group.name
 
-        // Swap every credential that the API client depends on
-        activeAccountId = account.id
-        serverURLString = account.serverURLString   // didSet saves to UserDefaults
-        savedUsername   = account.username           // didSet saves to UserDefaults
-        token           = newToken                   // didSet saves to Keychain (Keys.token)
-        groupName       = account.groupName
-
-        persistAccounts()
-
-        // Clear stale data from previous account
+        // Clear stale data so the UI doesn't briefly flash the wrong items
         locationsFlat   = []
         cachedItemTotal = nil
 
-        // Reload with new credentials
         try? await refreshLocations()
         await refreshItemTotal()
-        // Also refresh group name in case it changed
-        try? await refreshGroup()
-    }
-
-    // MARK: - Remove a saved account
-
-    func removeAccount(_ account: SavedAccount) {
-        Keychain.delete("homebox.token.\(account.id)")
-        savedAccounts.removeAll { $0.id == account.id }
-        persistAccounts()
-
-        if activeAccountId == account.id {
-            if let next = savedAccounts.first {
-                Task { await switchAccount(next) }
-            } else {
-                token           = nil
-                activeAccountId = nil
-                locationsFlat   = []
-                cachedItemTotal = nil
-                groupName       = nil
-            }
-        }
-    }
-
-    // MARK: - Logout (removes all accounts → returns to OnboardingView)
-
-    func logout() {
-        for acct in savedAccounts {
-            Keychain.delete("homebox.token.\(acct.id)")
-        }
-        savedAccounts   = []
-        activeAccountId = nil
-        persistAccounts()
-
-        token           = nil
-        locationsFlat   = []
-        cachedItemTotal = nil
-        groupName       = nil
     }
 
     // MARK: - Data fetching
 
-    /// Fetch the group name for the current token and sync it into the active account.
-    func refreshGroup() async throws {
+    /// Fetch all groups the user is a member of. If `activeGroupId` is unset or
+    /// no longer matches any group, defaults to the first group.
+    func refreshGroups() async throws {
         guard let client else { throw HBError.notConfigured }
+        let fetched = try await client.listGroups()
+        self.groups = fetched
 
-        // Try the single-group endpoint first (scoped to this token)
-        let name: String?
-        if let group = try? await client.currentGroup() {
-            name = group.name
-        } else {
-            // Fallback: list all and take the first
-            let all = (try? await client.listGroups()) ?? []
-            name = all.first?.name
+        // If our selection is stale or unset, fall back to the first group
+        if activeGroupId == nil || !fetched.contains(where: { $0.id == activeGroupId }) {
+            activeGroupId = fetched.first?.id
         }
-
-        if let name {
-            self.groupName = name
-            // Keep the account roster in sync
-            if let activeId = activeAccountId,
-               let idx = savedAccounts.firstIndex(where: { $0.id == activeId }),
-               savedAccounts[idx].groupName != name {
-                savedAccounts[idx].groupName = name
-                persistAccounts()
-            }
-        }
+        groupName = fetched.first { $0.id == activeGroupId }?.name ?? fetched.first?.name
     }
 
-    /// Fetch only the total item count (pageSize=1 is enough to get the `total` field).
+    /// Fetch only the total item count (pageSize=1 is enough — we just want the `total` field).
     func refreshItemTotal() async {
         guard let client else { return }
         if let resp = try? await client.listItems(page: 1, pageSize: 1),
@@ -303,42 +202,6 @@ final class HomeboxStore: ObservableObject {
     func pathString(forLocationId id: String?) -> String {
         guard let id, let loc = locationsFlat.first(where: { $0.id == id }) else { return "" }
         return loc.pathString
-    }
-
-    // MARK: - Private helpers
-
-    /// Insert or update an account in the roster and mark it active.
-    private func upsertAccount(serverURLString urlStr: String,
-                               username: String,
-                               token newToken: String,
-                               groupName name: String) {
-        if let idx = savedAccounts.firstIndex(where: {
-            $0.serverURLString == urlStr && $0.username == username
-        }) {
-            savedAccounts[idx].groupName = name
-            Keychain.set(newToken, key: "homebox.token.\(savedAccounts[idx].id)")
-            activeAccountId = savedAccounts[idx].id
-        } else {
-            let acct = SavedAccount(id: UUID().uuidString,
-                                    serverURLString: urlStr,
-                                    groupName: name,
-                                    username: username)
-            Keychain.set(newToken, key: "homebox.token.\(acct.id)")
-            savedAccounts.append(acct)
-            activeAccountId = acct.id
-        }
-        persistAccounts()
-    }
-
-    private func persistAccounts() {
-        if let data = try? JSONEncoder().encode(savedAccounts) {
-            UserDefaults.standard.set(data, forKey: Keys.savedAccounts)
-        }
-        if let id = activeAccountId {
-            UserDefaults.standard.set(id, forKey: Keys.activeAccountId)
-        } else {
-            UserDefaults.standard.removeObject(forKey: Keys.activeAccountId)
-        }
     }
 
     /// DFS flatten the location tree into a depth-annotated list.

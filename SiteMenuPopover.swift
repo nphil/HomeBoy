@@ -23,12 +23,11 @@ struct SiteMenuPopover: View {
 
                 // Popover card — zooms out from the top-leading chevron button
                 VStack(spacing: 10) {
-                    if store.savedAccounts.isEmpty {
-                        // Not yet populated (first launch before login completes)
+                    if store.groups.isEmpty {
                         placeholderCard
                     } else {
-                        ForEach(store.savedAccounts) { account in
-                            accountCard(account)
+                        ForEach(store.groups) { group in
+                            groupCard(group)
                         }
                     }
 
@@ -68,15 +67,15 @@ struct SiteMenuPopover: View {
         }
     }
 
-    // MARK: - Account card
+    // MARK: - Group card
 
     @ViewBuilder
-    private func accountCard(_ account: SavedAccount) -> some View {
-        let isActive = account.id == store.activeAccountId
+    private func groupCard(_ group: HBGroup) -> some View {
+        let isActive = group.id == store.activeGroupId
 
         Button {
             guard !isActive, !isSwitching else { return }
-            Task { await switchTo(account) }
+            Task { await switchTo(group) }
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -84,7 +83,7 @@ struct SiteMenuPopover: View {
                         Image(systemName: isActive ? "cube.fill" : "cube")
                             .foregroundStyle(theme.current.accentColor)
                             .font(.subheadline)
-                        Text(account.groupName)
+                        Text(group.name)
                             .font(.headline)
                             .foregroundStyle(.primary)
                     }
@@ -97,10 +96,15 @@ struct SiteMenuPopover: View {
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
-                    } else {
-                        Text(account.username)
+                    } else if let desc = group.description, !desc.isEmpty {
+                        Text(desc)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("Tap to switch")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
                     }
                 }
                 Spacer()
@@ -128,7 +132,7 @@ struct SiteMenuPopover: View {
         .disabled(isSwitching)
     }
 
-    // MARK: - Placeholder (shown before accounts load)
+    // MARK: - Placeholder (shown before groups load)
 
     @ViewBuilder
     private var placeholderCard: some View {
@@ -152,9 +156,8 @@ struct SiteMenuPopover: View {
                 }
             }
             Spacer()
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(theme.current.accentColor)
-                .font(.title3)
+            ProgressView()
+                .controlSize(.small)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -168,9 +171,9 @@ struct SiteMenuPopover: View {
 
     // MARK: - Switch
 
-    private func switchTo(_ account: SavedAccount) async {
+    private func switchTo(_ group: HBGroup) async {
         isSwitching = true
-        await store.switchAccount(account)
+        await store.setActiveGroup(group)
         isSwitching = false
         withAnimation(.spring(response: 0.3, dampingFraction: 0.75)) {
             isPresented = false
@@ -178,7 +181,7 @@ struct SiteMenuPopover: View {
         NotificationCenter.default.post(
             name: .showToast,
             object: nil,
-            userInfo: ["message": "Switched to \(account.groupName)"]
+            userInfo: ["message": "Switched to \(group.name)"]
         )
     }
 }

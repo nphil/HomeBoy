@@ -252,10 +252,21 @@ enum HBError: LocalizedError {
 
 // MARK: - Client
 
-/// Stateless HTTP client. Caller holds the server URL + token.
+/// Stateless HTTP client. Caller holds the server URL + token + active group id.
+/// `tenantId` (when set) is sent on every request as `X-Tenant: <uuid>` — this is
+/// how Homebox routes a request to a specific group/collection. Same token works
+/// for any group the user is a member of. Without the header, the server falls
+/// back to the user's `defaultGroupId`.
 struct HomeboxClient {
     var serverURL: URL
     var token: String?
+    var tenantId: String?
+
+    init(serverURL: URL, token: String? = nil, tenantId: String? = nil) {
+        self.serverURL = serverURL
+        self.token = token
+        self.tenantId = tenantId
+    }
 
     private func url(_ path: String, query: [URLQueryItem] = []) throws -> URL {
         var comps = URLComponents(url: serverURL.appendingPathComponent("api").appendingPathComponent(path), resolvingAgainstBaseURL: false)
@@ -270,6 +281,9 @@ struct HomeboxClient {
         req.httpBody = body
         if body != nil { req.setValue(contentType, forHTTPHeaderField: "Content-Type") }
         if let token { req.setValue(token, forHTTPHeaderField: "Authorization") }
+        // Scope this request to the selected group/collection. If nil, the server
+        // uses the user's default group.
+        if let tenantId { req.setValue(tenantId, forHTTPHeaderField: "X-Tenant") }
 
         let (data, resp): (Data, URLResponse)
         do {
@@ -431,14 +445,9 @@ struct HomeboxClient {
 
     // MARK: Groups
 
-    /// `GET /v1/groups` — the single group this token is scoped to.
-    func currentGroup() async throws -> HBGroup {
-        let data = try await request("v1/groups", method: "GET")
-        do { return try JSONDecoder().decode(HBGroup.self, from: data) }
-        catch { throw HBError.decode(error) }
-    }
-
-    /// `GET /v1/groups/all` — all groups visible to this token (may be admin-only).
+    /// `GET /v1/groups/all` — list every group the user is a member of.
+    /// The frontend calls these "collections" but they're the same thing — group UUIDs
+    /// stamped into the `X-Tenant` header to scope every other request.
     func listGroups() async throws -> [HBGroup] {
         let data = try await request("v1/groups/all", method: "GET")
         do { return try JSONDecoder().decode([HBGroup].self, from: data) }
