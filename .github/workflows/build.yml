@@ -3,92 +3,14 @@ name: Build IPA
 on:
   push:
     branches: [main]
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  # ── Runs on every push to main ──────────────────────────────────────────────
-  # Bumps the patch version, commits it back with [skip ci], then pushes a v*
-  # tag. That tag push triggers the build job below.
-  bump-and-tag:
-    name: Bump version and push tag
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute next version
-        id: ver
-        run: |
-          CURRENT=$(python3 -c "
-          import plistlib
-          with open('Info.plist', 'rb') as f:
-              p = plistlib.load(f)
-          print(p['CFBundleShortVersionString'])
-          ")
-          BUILD=$(python3 -c "
-          import plistlib
-          with open('Info.plist', 'rb') as f:
-              p = plistlib.load(f)
-          print(p['CFBundleVersion'])
-          ")
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          NEW_VER="$MAJOR.$MINOR.$((PATCH + 1))"
-          NEW_BUILD="$((BUILD + 1))"
-          echo "version=$NEW_VER" >> "$GITHUB_OUTPUT"
-          echo "build=$NEW_BUILD"  >> "$GITHUB_OUTPUT"
-          echo "tag=v$NEW_VER"     >> "$GITHUB_OUTPUT"
-
-      - name: Update Info.plist and project.yml
-        run: |
-          python3 - <<PYEOF
-          import plistlib, re
-
-          ver   = "${{ steps.ver.outputs.version }}"
-          build = "${{ steps.ver.outputs.build }}"
-
-          # Info.plist
-          with open('Info.plist', 'rb') as f:
-              p = plistlib.load(f)
-          p['CFBundleShortVersionString'] = ver
-          p['CFBundleVersion'] = build
-          with open('Info.plist', 'wb') as f:
-              plistlib.dump(p, f, fmt=plistlib.FMT_XML)
-
-          # project.yml (plain-text substitution)
-          with open('project.yml') as f:
-              text = f.read()
-          text = re.sub(r'CFBundleShortVersionString:\s*"[^"]*"',
-                        f'CFBundleShortVersionString: "{ver}"', text)
-          text = re.sub(r'CFBundleVersion:\s*"[^"]*"',
-                        f'CFBundleVersion: "{build}"', text)
-          with open('project.yml', 'w') as f:
-              f.write(text)
-
-          print(f"Bumped to {ver} (build {build})")
-          PYEOF
-
-      - name: Commit, tag, and push
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Info.plist project.yml
-          git commit -m "chore: bump version to ${{ steps.ver.outputs.version }} [skip ci]"
-          git push origin main
-          git tag "${{ steps.ver.outputs.tag }}"
-          git push origin "${{ steps.ver.outputs.tag }}"
-
-  # ── Runs when a v* tag is pushed (including the one above) ─────────────────
-  build:
-    name: Build unsigned IPA
-    if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    name: Build and release
     runs-on: macos-15
 
     env:
@@ -99,6 +21,45 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next version
+        id: ver
+        run: |
+          CURRENT=$(python3 -c "import plistlib; print(plistlib.load(open('Info.plist','rb'))['CFBundleShortVersionString'])")
+          BUILD=$(python3 -c "import plistlib; print(plistlib.load(open('Info.plist','rb'))['CFBundleVersion'])")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_VER="$MAJOR.$MINOR.$((PATCH + 1))"
+          NEW_BUILD="$((BUILD + 1))"
+          echo "version=$NEW_VER" >> "$GITHUB_OUTPUT"
+          echo "build=$NEW_BUILD"  >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW_VER"     >> "$GITHUB_OUTPUT"
+
+      - name: Update version in source files
+        run: |
+          python3 - <<PYEOF
+          import plistlib, re
+          ver   = "${{ steps.ver.outputs.version }}"
+          build = "${{ steps.ver.outputs.build }}"
+
+          with open('Info.plist', 'rb') as f:
+              p = plistlib.load(f)
+          p['CFBundleShortVersionString'] = ver
+          p['CFBundleVersion'] = build
+          with open('Info.plist', 'wb') as f:
+              plistlib.dump(p, f, fmt=plistlib.FMT_XML)
+
+          with open('project.yml') as f:
+              text = f.read()
+          text = re.sub(r'CFBundleShortVersionString:\s*"[^"]*"',
+                        f'CFBundleShortVersionString: "{ver}"', text)
+          text = re.sub(r'CFBundleVersion:\s*"[^"]*"',
+                        f'CFBundleVersion: "{build}"', text)
+          with open('project.yml', 'w') as f:
+              f.write(text)
+          print(f"Bumped to {ver} (build {build})")
+          PYEOF
 
       - name: Select Xcode
         run: |
@@ -143,7 +104,7 @@ jobs:
             2>/dev/null | head -1)
 
           if [ -z "$APP_PATH" ]; then
-            echo "❌ .app not found in archive. Listing archive:"
+            echo "❌ .app not found in archive:"
             find "$ARCHIVE_PATH" -maxdepth 6 2>/dev/null || echo "(archive missing)"
             exit 1
           fi
@@ -154,12 +115,26 @@ jobs:
           zip -r HomeboxCatalog.ipa Payload/
           echo "IPA size: $(du -sh HomeboxCatalog.ipa | cut -f1)"
 
-      - name: Publish release
+      - name: Commit version bump, tag, and publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          TAG="${{ steps.ver.outputs.tag }}"
           SHORT_SHA="${GITHUB_SHA::7}"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Info.plist project.yml
+          git commit -m "chore: bump version to ${{ steps.ver.outputs.version }} [skip ci]"
+
+          # Rebase in case main advanced while we were building, then push
+          git fetch origin main
+          git rebase origin/main
+          git push origin main
+
+          git tag "$TAG"
+          git push origin "$TAG"
+
           gh release create "$TAG" \
             HomeboxCatalog.ipa \
             --title "$TAG" \
