@@ -106,7 +106,7 @@ struct ItemsListView: View {
                 contentArea
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                if store.isAuthenticated {
+                if store.isAuthenticated && !selectMode {
                     VStack {
                         Spacer()
                         HStack {
@@ -128,46 +128,86 @@ struct ItemsListView: View {
                 }
             }
             .toolbar {
-                ToolbarItemGroup(placement: .topBarLeading) {
-                    Button {
-                        withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
-                            showSiteMenu.wrappedValue.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "shippingbox.fill")
-                                .foregroundStyle(theme.current.accentColor)
-                            Text("HomeBoy")
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-                            Image(systemName: "chevron.down")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.secondary)
-                        }
+                if selectMode {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Text(selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(.primary)
                     }
-                }
-                if store.isAuthenticated {
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button {
-                            isSearchActive = true
-                        } label: {
-                            Image(systemName: "magnifyingglass")
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button("Done") {
+                            withAnimation {
+                                selectMode = false
+                                selectedIds = []
+                            }
                         }
-
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
-                        } label: {
-                            Image(systemName: hasActiveFilters
-                                  ? "line.3.horizontal.decrease.circle.fill"
-                                  : "line.3.horizontal.decrease.circle")
+                        .font(.body.bold())
+                        .foregroundStyle(theme.current.accentColor)
+                    }
+                    ToolbarItemGroup(placement: .bottomBar) {
+                        Button("Select All") {
+                            selectedIds = Set(filteredItems.map { $0.id })
                         }
-
+                        .buttonStyle(.glass)
+                        
+                        Spacer()
+                        
+                        Button("Deselect All") {
+                            selectedIds = []
+                        }
+                        .buttonStyle(.glass)
+                        .disabled(selectedIds.isEmpty)
+                        
+                        Spacer()
+                        
+                        Button("Edit") {
+                            showBulkEdit = true
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(selectedIds.isEmpty)
+                    }
+                } else {
+                    ToolbarItemGroup(placement: .topBarLeading) {
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                viewMode = viewMode == .list ? .tile : .list
+                            withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
+                                showSiteMenu.wrappedValue.toggle()
                             }
                         } label: {
-                            Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                            HStack(spacing: 4) {
+                                Image(systemName: "shippingbox.fill")
+                                    .foregroundStyle(theme.current.accentColor)
+                                Text("HomeBoy")
+                                    .font(.headline)
+                                    .foregroundStyle(.primary)
+                                Image(systemName: "chevron.down")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if store.isAuthenticated {
+                        ToolbarItemGroup(placement: .topBarTrailing) {
+                            Button {
+                                isSearchActive = true
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                            }
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                            } label: {
+                                Image(systemName: hasActiveFilters
+                                      ? "line.3.horizontal.decrease.circle.fill"
+                                      : "line.3.horizontal.decrease.circle")
+                            }
+
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    viewMode = viewMode == .list ? .tile : .list
+                                }
+                            } label: {
+                                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                            }
                         }
                     }
                 }
@@ -218,9 +258,7 @@ struct ItemsListView: View {
                 AddItemView()
                     .environmentObject(store).environmentObject(theme)
             }
-            .safeAreaInset(edge: .bottom) {
-                if selectMode { bulkActionBar }
-            }
+            .toolbar(selectMode ? .hidden : .visible, for: .tabBar)
         }
     }
 
@@ -500,82 +538,6 @@ struct ItemsListView: View {
                 UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             }
         })
-    }
-
-    // MARK: - Bulk bar
-
-    private var bulkActionBar: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("\(selectedIds.count) selected").font(.body.weight(.semibold))
-                Spacer()
-                Button("Done") {
-                    withAnimation { selectMode = false; selectedIds = [] }
-                }.font(.body.bold()).foregroundStyle(theme.current.accentColor)
-            }
-            HStack(spacing: 8) {
-                Button {
-                    selectedIds = Set(filteredItems.map { $0.id })
-                } label: {
-                    Text("Select All")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(theme.current.backgroundColor)
-                        )
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(theme.current.accentColor.opacity(0.12))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.glass)
-
-                Button {
-                    selectedIds = []
-                } label: {
-                    Text("Deselect All")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(theme.current.backgroundColor)
-                        )
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(Color.secondary.opacity(0.12))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(Color.secondary.opacity(0.25), lineWidth: 1)
-                        )
-                }
-                .buttonStyle(.glass)
-
-                Button {
-                    showBulkEdit = true
-                } label: {
-                    Text("Edit")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(theme.current.accentColor.opacity(selectedIds.isEmpty ? 0.4 : 1.0))
-                        )
-                }
-                .buttonStyle(.glassProminent)
-                .disabled(selectedIds.isEmpty)
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(Color.clear)
     }
 
     // MARK: - Empty / error states
