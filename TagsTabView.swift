@@ -107,7 +107,8 @@ struct TagsTabView: View {
             })
             .presentationDetents([.fraction(0.75)])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(.clear)
+            .presentationBackground(.ultraThinMaterial)
+            .presentationCornerRadius(28)
             .environmentObject(store)
             .environmentObject(theme)
         }
@@ -319,7 +320,8 @@ struct TagDetailView: View {
                 })
                 .presentationDetents([.fraction(0.75)])
                 .presentationDragIndicator(.hidden)
-                .presentationBackground(.clear)
+                .presentationBackground(.ultraThinMaterial)
+                .presentationCornerRadius(28)
                 .environmentObject(store)
                 .environmentObject(theme)
             }
@@ -410,8 +412,8 @@ struct TagEditSheet: View {
                 .padding(.bottom, 12)
 
                 // Content
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 16) {
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 10) {
                             Circle().fill(Color(hex: colorHex)).frame(width: 20, height: 20)
                                 .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
@@ -486,9 +488,6 @@ struct TagEditSheet: View {
             RoundedRectangle(cornerRadius: 28)
                 .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
         )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
-        .padding(.top, 8)
         .onAppear {
             if case .edit(let tag) = mode {
                 name = tag.name

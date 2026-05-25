@@ -132,7 +132,8 @@ struct LocationsTabView: View {
             })
             .presentationDetents([.fraction(0.65)])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(.clear)
+            .presentationBackground(.ultraThinMaterial)
+            .presentationCornerRadius(28)
             .environmentObject(store)
             .environmentObject(theme)
         }
@@ -537,8 +538,8 @@ struct CreateLocationSheet: View {
                 .padding(.bottom, 12)
 
                 // Content
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 16) {
+                VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 12) {
                         TextField("Location name", text: $name)
                             .font(.callout.weight(.semibold))
                             .focused($nameFocused)
@@ -607,9 +608,6 @@ struct CreateLocationSheet: View {
             RoundedRectangle(cornerRadius: 28)
                 .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
         )
-        .padding(.horizontal, 16)
-        .padding(.bottom, 16)
-        .padding(.top, 8)
         .sheet(isPresented: $showParentPicker) {
             LocationPickerSheet(selectedId: $parentId)
                 .environmentObject(store)

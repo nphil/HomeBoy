@@ -74,7 +74,8 @@ struct ItemDetailView: View {
                 )
                 .presentationDetents([.fraction(0.85)])
                 .presentationDragIndicator(.hidden)
-                .presentationBackground(.clear)
+                .presentationBackground(.ultraThinMaterial)
+                .presentationCornerRadius(28)
                 .environmentObject(store)
                 .environmentObject(theme)
             }

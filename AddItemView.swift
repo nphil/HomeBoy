@@ -86,7 +86,7 @@ struct AddItemView: View {
                         .padding(.top, 14)
                         .padding(.bottom, 12)
 
-                        ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 0) {
                             addForm
                                 .padding(.horizontal, 20)
                         }
@@ -103,9 +103,6 @@ struct AddItemView: View {
                     RoundedRectangle(cornerRadius: 28)
                         .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
                 )
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
-                .padding(.top, 8)
             }
         }
         .sheet(isPresented: $showLocationPicker) {
@@ -178,7 +175,7 @@ struct AddItemView: View {
     }
 
     private var addForm: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             parentRow
             nameField
             if !isComponent {
@@ -233,15 +230,10 @@ struct AddItemView: View {
             isOn.wrappedValue.toggle()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } label: {
-            HStack(spacing: 4) {
-                Image(systemName: isOn.wrappedValue ? "pin.fill" : "pin")
-                    .font(.caption)
-                Text("Keep")
-                    .font(.caption.weight(.semibold))
-            }
-            .padding(.horizontal, 12)
+            Image(systemName: isOn.wrappedValue ? "pin.fill" : "pin")
+                .font(.body)
+                .frame(width: 44, height: 44)
         }
-        .frame(height: 44)
         .modifier(KeepButtonStyleModifier(isOn: isOn.wrappedValue))
         .shadow(color: isOn.wrappedValue ? theme.current.accentColor.opacity(0.4) : .clear, radius: 6)
     }
