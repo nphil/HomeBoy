@@ -106,9 +106,10 @@ struct TagsTabView: View {
                 showCreate = false
             })
             .presentationBackground {
-                Color.clear
-                    .background(.ultraThinMaterial)
-                    .background(theme.current.accentColor.opacity(0.04))
+                ZStack {
+                    Rectangle().fill(.ultraThinMaterial)
+                    theme.current.accentColor.opacity(0.05)
+                }
             }
             .environmentObject(store)
             .environmentObject(theme)
@@ -320,9 +321,10 @@ struct TagDetailView: View {
                     showEdit = false
                 })
                 .presentationBackground {
-                    Color.clear
-                        .background(.ultraThinMaterial)
-                        .background(theme.current.accentColor.opacity(0.04))
+                    ZStack {
+                        Rectangle().fill(.ultraThinMaterial)
+                        theme.current.accentColor.opacity(0.05)
+                    }
                 }
                 .environmentObject(store)
                 .environmentObject(theme)
@@ -381,7 +383,7 @@ struct TagEditSheet: View {
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             // Header
             HStack {
                 HStack(spacing: 8) {
@@ -404,24 +406,26 @@ struct TagEditSheet: View {
             .padding(.bottom, 4)
 
             // Content
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 16) {
                 HStack(spacing: 10) {
-                    Circle().fill(Color(hex: colorHex)).frame(width: 22, height: 22)
+                    Circle().fill(Color(hex: colorHex)).frame(width: 20, height: 20)
                         .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
                     TextField("Tag name", text: $name)
-                        .font(.title3.weight(.semibold))
+                        .font(.callout.weight(.semibold))
                         .focused($nameFocused)
                         .textInputAutocapitalization(.never)
                         .submitLabel(.done)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10)
+                .padding(.horizontal, 14)
+                .frame(height: 40)
                 .background {
-                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
+                    RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
                 }
-                .overlay(RoundedRectangle(cornerRadius: 12)
-                    .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
-                            lineWidth: name.isEmpty ? 1.5 : 1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
+                )
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Color").font(.caption.weight(.semibold))
@@ -429,31 +433,21 @@ struct TagEditSheet: View {
                         .padding(.horizontal, 4)
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
                         ForEach(HomeboxTagPalette, id: \.self) { hex in
-                            Button { colorHex = hex } label: {
-                                Circle()
-                                    .fill(Color(hex: hex))
-                                    .frame(height: 32)
-                                    .overlay(
-                                        Circle().stroke(colorHex == hex ? Color.primary : Color.primary.opacity(0.1),
-                                                        lineWidth: colorHex == hex ? 3 : 1)
-                                    )
-                                    .overlay(
-                                        Image(systemName: "checkmark")
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(.white)
-                                            .opacity(colorHex == hex ? 1 : 0)
-                                    )
-                            }
-                            .buttonStyle(.plain)
+                            Circle()
+                                .fill(Color(hex: hex))
+                                .frame(width: 32, height: 32)
+                                .overlay(
+                                    Circle()
+                                        .stroke(colorHex == hex ? Color.white : Color.clear, lineWidth: 2)
+                                )
+                                .shadow(color: colorHex == hex ? Color(hex: hex).opacity(0.6) : Color.clear, radius: 4)
+                                .onTapGesture {
+                                    colorHex = hex
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                }
                         }
                     }
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10)
-                .background {
-                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-                }
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
 
                 DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
 
@@ -468,6 +462,8 @@ struct TagEditSheet: View {
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
                     .foregroundStyle(.primary)
                 }
+                
+                Spacer(minLength: 0)
             }
 
             // Action buttons
@@ -475,7 +471,7 @@ struct TagEditSheet: View {
                 .padding(.top, 4)
         }
         .padding(.horizontal, 20)
-        .padding(.top, 4)
+        .padding(.top, 20)
         .onAppear {
             if case .edit(let tag) = mode {
                 name = tag.name

@@ -301,9 +301,10 @@ struct ItemsListView: View {
                     Task { await load(force: true) }
                 })
                 .presentationBackground {
-                    Color.clear
-                        .background(.ultraThinMaterial)
-                        .background(theme.current.accentColor.opacity(0.04))
+                    ZStack {
+                        Rectangle().fill(.ultraThinMaterial)
+                        theme.current.accentColor.opacity(0.05)
+                    }
                 }
                 .environmentObject(store)
                 .environmentObject(theme)

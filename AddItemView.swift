@@ -54,7 +54,7 @@ struct AddItemView: View {
                 notConfiguredView
                     .padding(24)
             } else {
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 16) {
                     // Header
                     HStack {
                         HStack(spacing: 8) {
@@ -82,7 +82,8 @@ struct AddItemView: View {
                         .padding(.top, 4)
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 4)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
             }
         }
         .sheet(isPresented: $showLocationPicker) {
@@ -156,7 +157,7 @@ struct AddItemView: View {
     }
 
     private var addForm: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 16) {
             parentRow
             nameField
             if !isComponent {
@@ -172,9 +173,9 @@ struct AddItemView: View {
 
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 0)
+        .padding(.top, 4)
+        .padding(.bottom, 4)
     }
 
     // MARK: - Subviews
