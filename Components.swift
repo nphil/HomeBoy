@@ -18,23 +18,23 @@ struct FloatingCardContainer<Content: View>: View {
 
     var body: some View {
         let accent = theme.current.accentColor
-        // Content stays within safe area so buttons sit above home indicator.
-        // background(ignoresSafeAreaEdges:) extends the card glass past the
-        // system home-indicator inset to the physical screen edge, while the
-        // primary view (content) still respects safe area.
+        // presentationBackground fills the system sheet container, which already
+        // extends to the physical screen edge past the home-indicator safe area.
+        // This is more reliable than ignoresSafeArea modifiers inside the sheet.
+        // The cardShape has rounded top corners and square bottom corners so the
+        // bottom seam is flush. The 4pt horizontal padding creates the side gaps.
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, horizontalInset)
-            .background(ignoresSafeAreaEdges: .bottom) {
+            .presentationDetents([.fraction(0.85)])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground {
                 ZStack {
                     cardShape.fill(.ultraThinMaterial)
                     cardShape.fill(accent.opacity(0.06))
                 }
                 .padding(.horizontal, horizontalInset)
             }
-            .presentationDetents([.fraction(0.85)])
-            .presentationDragIndicator(.hidden)
-            .presentationBackground(.clear)
             .presentationCornerRadius(0)
     }
 }
