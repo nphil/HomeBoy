@@ -99,36 +99,19 @@ struct TagsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
-        .overlay {
-            if showCreate {
-                ZStack(alignment: .bottom) {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showCreate = false
-                            }
-                        }
-
-                    BottomSheetWrapper(onDismiss: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                            showCreate = false
-                        }
-                    }) {
-                        TagEditSheet(mode: .create, onSave: {
-                            await load()
-                        }, onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showCreate = false
-                            }
-                        })
-                    }
-                    .transition(.move(edge: .bottom))
-                }
-                .ignoresSafeArea()
-                .zIndex(150)
+        .sheet(isPresented: $showCreate) {
+            TagEditSheet(mode: .create, onSave: {
+                await load()
+            }, onDismiss: {
+                showCreate = false
+            })
+            .presentationBackground {
+                Color.clear
+                    .background(.ultraThinMaterial)
+                    .background(theme.current.accentColor.opacity(0.04))
             }
+            .environmentObject(store)
+            .environmentObject(theme)
         }
     }
 
@@ -328,36 +311,21 @@ struct TagDetailView: View {
             }
         }
         .task { await load() }
-        .overlay {
-            if showEdit, let tag {
-                ZStack(alignment: .bottom) {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showEdit = false
-                            }
-                        }
-
-                    BottomSheetWrapper(onDismiss: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                            showEdit = false
-                        }
-                    }) {
-                        TagEditSheet(mode: .edit(tag), onSave: {
-                            onChange()
-                            await load()
-                        }, onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showEdit = false
-                            }
-                        })
-                    }
-                    .transition(.move(edge: .bottom))
+        .sheet(isPresented: $showEdit) {
+            if let tag = tag {
+                TagEditSheet(mode: .edit(tag), onSave: {
+                    onChange()
+                    await load()
+                }, onDismiss: {
+                    showEdit = false
+                })
+                .presentationBackground {
+                    Color.clear
+                        .background(.ultraThinMaterial)
+                        .background(theme.current.accentColor.opacity(0.04))
                 }
-                .ignoresSafeArea()
-                .zIndex(150)
+                .environmentObject(store)
+                .environmentObject(theme)
             }
         }
         .alert("Delete tag?", isPresented: $showDelete) {

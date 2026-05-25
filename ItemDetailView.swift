@@ -61,39 +61,24 @@ struct ItemDetailView: View {
                 .environmentObject(theme)
             }
         }
-        .overlay {
-            if showAddSubItem, let item = item {
-                ZStack(alignment: .bottom) {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showAddSubItem = false
-                            }
-                        }
-
-                    BottomSheetWrapper(onDismiss: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                            showAddSubItem = false
-                        }
-                    }) {
-                        AddItemView(
-                            parentId: item.id,
-                            parentName: item.name,
-                            parentLocationId: item.location?.id,
-                            onDismiss: {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                    showAddSubItem = false
-                                }
-                                Task { await load() }
-                            }
-                        )
+        .sheet(isPresented: $showAddSubItem) {
+            if let item = item {
+                AddItemView(
+                    parentId: item.id,
+                    parentName: item.name,
+                    parentLocationId: item.location?.id,
+                    onDismiss: {
+                        showAddSubItem = false
+                        Task { await load() }
                     }
-                    .transition(.move(edge: .bottom))
+                )
+                .presentationBackground {
+                    Color.clear
+                        .background(.ultraThinMaterial)
+                        .background(theme.current.accentColor.opacity(0.04))
                 }
-                .ignoresSafeArea()
-                .zIndex(150)
+                .environmentObject(store)
+                .environmentObject(theme)
             }
         }
         .sheet(isPresented: $showMaintenanceSheet, onDismiss: { Task { await load() } }) {

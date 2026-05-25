@@ -292,38 +292,21 @@ struct ItemsListView: View {
                     }
                 }
             }
-            .toolbar(selectMode || showAddSheet ? .hidden : .visible, for: .tabBar)
+            .toolbar(selectMode ? .hidden : .visible, for: .tabBar)
             .navigationTitle(selectMode ? (selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected") : "")
             .navigationBarTitleDisplayMode(.inline)
-            .overlay {
-                if showAddSheet {
-                    ZStack(alignment: .bottom) {
-                        Color.black.opacity(0.35)
-                            .ignoresSafeArea()
-                            .transition(.opacity)
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                    showAddSheet = false
-                                }
-                            }
-
-                        BottomSheetWrapper(onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showAddSheet = false
-                            }
-                        }) {
-                            AddItemView(onDismiss: {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                    showAddSheet = false
-                                }
-                                Task { await load(force: true) }
-                            })
-                        }
-                        .transition(.move(edge: .bottom))
-                    }
-                    .ignoresSafeArea()
-                    .zIndex(150)
+            .sheet(isPresented: $showAddSheet) {
+                AddItemView(onDismiss: {
+                    showAddSheet = false
+                    Task { await load(force: true) }
+                })
+                .presentationBackground {
+                    Color.clear
+                        .background(.ultraThinMaterial)
+                        .background(theme.current.accentColor.opacity(0.04))
                 }
+                .environmentObject(store)
+                .environmentObject(theme)
             }
         }
     }

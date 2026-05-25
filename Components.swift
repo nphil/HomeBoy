@@ -91,18 +91,13 @@ struct DescriptionField: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+                Image(systemName: "chevron.right").font(.caption)
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
+            .padding(.horizontal, 14)
             .frame(maxWidth: .infinity)
-            .background {
-                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
-            .contentShape(Rectangle())
+            .frame(height: 40)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
         .sheet(isPresented: $showEditor) {
             DescriptionEditorSheet(text: $text, title: title, placeholder: placeholder)
                 .environmentObject(theme)
@@ -426,74 +421,4 @@ struct SwipeRevealRow<Content: View>: View {
     }
 }
 
-// MARK: - Draggable Bottom Sheet Wrapper
 
-struct BottomSheetWrapper<Content: View>: View {
-    @EnvironmentObject var theme: ThemeManager
-    var onDismiss: () -> Void
-    let content: Content
-
-    @State private var offset: CGFloat = 0
-    @GestureState private var gestureOffset: CGFloat = 0
-
-    init(onDismiss: @escaping () -> Void, @ViewBuilder content: () -> Content) {
-        self.onDismiss = onDismiss
-        self.content = content()
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            let currentOffset = offset + gestureOffset
-            
-            VStack(spacing: 0) {
-                Spacer()
-                
-                VStack(spacing: 0) {
-                    // Drag handle
-                    Capsule()
-                        .fill(Color.primary.opacity(0.18))
-                        .frame(width: 38, height: 5)
-                        .padding(.top, 10)
-                        .padding(.bottom, 6)
-                    
-                    content
-                        .padding(.bottom, geometry.safeAreaInsets.bottom + 12)
-                }
-                .background {
-                    UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                        .fill(.ultraThinMaterial)
-                    UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                        .fill(theme.current.accentColor.opacity(0.04))
-                }
-                .overlay(
-                    UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                        .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1.5)
-                )
-                .shadow(color: .black.opacity(0.18), radius: 20, x: 0, y: -6)
-                .frame(maxWidth: 420)
-                .offset(y: max(0, currentOffset))
-                .gesture(
-                    DragGesture()
-                        .updating($gestureOffset) { value, state, _ in
-                            state = value.translation.height
-                        }
-                        .onEnded { value in
-                            let velocity = value.predictedEndLocation.y - value.location.y
-                            let threshold = geometry.size.height * 0.22
-                            
-                            if value.translation.height > threshold || velocity > 250 {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                    onDismiss()
-                                }
-                            } else {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                    offset = 0
-                                }
-                            }
-                        }
-                )
-            }
-            .frame(maxWidth: .infinity, alignment: .bottom)
-        }
-    }
-}

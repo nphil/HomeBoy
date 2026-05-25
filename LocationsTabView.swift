@@ -126,34 +126,17 @@ struct LocationsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
-        .overlay {
-            if showCreate {
-                ZStack(alignment: .bottom) {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showCreate = false
-                            }
-                        }
-
-                    BottomSheetWrapper(onDismiss: {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                            showCreate = false
-                        }
-                    }) {
-                        CreateLocationSheet(onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                                showCreate = false
-                            }
-                        })
-                    }
-                    .transition(.move(edge: .bottom))
-                }
-                .ignoresSafeArea()
-                .zIndex(150)
+        .sheet(isPresented: $showCreate) {
+            CreateLocationSheet(onDismiss: {
+                showCreate = false
+            })
+            .presentationBackground {
+                Color.clear
+                    .background(.ultraThinMaterial)
+                    .background(theme.current.accentColor.opacity(0.04))
             }
+            .environmentObject(store)
+            .environmentObject(theme)
         }
     }
 

@@ -182,26 +182,28 @@ struct AddItemView: View {
     private var nameField: some View {
         HStack(spacing: 8) {
             TextField("Item name", text: $name)
-                .font(.title3.weight(.semibold))
+                .font(.callout.weight(.semibold))
                 .textInputAutocapitalization(.sentences)
                 .focused($nameFocused)
                 .submitLabel(.done)
 
             Button { showBarcodeScanner = true } label: {
                 Image(systemName: "barcode.viewfinder")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(theme.current.accentColor)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .frame(height: 40)
         .background {
-            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
+            RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
         }
-        .overlay(RoundedRectangle(cornerRadius: 12)
-            .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
-                    lineWidth: name.isEmpty ? 1.5 : 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
+        )
     }
 
     private func keepButton(isOn: Binding<Bool>) -> some View {
@@ -215,16 +217,11 @@ struct AddItemView: View {
                 Text("Keep")
                     .font(.caption.weight(.semibold))
             }
-            .padding(.horizontal, 10)
-            .frame(height: 40)
-            .background(isOn.wrappedValue ? theme.current.accentColor.opacity(0.18) : Color.clear)
-            .foregroundStyle(isOn.wrappedValue ? theme.current.accentColor : .secondary)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(isOn.wrappedValue ? theme.current.accentColor.opacity(0.4) : Color.primary.opacity(0.15), lineWidth: 1.2)
-            )
+            .padding(.horizontal, 12)
         }
-        .buttonStyle(.plain)
+        .frame(height: 40)
+        .modifier(KeepButtonStyleModifier(isOn: isOn.wrappedValue))
+        .shadow(color: isOn.wrappedValue ? theme.current.accentColor.opacity(0.4) : .clear, radius: 6)
     }
 
     private var locationRow: some View {
@@ -236,27 +233,18 @@ struct AddItemView: View {
                         .foregroundStyle(theme.current.accentColor)
                     if let id = selectedLocationId {
                         Text(store.pathString(forLocationId: id))
-                            .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                            .font(.callout.weight(.medium)).lineLimit(1)
                     } else {
                         Text("Choose location — required").foregroundStyle(.secondary).font(.callout)
                     }
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .frame(maxWidth: .infinity)
-                .background {
-                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
-                }
-                .overlay(RoundedRectangle(cornerRadius: 12)
-                    .stroke(selectedLocationId == nil
-                            ? theme.current.accentColor.opacity(0.35)
-                            : theme.current.accentColor.opacity(0.2),
-                            lineWidth: selectedLocationId == nil ? 1.5 : 1))
-                .contentShape(Rectangle())
+                .padding(.horizontal, 14)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .buttonStyle(.glass)
 
             keepButton(isOn: $lockLocation)
         }
@@ -273,18 +261,13 @@ struct AddItemView: View {
                         .font(.callout.weight(.medium))
                         .foregroundStyle(selectedTagIds.isEmpty ? .secondary : .primary)
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .frame(maxWidth: .infinity)
-                .background {
-                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-                }
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
-                .contentShape(Rectangle())
+                .padding(.horizontal, 14)
             }
-            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            .frame(height: 40)
+            .buttonStyle(.glass)
 
             keepButton(isOn: $lockTags)
         }
@@ -297,12 +280,11 @@ struct AddItemView: View {
                     .foregroundStyle(theme.current.accentColor.opacity(0.75))
                 QuantityControl(value: $quantity)
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+            .padding(.horizontal, 10)
+            .frame(height: 40)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1))
             .fixedSize(horizontal: true, vertical: false)
 
             Spacer(minLength: 0)
@@ -325,27 +307,23 @@ struct AddItemView: View {
                             .font(.body)
                             .foregroundStyle(accentColor)
                             .frame(width: 40, height: 40)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.18), lineWidth: 1))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.glass)
                 }
                 PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
                     Image(systemName: "photo.on.rectangle")
                         .font(.body)
                         .foregroundStyle(accentColor)
                         .frame(width: 40, height: 40)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.18), lineWidth: 1))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
             }
         } else {
             HStack(spacing: 4) {
                 ForEach(photos.indices.prefix(2), id: \.self) { idx in
                     ZStack(alignment: .topTrailing) {
                         Image(uiImage: photos[idx]).resizable().scaledToFill()
-                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 8))
+                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 10))
                         Button {
                             photos.remove(at: idx)
                             pickerItems.removeAll()
@@ -363,17 +341,15 @@ struct AddItemView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(accentColor)
                         .frame(width: 40, height: 40)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(accentColor.opacity(0.15)))
+                        .background(RoundedRectangle(cornerRadius: 10).fill(accentColor.opacity(0.15)))
                 }
                 PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
                     Image(systemName: "plus")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(accentColor)
                         .frame(width: 40, height: 40)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(accentColor.opacity(0.18), lineWidth: 1))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.glass)
             }
         }
     }
@@ -628,6 +604,17 @@ struct AddItemView: View {
         withAnimation(.easeOut(duration: 0.15)) { justAdded = text }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             withAnimation(.easeIn(duration: 0.3)) { if justAdded == text { justAdded = nil } }
+        }
+    }
+}
+
+struct KeepButtonStyleModifier: ViewModifier {
+    let isOn: Bool
+    func body(content: Content) -> some View {
+        if isOn {
+            content.buttonStyle(.glassProminent)
+        } else {
+            content.buttonStyle(.glass)
         }
     }
 }
