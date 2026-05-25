@@ -128,32 +128,30 @@ struct LocationsTabView: View {
         }
         .overlay {
             if showCreate {
-                ZStack {
+                ZStack(alignment: .bottom) {
                     Color.black.opacity(0.35)
                         .ignoresSafeArea()
                         .transition(.opacity)
                         .onTapGesture {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                                 showCreate = false
                             }
                         }
 
-                    ZStack(alignment: .center) {
+                    BottomSheetWrapper(onDismiss: {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                            showCreate = false
+                        }
+                    }) {
                         CreateLocationSheet(onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                                 showCreate = false
                             }
                         })
-                        .frame(maxWidth: 400)
-                        .padding(.horizontal, 16)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea()
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
-                        removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
-                    ))
+                    .transition(.move(edge: .bottom))
                 }
+                .ignoresSafeArea()
                 .zIndex(150)
             }
         }
@@ -607,16 +605,8 @@ struct CreateLocationSheet: View {
             actionButtons
                 .padding(.top, 4)
         }
-        .padding(20)
-        .background {
-            RoundedRectangle(cornerRadius: 24).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 24).fill(theme.current.accentColor.opacity(0.06))
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 24)
-                .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1.5)
-        )
-        .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
+        .padding(.horizontal, 20)
+        .padding(.top, 4)
         .sheet(isPresented: $showParentPicker) {
             LocationPickerSheet(selectedId: $parentId)
                 .environmentObject(store)

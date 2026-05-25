@@ -81,16 +81,8 @@ struct AddItemView: View {
                     actionButtons
                         .padding(.top, 4)
                 }
-                .padding(20)
-                .background {
-                    RoundedRectangle(cornerRadius: 24).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 24).fill(theme.current.accentColor.opacity(0.06))
-                }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 24)
-                        .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1.5)
-                )
-                .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
+                .padding(.horizontal, 20)
+                .padding(.top, 4)
             }
         }
         .sheet(isPresented: $showLocationPicker) {

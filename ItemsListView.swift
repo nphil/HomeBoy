@@ -295,37 +295,35 @@ struct ItemsListView: View {
             .toolbar(selectMode || showAddSheet ? .hidden : .visible, for: .tabBar)
             .navigationTitle(selectMode ? (selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected") : "")
             .navigationBarTitleDisplayMode(.inline)
-        }
-        .overlay {
-            if showAddSheet {
-                ZStack {
-                    Color.black.opacity(0.35)
-                        .ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                showAddSheet = false
+            .overlay {
+                if showAddSheet {
+                    ZStack(alignment: .bottom) {
+                        Color.black.opacity(0.35)
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                                    showAddSheet = false
+                                }
                             }
-                        }
 
-                    ZStack(alignment: .center) {
-                        AddItemView(onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                        BottomSheetWrapper(onDismiss: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                                 showAddSheet = false
                             }
-                            Task { await load(force: true) }
-                        })
-                        .frame(maxWidth: 400)
-                        .padding(.horizontal, 16)
+                        }) {
+                            AddItemView(onDismiss: {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                                    showAddSheet = false
+                                }
+                                Task { await load(force: true) }
+                            })
+                        }
+                        .transition(.move(edge: .bottom))
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .ignoresSafeArea()
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
-                        removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
-                    ))
+                    .zIndex(150)
                 }
-                .zIndex(150)
             }
         }
     }

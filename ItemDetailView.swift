@@ -63,38 +63,36 @@ struct ItemDetailView: View {
         }
         .overlay {
             if showAddSubItem, let item = item {
-                ZStack {
+                ZStack(alignment: .bottom) {
                     Color.black.opacity(0.35)
                         .ignoresSafeArea()
                         .transition(.opacity)
                         .onTapGesture {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                                 showAddSubItem = false
                             }
                         }
 
-                    ZStack(alignment: .center) {
+                    BottomSheetWrapper(onDismiss: {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
+                            showAddSubItem = false
+                        }
+                    }) {
                         AddItemView(
                             parentId: item.id,
                             parentName: item.name,
                             parentLocationId: item.location?.id,
                             onDismiss: {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
                                     showAddSubItem = false
                                 }
                                 Task { await load() }
                             }
                         )
-                        .frame(maxWidth: 400)
-                        .padding(.horizontal, 16)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea()
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.01, anchor: .center).combined(with: .opacity),
-                        removal: .scale(scale: 0.01, anchor: .center).combined(with: .opacity)
-                    ))
+                    .transition(.move(edge: .bottom))
                 }
+                .ignoresSafeArea()
                 .zIndex(150)
             }
         }
