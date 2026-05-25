@@ -26,7 +26,7 @@ struct FloatingCardContainer<Content: View>: View {
                     Rectangle().fill(accent.opacity(0.06))
                 }
             }
-            .presentationCornerRadius(28)
+            .presentationCornerRadius(60)
     }
 }
 
