@@ -2,12 +2,9 @@ import SwiftUI
 
 // MARK: - Floating Card Modal
 
-/// Bottom-sheet card backed by UISheetPresentationController (native iOS sheet)
-/// for true 120Hz ProMotion drag. The card renders inside the sheet with a
-/// frosted-glass background and 4pt horizontal insets. `.presentationBackground(.clear)`
-/// removes the system background so our custom dim + card visuals fill the space.
 struct FloatingCardContainer<Content: View>: View {
     @Binding var isPresented: Bool
+    var topInset: CGFloat = 20
     var horizontalInset: CGFloat = 4
     @ViewBuilder let content: () -> Content
 
@@ -23,41 +20,46 @@ struct FloatingCardContainer<Content: View>: View {
     var body: some View {
         let accent = theme.current.accentColor
         ZStack {
-            // Custom dim — tap outside the card to dismiss.
-            // Required because .presentationBackground(.clear) removes system dimming.
+            // Layer 1: dim — fills entire sheet including drag-handle region above card
             Color.black.opacity(0.42)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { isPresented = false }
 
-            content()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background {
-                    ZStack {
-                        cardShape.fill(.ultraThinMaterial)
-                        cardShape.fill(accent.opacity(0.06))
-                    }
-                    .overlay(cardShape.stroke(accent.opacity(0.22), lineWidth: 1.2))
+            // Layer 2: card background only — extends past bottom safe area so it
+            // appears flush with the physical screen edge (no square gap above home bar)
+            VStack(spacing: 0) {
+                Color.clear.frame(height: topInset)
+                ZStack {
+                    cardShape.fill(.ultraThinMaterial)
+                    cardShape.fill(accent.opacity(0.06))
                 }
-                .clipShape(cardShape)
+                .overlay(cardShape.stroke(accent.opacity(0.22), lineWidth: 1.2))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, horizontalInset)
+                .ignoresSafeArea(.container, edges: .bottom)
+            }
+            .allowsHitTesting(false)
+
+            // Layer 3: content — stays within safe area so buttons sit above home indicator
+            VStack(spacing: 0) {
+                Color.clear.frame(height: topInset)
+                content()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, horizontalInset)
+            }
         }
         .presentationDetents([.large])
-        .presentationDragIndicator(.hidden)   // content provides its own grabber capsule
+        .presentationDragIndicator(.hidden)
         .presentationBackground(.clear)
         .presentationCornerRadius(0)
     }
 }
 
 extension View {
-    /// Present `content` as a frosted card with 4pt side insets over a dimmed
-    /// backdrop. Backed by UISheetPresentationController (.large detent) for
-    /// native 120Hz drag-to-dismiss. `onDismiss` fires on any dismissal path
-    /// including swipe-down and backdrop tap.
     func floatingCardCover<Content: View>(
         isPresented: Binding<Bool>,
-        topInset: CGFloat = 70,       // unused — sheet handles top gap naturally
-        bottomInset: CGFloat = 0,
+        topInset: CGFloat = 20,
         horizontalInset: CGFloat = 4,
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
@@ -65,6 +67,7 @@ extension View {
         sheet(isPresented: isPresented, onDismiss: onDismiss) {
             FloatingCardContainer(
                 isPresented: isPresented,
+                topInset: topInset,
                 horizontalInset: horizontalInset,
                 content: content
             )
@@ -86,7 +89,7 @@ struct DescriptionEditorSheet: View {
     @FocusState private var focused: Bool
     @State private var draft: String = ""
 
-    init(text: Binding<String>, title: String = "Notes", placeholder: String = "Add notes…") {
+    init(text: Binding<String>, title: String = "Notes", placeholder: String = "Add notes\u{2026}") {
         self._text = text
         self.title = title
         self.placeholder = placeholder
@@ -145,7 +148,7 @@ struct DescriptionField: View {
 
     @State private var showEditor = false
 
-    init(text: Binding<String>, placeholder: String = "Add notes…", title: String = "Notes") {
+    init(text: Binding<String>, placeholder: String = "Add notes\u{2026}", title: String = "Notes") {
         self._text = text
         self.placeholder = placeholder
         self.title = title
@@ -376,7 +379,7 @@ struct ItemListRowContent: View {
                 }
             }
             Spacer(minLength: 0)
-            Text("×\(item.quantityInt)").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
+            Text("\u{00d7}\(item.quantityInt)").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .task(id: item.id) {
