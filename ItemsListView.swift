@@ -512,7 +512,6 @@ struct ItemsListView: View {
     // MARK: - Row
 
     @ViewBuilder
-    @ViewBuilder
     private func itemListRow(_ item: HBItem) -> some View {
         let isSelected = selectedIds.contains(item.id)
         HStack(spacing: 0) {

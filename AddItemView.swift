@@ -275,10 +275,11 @@ struct AddItemView: View {
             HStack(alignment: .top, spacing: 0) {
                 // Left side: PHOTOS
                 VStack(alignment: .leading, spacing: 6) {
+                    let accentColor = theme.current.accentColor
                     Text("PHOTOS").font(.caption2.weight(.semibold)).tracking(0.4)
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                        .foregroundStyle(accentColor.opacity(0.75))
                         .padding(.horizontal, 4)
-                    
+
                     if photos.isEmpty {
                         // Display camera and library as identical square icon buttons side-by-side
                         HStack(spacing: 8) {
@@ -286,21 +287,21 @@ struct AddItemView: View {
                                 Button { showCamera = true } label: {
                                     Image(systemName: "camera.fill")
                                         .font(.body)
-                                        .foregroundStyle(theme.current.accentColor)
+                                        .foregroundStyle(accentColor)
                                         .frame(width: 44, height: 44)
                                         .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
+                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.2), lineWidth: 1))
                                 }
                                 .buttonStyle(.plain)
                             }
-                            
+
                             PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
                                 Image(systemName: "photo.on.rectangle")
                                     .font(.body)
-                                    .foregroundStyle(theme.current.accentColor)
+                                    .foregroundStyle(accentColor)
                                     .frame(width: 44, height: 44)
                                     .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
+                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.2), lineWidth: 1))
                             }
                             .buttonStyle(.plain)
                         }
@@ -325,18 +326,18 @@ struct AddItemView: View {
                                         .offset(x: 4, y: -4)
                                     }
                                 }
-                                
+
                                 if UIImagePickerController.isSourceTypeAvailable(.camera) {
                                     Button { showCamera = true } label: {
                                         Image(systemName: "camera.fill").font(.caption)
-                                            .foregroundStyle(theme.current.accentColor)
+                                            .foregroundStyle(accentColor)
                                             .frame(width: 44, height: 44)
                                             .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
                                     }.buttonStyle(.plain)
                                 }
                                 PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
                                     Image(systemName: "photo.on.rectangle").font(.caption)
-                                        .foregroundStyle(theme.current.accentColor)
+                                        .foregroundStyle(accentColor)
                                         .frame(width: 44, height: 44)
                                         .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
                                 }.buttonStyle(.plain)
