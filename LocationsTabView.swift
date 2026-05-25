@@ -237,8 +237,10 @@ struct LocationsTabView: View {
     private var tileRows: [FlatLocation] {
         let all = store.locationsFlat
         let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty else { return all }
-        return all.filter { $0.pathString.lowercased().contains(q) }
+        if !q.isEmpty {
+            return all.filter { $0.pathString.lowercased().contains(q) }
+        }
+        return all.filter { $0.depth == 0 }
     }
 
     private var locationIndexLetters: [String] {
