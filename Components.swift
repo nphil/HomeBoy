@@ -9,7 +9,7 @@ struct FloatingCardContainer<Content: View>: View {
     @Binding var isPresented: Bool
     var topInset: CGFloat = 70
     var bottomInset: CGFloat = 0
-    var horizontalInset: CGFloat = 0
+    var horizontalInset: CGFloat = 12
     @ViewBuilder let content: () -> Content
 
     @EnvironmentObject private var theme: ThemeManager
@@ -77,7 +77,7 @@ extension View {
         isPresented: Binding<Bool>,
         topInset: CGFloat = 70,
         bottomInset: CGFloat = 0,
-        horizontalInset: CGFloat = 0,
+        horizontalInset: CGFloat = 12,
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
