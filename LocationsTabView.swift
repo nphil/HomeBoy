@@ -126,7 +126,6 @@ struct LocationsTabView: View {
                     .environmentObject(store)
                     .environmentObject(theme)
             }
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         }
     }
 

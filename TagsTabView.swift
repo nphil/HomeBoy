@@ -98,7 +98,6 @@ struct TagsTabView: View {
                 ItemDetailView(itemId: route.id)
                     .environmentObject(store).environmentObject(theme)
             }
-            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         }
     }
 
