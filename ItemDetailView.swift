@@ -72,12 +72,7 @@ struct ItemDetailView: View {
                         Task { await load() }
                     }
                 )
-                .presentationBackground {
-                    ZStack {
-                        Rectangle().fill(.ultraThinMaterial)
-                        theme.current.accentColor.opacity(0.05)
-                    }
-                }
+                .presentationBackground(.ultraThinMaterial)
                 .environmentObject(store)
                 .environmentObject(theme)
             }

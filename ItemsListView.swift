@@ -300,12 +300,7 @@ struct ItemsListView: View {
                     showAddSheet = false
                     Task { await load(force: true) }
                 })
-                .presentationBackground {
-                    ZStack {
-                        Rectangle().fill(.ultraThinMaterial)
-                        theme.current.accentColor.opacity(0.05)
-                    }
-                }
+                .presentationBackground(.ultraThinMaterial)
                 .environmentObject(store)
                 .environmentObject(theme)
             }

@@ -105,12 +105,7 @@ struct TagsTabView: View {
             }, onDismiss: {
                 showCreate = false
             })
-            .presentationBackground {
-                ZStack {
-                    Rectangle().fill(.ultraThinMaterial)
-                    theme.current.accentColor.opacity(0.05)
-                }
-            }
+            .presentationBackground(.ultraThinMaterial)
             .environmentObject(store)
             .environmentObject(theme)
         }
@@ -320,12 +315,7 @@ struct TagDetailView: View {
                 }, onDismiss: {
                     showEdit = false
                 })
-                .presentationBackground {
-                    ZStack {
-                        Rectangle().fill(.ultraThinMaterial)
-                        theme.current.accentColor.opacity(0.05)
-                    }
-                }
+                .presentationBackground(.ultraThinMaterial)
                 .environmentObject(store)
                 .environmentObject(theme)
             }
@@ -383,7 +373,7 @@ struct TagEditSheet: View {
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(spacing: 0) {
             // Header
             HStack {
                 HStack(spacing: 8) {
@@ -403,75 +393,81 @@ struct TagEditSheet: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.bottom, 4)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 12)
 
             // Content
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(spacing: 10) {
-                    Circle().fill(Color(hex: colorHex)).frame(width: 20, height: 20)
-                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
-                    TextField("Tag name", text: $name)
-                        .font(.callout.weight(.semibold))
-                        .focused($nameFocused)
-                        .textInputAutocapitalization(.never)
-                        .submitLabel(.done)
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 40)
-                .background {
-                    RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
-                }
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
-                )
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    HStack(spacing: 10) {
+                        Circle().fill(Color(hex: colorHex)).frame(width: 20, height: 20)
+                            .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                        TextField("Tag name", text: $name)
+                            .font(.callout.weight(.semibold))
+                            .focused($nameFocused)
+                            .textInputAutocapitalization(.never)
+                            .submitLabel(.done)
+                    }
+                    .padding(.horizontal, 14)
+                    .frame(height: 40)
+                    .background {
+                        RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
+                    )
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Color").font(.caption.weight(.semibold))
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                        .padding(.horizontal, 4)
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
-                        ForEach(HomeboxTagPalette, id: \.self) { hex in
-                            Circle()
-                                .fill(Color(hex: hex))
-                                .frame(width: 32, height: 32)
-                                .overlay(
-                                    Circle()
-                                        .stroke(colorHex == hex ? Color.white : Color.clear, lineWidth: 2)
-                                )
-                                .shadow(color: colorHex == hex ? Color(hex: hex).opacity(0.6) : Color.clear, radius: 4)
-                                .onTapGesture {
-                                    colorHex = hex
-                                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Color").font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                            .padding(.horizontal, 4)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+                            ForEach(HomeboxTagPalette, id: \.self) { hex in
+                                Circle()
+                                    .fill(Color(hex: hex))
+                                    .frame(width: 32, height: 32)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(colorHex == hex ? Color.white : Color.clear, lineWidth: 2)
+                                    )
+                                    .shadow(color: colorHex == hex ? Color(hex: hex).opacity(0.6) : Color.clear, radius: 4)
+                                    .onTapGesture {
+                                        colorHex = hex
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    }
+                            }
                         }
                     }
-                }
 
-                DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
+                    DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
 
-                if let errorMsg {
-                    HStack(spacing: 8) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                        Text(errorMsg).font(.callout)
+                    if let errorMsg {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text(errorMsg).font(.callout)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
+                        .foregroundStyle(.primary)
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
-                    .foregroundStyle(.primary)
+                    
+                    Spacer(minLength: 0)
                 }
-                
-                Spacer(minLength: 0)
+                .padding(.horizontal, 20)
             }
 
             // Action buttons
             actionButtons
-                .padding(.top, 4)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
+        .background(theme.current.accentColor.opacity(0.03))
         .onAppear {
             if case .edit(let tag) = mode {
                 name = tag.name

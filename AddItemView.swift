@@ -54,7 +54,7 @@ struct AddItemView: View {
                 notConfiguredView
                     .padding(24)
             } else {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(spacing: 0) {
                     // Header
                     HStack {
                         HStack(spacing: 8) {
@@ -74,16 +74,21 @@ struct AddItemView: View {
                         }
                         .buttonStyle(.plain)
                     }
-                    .padding(.bottom, 4)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
 
-                    addForm
+                    ScrollView(.vertical, showsIndicators: false) {
+                        addForm
+                            .padding(.horizontal, 20)
+                    }
 
                     actionButtons
-                        .padding(.top, 4)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 12)
+                        .padding(.bottom, 12)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
+                .background(theme.current.accentColor.opacity(0.03))
             }
         }
         .sheet(isPresented: $showLocationPicker) {
