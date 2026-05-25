@@ -32,8 +32,8 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: HomeBoy
-        CFBundleShortVersionString: "1.0.53"
-        CFBundleVersion: "54"
+        CFBundleShortVersionString: "1.0.54"
+        CFBundleVersion: "55"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
