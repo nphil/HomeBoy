@@ -17,16 +17,11 @@ struct FloatingCardContainer<Content: View>: View {
             .presentationDetents([.fraction(0.85)])
             .presentationDragIndicator(.hidden)
             .presentationBackground {
-                // Full-width Rectangle so there are no visible side edges.
-                // presentationCornerRadius(28) handles top rounding natively.
-                // The system sheet container extends to the physical screen bottom,
-                // so the material fill is seamless with no home-indicator gap.
                 ZStack {
                     Rectangle().fill(.ultraThinMaterial)
                     Rectangle().fill(accent.opacity(0.06))
                 }
             }
-            .presentationCornerRadius(28)
     }
 }
 
