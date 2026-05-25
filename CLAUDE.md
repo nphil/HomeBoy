@@ -1,243 +1,223 @@
-# HomeBoy (Homebox Catalog iOS) — Project Reference
+# HomeBoy (Homebox Catalog iOS) — Master Reference & Handoff Guide
 
-## What this is
-Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https://homebox.software/) v0.25.x instance. Connects directly to the Homebox v1 REST API — every Add posts to the server, every list view reflects what's actually there. Display name is "HomeBoy"; repo + bundle id keep the original `homebox-catalog` naming so AltStore reinstalls stay in-place.
+## 1. Project Overview
+Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https://homebox.software/) v0.25.x instance. Connects directly to the Homebox v1 REST API — every Add posts to the server, every list view reflects what's actually there.
+- **Target**: iOS 26, Liquid Glass UI, sideloaded via AltStore (no App Store).
+- **Display name**: "HomeBoy"; repo + bundle id keep original `homebox-catalog` naming so AltStore reinstalls update in-place.
+- **Tab Structure**: **3 tabs only: Items / Locations / Tags**. Settings is a sheet (not a tab), Add Item is a FAB sheet (not a tab).
+- **Authentication**: `ContentView` displays `OnboardingView` when `!store.isAuthenticated` (covers the whole screen). Token is persisted in Keychain, and configuration (URL, theme, group ID) in `UserDefaults`.
 
-Target: iOS 26, Liquid Glass UI, sideloaded via AltStore (no App Store).
+---
 
-## Repo
-`https://github.com/nphil/HomeBoy` — every push to `main` triggers CI and produces an unsigned IPA on the "latest" pre-release.
-
-## Build / CI
+## 2. Build, Versioning & CI/CD Pipeline
 - **Never run Xcode locally** — use GitHub Actions (`.github/workflows/build.yml`).
-- xcodegen reads `project.yml` → generates `HomeboxCatalog.xcodeproj` in CI (never committed).
-- Unsigned IPA, `CODE_SIGNING_ALLOWED=NO` — AltStore signs at sideload.
-- Runner: `macos-15`, latest Xcode (currently 26 with iOS 26 SDK).
-- **Always commit + push after any meaningful change** — CI does the rest.
-- **Always push to BOTH branches**: `main` (triggers CI) AND `claude/ipad-release-visibility-LWSdB` (feature branch). Use `git push origin HEAD:main && git push origin claude/ipad-release-visibility-LWSdB`.
-- **Versioning & Releases**: Versioning starts at 1.0. Small bug fixes increment the patch version (e.g. 1.0.1), while large feature additions or rebases use larger version increments (e.g. 1.1, 2.0). To create a production release that anyone can download, push a git tag starting with `v` (e.g., `v1.0`).
-- Pushing `.github/workflows/*` needs `workflow` scope on the `gh` token. Fix with `gh auth refresh -h github.com -s workflow`.
-- **Push conflicts after CI version bump**: `git fetch origin main && git rebase origin/main && git push origin HEAD:main && git push origin claude/ipad-release-visibility-LWSdB --force-with-lease`.
+- `xcodegen` reads `project.yml` and generates `HomeboxCatalog.xcodeproj` in CI (never committed).
+- Unsigned IPA is generated with `CODE_SIGNING_ALLOWED=NO` — AltStore signs it during sideloading.
+- Runner: `macos-15`, latest Xcode (currently Xcode 26 / iOS 26 SDK).
+- **GitHub Workflow Scope**: Pushing `.github/workflows/*` requires the `workflow` scope on your `gh` token. Fix via: `gh auth refresh -h github.com -s workflow`.
+- **Release Automation**: Tagging a release (e.g., `v1.0.11`) compiles the unsigned IPA, pushes a release to GitHub, and auto-updates `apps.json` (AltStore source manifest).
+- **Apps Manifest**: `apps.json` lists all versioned releases. **Never edit by hand** — CI handles this. AltStore source URL: `https://raw.githubusercontent.com/nphil/HomeBoy/main/apps.json`.
+- **Versioning Strategy**:
+  - Incremental bug fixes: increment the patch version (e.g. `1.0.1` -> `1.0.2`).
+  - Major feature drops/rebases: increment major or minor version (e.g. `1.1`, `2.0`).
+- **Always push to BOTH branches**:
+  - `main` (triggers CI) AND `claude/ipad-release-visibility-LWSdB` (feature branch).
+  - Command: `git push origin HEAD:main && git push origin claude/ipad-release-visibility-LWSdB`.
+- **CI Conflict Recovery**: If CI auto-bumps the version, resolve conflicts locally:
+  `git fetch origin main && git rebase origin/main && git push origin HEAD:main && git push origin claude/ipad-release-visibility-LWSdB --force-with-lease`.
+- **Ending a Session**: Always end your message by pointing the user to: `https://github.com/nphil/HomeBoy/releases/tag/latest` (or specific version tag if pushed).
 
-## Tab structure — 3 tabs only
-**Items / Locations / Tags**
+---
 
-- **Settings** is NOT a tab. It's a sheet presented via `NotificationCenter.default.post(name: .showSettings, object: nil)`, which `ContentView` listens for.
-- **Add Item** is NOT a tab. It's a FAB (floating action button, bottom-right circle) on the Items tab that presents `AddItemView` as a sheet.
-- **Unauthenticated state**: `ContentView` shows `OnboardingView` when `!store.isAuthenticated` (covers the whole screen instead of the tab view).
+## 3. Tab, Navigation & Global Layout
+- **SiteMenuPopover**: ZStack overlay in `ContentView` at `zIndex(100)`. Never place it inside a `NavigationStack`.
+  - Toggled by tapping the HomeBoy leading pill (shippingbox.fill + "HomeBoy" + chevron.down) in the toolbar of any tab.
+  - Animation: `popoverSpring = .spring(duration: 0.25, bounce: 0.22)`. Scale/fade transition: `.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity)`.
+  - Group switching uses a custom `EnvironmentKey` (`ShowSiteMenuKey` in `HomeboxCatalogApp.swift`) that passes a `Binding<Bool>` to all tabs.
+  - Tapping an inactive group switches the active group scoped by `X-Tenant`, clears caches, posts a `.showToast` notification, and updates the local state.
+- **Toast Notifications**: Bottom capsule overlay at `zIndex(200)` in `ContentView` with a 2.5s auto-dismiss.
+  - Trigger by posting: `NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Your message"])`.
+  - Notification names declared in `SiteMenuPopover.swift`.
+- **Global Search**: `globalSearchQuery: String` is a `@Binding` passed from `ContentView` down to all tab views.
+  - Each tab holds `@State private var isSearchActive = false` and applies search via `.modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "…"))`.
+  - Tapping the magnifying glass in the toolbar sets `isSearchActive = true`, displaying the native search bar.
 
-## Navigation — SiteMenuPopover
-Every tab has a **top-left toolbar `ToolbarItemGroup`** containing the "HomeBoy" pill (shippingbox + "HomeBoy" + chevron.down). Tapping the pill toggles `showSiteMenu: Bool` in `ContentView`.
+---
 
-`SiteMenuPopover` is a `ZStack` overlay in `ContentView` at `zIndex(100)`, above all tabs:
-- **Animation**: `popoverSpring = .spring(duration: 0.25, bounce: 0.22)`. Transition is `.scale(scale: 0.5, anchor: .topLeading).combined(with: .opacity)`.
-- Shows all groups from `store.groups` as individual cards. Active group has an accent-coloured border (2.5 pt) + filled checkmark. **All cards show live counts** (location count + item count) — active uses live store values, inactive uses `store.cachedGroupStats`.
-- Opening the popover triggers `store.refreshAllGroupStats()` to keep inactive card counts fresh.
-- Tapping an inactive group calls `store.setActiveGroup()`, refreshes locations + item count, dismisses the popover, and fires a `.showToast` notification.
-- **Settings button** fires `NotificationCenter.default.post(name: .showSettings)`.
-- Dimmed background tap dismisses it.
+## 4. Unified File Map & Developer Watch-outs
 
-The `showSiteMenu` binding flows to child views via a **custom `EnvironmentKey`** (`ShowSiteMenuKey` in `HomeboxCatalogApp.swift`):
-```swift
-@Environment(\.showSiteMenu) var showSiteMenu
-// Toggle:
-withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
-    showSiteMenu.wrappedValue.toggle()
-}
-```
-
-## Toast notifications
-Any part of the app can show a bottom toast pill by posting:
-```swift
-NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Your message"])
-```
-`ContentView` renders the toast as a `Capsule` overlay at `zIndex(200)` with a 2.5 s auto-dismiss. Both `.showSettings` and `.showToast` notification names are declared in `SiteMenuPopover.swift`.
-
-## Global search
-`globalSearchQuery: String` is a `@Binding` passed from `ContentView` down to all three tab views. Each tab also has `@State private var isSearchActive = false` wired to `.searchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "…")` on its `NavigationStack` via the `ConditionalSearchable` modifier. The magnifying glass icon in the toolbar sets `isSearchActive = true` to programmatically present the native search bar with keyboard.
-
-## Homebox API surface used (v0.25.x)
-All endpoints under `${serverURL}/api/v1/`. Bearer token in `Authorization` header — **raw token, no `"Bearer "` prefix**.
-
-**Multi-tenant (Collections/Groups)**: Homebox uses the `X-Tenant: <groupUUID>` request header to scope all responses to a specific group. The same auth token works for every group. `HomeboxClient.tenantId` is sent as this header automatically. Switching groups = change `activeGroupId` → `store.client` picks it up → all subsequent API calls are scoped to the new group. There is **no re-login** needed.
-
-| Endpoint | Why |
-|---|---|
-| `POST /users/login` (form-encoded) | Sign in. Returns `{ token, expiresAt }`. |
-| `GET /locations` | Flat list with itemCount — used to build count map for FlatLocation. |
-| `GET /locations/tree?withItems=false` | Nested TreeItem. DFS-flattened into `FlatLocation[]` with ancestor chain. |
-| `POST /locations` (JSON) | `{ name, parentId?, description }`. Used by CreateLocationSheet. |
-| `GET /items?page=1&pageSize=1000` | Paginated ItemSummary list. Items tab. |
-| `GET /items?page=1&pageSize=1` | Used by `refreshItemTotal()` — just needs the `total` field, not the items. |
-| `GET /items?labels=<id>` | Tag filter — **repeated param**, not comma-joined. |
-| `GET /items?parentIds=<id>` | Sub-item filter — children of a specific item. Repeated param. |
-| `GET /items?includeArchived=true` | Include archived items in results. Default false (archived items hidden). |
-| `POST /items` (JSON) | Create: `{ name, quantity, description, locationId, tagIds, parentId? }`. `locationId` required. |
-| `GET/PUT/DELETE /items/{id}` | Item CRUD. PUT uses the large `HBItemUpdate` struct — always seed from `HBItemUpdate(from: detail)`. |
-| `POST /items/{id}/attachments` (multipart) | Upload photo. Fields: `file`, `name`, `primary`. Type inferred from filename extension. |
-| `GET /items/{id}/attachments/{aid}` | Fetch attachment bytes (raw). |
-| `DELETE /items/{id}/attachments/{aid}` | Delete a photo attachment. Used by `EditItemSheet`. |
-| `GET /items/{id}/maintenance` | List maintenance entries for an item. Returns `[HBMaintenanceEntry]`. |
-| `POST /items/{id}/maintenance` | Create maintenance entry. Body: `HBMaintenanceCreate`. |
-| `PUT /maintenance/{id}` | Update a maintenance entry. Body: `HBMaintenanceCreate`. |
-| `DELETE /maintenance/{id}` | Delete a maintenance entry. |
-| `GET/POST/PUT/DELETE /locations/{id}` | Location CRUD. |
-| `GET/POST/PUT/DELETE /tags` | Tag CRUD. `TagCreatePayload` used for both create and update. |
-| `GET /groups/all` | All groups the user can access. Used to populate `store.groups` in `SiteMenuPopover`. |
-
-**Important**: the `/v1/entities` endpoints on homebox.software are unreleased main-branch APIs — they do **not** exist in v0.25.x. Always cross-check `backend/app/api/routes.go` at the target release tag.
-
-## File map
-
-| File | Purpose |
-|---|---|
-| `HomeboxCatalogApp.swift` | `@main`. `ContentView`: 3-tab ZStack + `SiteMenuPopover` overlay (zIndex 100) + toast overlay (zIndex 200). `ShowSiteMenuKey` environment key passes `Binding<Bool>` into tab toolbars. `.task` refreshes group list, locations, and item total concurrently on every authenticated launch. `BrandMark` struct (unused in tabs but kept). |
-| `SiteMenuPopover.swift` | Floating popover: loops `store.groups` as individual cards; active group gets accent border + checkmark; tapping switches group. Zoom-from-chevron animation. `Notification.Name.showSettings` + `.showToast` declared here. |
-| `OnboardingView.swift` | Full-screen unauthenticated view — server URL + login form. Replaces the tab view until `store.isAuthenticated`. |
-| `Theme.swift` | 30 `AppTheme` cases (ported from Homebox CSS), `ThemeManager`, **`Color(hex:)` non-failable**, `Color(h:s:l:)` HSL helper, `ThemeSwatch`. No orb backgrounds — solid bg only. |
-| `Models.swift` | `HomeboxStore` (@MainActor ObservableObject): auth, `locationsFlat: [FlatLocation]`, `cachedItemTotal`, `groupName`, `groups: [HBGroup]`, `activeGroupId: String?` (persisted), `cachedGroupStats: [String: GroupStats]`. Key methods: `login()`, `refreshGroups()` (stores full group list + sets activeGroupId), `refreshLocations()`, `refreshItemTotal()` (pageSize=1 fast count), `setActiveGroup()` (switches X-Tenant, refreshes), `refreshAllGroupStats()` (per-group scoped clients). `GroupStats { locationCount, itemTotal }` struct. `FlatLocation` struct for DFS-flattened location tree. |
-| `HomeboxClient.swift` | Async/await HTTP client. `tenantId: String?` on the struct — when set, sends `X-Tenant: tenantId` on every request to scope responses to that group. All Codable models: `HBItem` (with `effectiveLabels`), `HBLocation`, `HBTreeItem` (final class, recursive), `HBItemCreate`, `HBItemUpdate`, `HBGroup`, `HBTag`, `HBItemSummary`, `HBMaintenanceEntry`, `HBMaintenanceCreate`, etc. `HBItemDetail.parent: HBItemSummary?` for parent link. `HBItemUpdate.parentId: String?` (nullable — see gotchas). `HBItemUpdate.archived: Bool`. `listItems()` accepts `parentIds:[String]` and `includeArchived:Bool`. `uploadAttachment` hand-rolls multipart/form-data. `listGroups()` → `GET /v1/groups/all`. `listTags()` tries bare array first, then `{ items: [...] }` wrapper. Maintenance methods: `listMaintenance(itemId:)`, `createMaintenance(itemId:entry:)`, `updateMaintenance(id:entry:)`, `deleteMaintenance(id:)`. |
-| `Keychain.swift` | Minimal `SecItem` wrapper. Token only (`AccessibleAfterFirstUnlockThisDeviceOnly`). |
-| `PhotoSource.swift` | `CameraSheet` (UIImagePickerController wrapper) + `downscale(_:maxDimension:)` — keeps JPEGs under a few hundred KB. |
-| `AddItemView.swift` | Compact single-screen add form (no scrolling — fits with keyboard open). `lockLocation` + `lockTags` toggles persist fields across submissions. AI tag suggestions via FoundationModels (0.8 s debounce, silently skips if Apple Intelligence unavailable). Accepts optional `parentId: String?`, `parentName: String?`, `parentLocationId: String?` for sub-item creation — hides location picker and Lock Location toggle when `isComponent` is true, auto-inherits parent's location. Add button icon: `plus.square.fill`. Description uses `DescriptionField` component. Presented as sheet from Items FAB. Two action buttons ("Add" and "Add Another") in `.safeAreaInset(edge: .bottom)` — no frosted glass. |
-| `ItemsListView.swift` | Items tab. Hybrid semantic search (NaturalLanguage `min(wordEmbedding, sentenceEmbedding)`, threshold 1.15). FAB opens AddItemView. List/tile view toggle. Filter panel (location + tag + sort menu + archive toggle). Multi-select with bulk actions (including bulk archive). `globalSearchQuery` binding. `SortOption` enum with 6 cases. `BulkEditSheet` for bulk location/tag changes and delete. |
-| `LocationsTabView.swift` | Locations tab. Tree with collapse/expand, tile view, A-Z scrubber. FAB opens `CreateLocationSheet`. `globalSearchQuery` binding. In `LocationListRow`, the expand/collapse chevron is pinned to the far left (before depth-indent lines), `frame(width: 36).frame(maxHeight: .infinity)` for a large tap target. `CreateLocationSheet` is compact (no scroll, fits with keyboard open), uses `DescriptionField`. |
-| `LocationDetailView.swift` | Location detail + edit + delete. Defines route structs: `ItemDetailRoute`, `LocationDetailRoute`. |
-| `ItemDetailView.swift` | Item detail + edit + delete + photo + archive/unarchive + sub-items + maintenance. Contains `AuthImage` (authenticated image loader), `FullScreenImageView` (pinch-to-zoom, save, share), `EditItemSheet`, `MaintenanceRow`, `MaintenanceEntrySheet`. Archive toggled from ••• menu. "Components" card lists child items; "Add component" opens `AddItemView` pre-seeded with parent. "Part of: X" navigation link shown when item has a parent. "Maintenance" card always visible with add/edit/delete. |
-| `ArchivedItemsView.swift` | Accessible from Settings → Library. Loads all items with `includeArchived: true`, filters to `archived == true`. `SwipeRevealRow` gesture to unarchive individual items. Long-press multi-select with bulk "Unarchive" via `ToolbarItemGroup(placement: .bottomBar)`. |
-| `LocationPickerSheet.swift` | Reusable indented tree picker with search. Single-select. |
-| `TagPickerSheet.swift` | Multi-select tag picker + inline create. Contains `TagChipsRow` for displaying tag capsules. Used in AddItemView / ItemDetailView / BulkEditSheet. |
-| `TagsTabView.swift` | Tags tab. FAB opens `TagEditSheet(mode: .create)`. Tag detail shows items with that tag. `globalSearchQuery` binding. Uses `HomeboxTagPalette` — 12 hex colors matching Homebox web app. `TagEditSheet` is compact (no scroll, fits with keyboard open), uses `DescriptionField`. |
-| `SettingsView.swift` | Server URL + login, theme picker (5-col grid of swatches), About, Library (link to ArchivedItemsView). Presented as a sheet from `SiteMenuPopover`. |
-| `Components.swift` | `DescriptionEditorSheet` (full-screen TextEditor sheet with Cancel/Done — opened by `DescriptionField`), `DescriptionField` (compact tappable row that previews text and opens the editor sheet), `ConditionalSearchable` (viewModifier for programmatic searchable toggle), `GlassCard`, `QuantityControl` (replaces broken `Stepper.labelsHidden()`), `AlphabetIndexBar`, `LetterPopupBox`, `ThumbnailStore` (plain `@MainActor class`, NOT ObservableObject), `ItemListRowContent` (shared item row), `SwipeRevealRow` (horizontal swipe-to-reveal action button, used in ArchivedItemsView). |
-| `project.yml` | xcodegen spec — iOS 26 deployment, no signing. `CFBundleDisplayName: HomeBoy`. |
-| `.github/workflows/build.yml` | macOS-15: xcodegen → archive unsigned → zip IPA → publish to "latest" release. On tagged releases (`v*`), also patches `apps.json` with the new version + IPA size and commits it back. |
-| `.github/workflows/update_repo.yml` | Triggered on release events. Downloads the IPA from the release asset, patches `apps.json` size/date fields, commits back to main. Backup in case `build.yml` misses a release. |
-| `apps.json` | AltStore source manifest. Lists all HomeBoy releases with version, date, download URL, size. Hosted on this repo so users can add `https://raw.githubusercontent.com/nphil/HomeBoy/main/apps.json` as an AltStore source. **Never edit by hand** — CI patches it automatically on each tagged release. |
-| `Assets.xcassets/` | App icon: 1024×1024 isometric box on warm peach gradient. |
-
-## Architecture rules — never violate
-
-- **3 tabs only**: Items / Locations / Tags. Settings = sheet via NotificationCenter. Add Item = FAB sheet.
-- **SiteMenuPopover is a ZStack overlay at zIndex(100)** in ContentView. Never put it inside a NavigationStack.
-- **Toast overlay is at zIndex(200)** in ContentView. Trigger via `NotificationCenter.default.post(name: .showToast, ...)`. Never build separate toast UI.
-- **No custom `.glass` / `.glassProminent` button styles** — iOS 26 SDK provides these natively. Custom ones → `ambiguous use of 'glass'` error.
-- **Background pattern**: `.background(theme.current.backgroundColor.ignoresSafeArea())` as a modifier on the ScrollView/List/Form. Never wrap in `ZStack { background; content }` — breaks safe area and layout.
-- **`Stepper(...).labelsHidden()` broken on iOS 26** — use `QuantityControl` from Components.swift.
-- **`HBTreeItem` is a `final class`** — Codable structs can't be self-referential.
-- **`Color(hex:)` in Theme.swift is non-failable** — never add another one, never write `?? someColor` after it.
-- **Bearer token is raw** — no `"Bearer "` prefix in the Authorization header.
-- **`HBItem.effectiveLabels`** = `labels ?? tags`. Never access `.labels` or `.tags` directly.
-- **Tag filter nil guard**: `guard let labels = item.effectiveLabels else { return true }` — nil means server already filtered server-side.
-- **`showSiteMenu` flows via `ShowSiteMenuKey` EnvironmentKey** as `Binding<Bool>`. Each tab reads `@Environment(\.showSiteMenu) var showSiteMenu`.
-- **`ThumbnailStore` is NOT ObservableObject** — plain `@MainActor class`. Rows use local `@State`. Making it ObservableObject causes full-list re-renders on every thumbnail load.
-- **Semantic search threshold is 1.15** with hybrid `min(wordEmbedding, sentenceEmbedding)`. Do not revert to pure sentenceEmbedding < 0.75.
-- **Group switching uses `X-Tenant` header** — never re-login, never store multiple tokens. `store.client` always passes `activeGroupId` as `tenantId`. To switch: `await store.setActiveGroup(group)`.
-- **Each tab has `.onChange(of: store.activeGroupId)`** to wipe local caches and reload on group switch. If you add a new tab, wire this too.
-- **Toolbar leading slot is a `ToolbarItemGroup`** on all tabs — HomeBoy pill. Don't replace it with a single `ToolbarItem`.
-- **Search bar**: each tab has `@State private var isSearchActive = false` + uses `ConditionalSearchable` modifier. The magnifying glass button in the toolbar sets `isSearchActive = true`.
-- **Gesture propagation & filters**: Do not use `Button` with `.simultaneousGesture(LongPressGesture())` inside lists or scroll views; touches will propagate underneath. Use standard gestures (`.onTapGesture` and `.onLongPressGesture`) directly on custom container shapes instead.
-- **AuthImage fullscreen**: Set `allowsFullScreen: false` on list rows and grid thumbnails. Tapping row/tile images should toggle selection or open details, never launch fullscreen image viewers directly from the main list.
-- **Bottom bar / bulk action bar**: Use `ToolbarItemGroup(placement: .bottomBar)` with standard borderless text buttons. Do NOT use custom button shapes (like `.glass` style) in system bottom bars — they get squeezed by the OS toolbar layout engine and truncate labels into circles with ellipses (`...`). Do NOT use `.ultraThinMaterial` or frosted glass backgrounds — use opaque theme backgrounds or standard system bottom bar placement.
-- **Selection header title**: Use standard `.navigationTitle` with `.navigationBarTitleDisplayMode(.inline)` for selection status headers instead of custom leading toolbar items to prevent `S...` truncation on narrow/compact devices.
-- **Filter chips layout & touch handling**: Place filter panels *outside* and *above* scroll views (e.g. as a sibling to the `ScrollView` inside a wrapping `VStack` in `contentArea`) rather than inside the `ScrollView`. This pins them to the top and prevents layout/hit-testing issues or gesture conflicts with the lazy containers inside the scroll view. On the chip itself, use `.contentShape(Capsule())` + direct `.onTapGesture` / `.onLongPressGesture` to handle taps and long presses safely.
-- **Multi-select in card/tile view**: In select mode, tile items use `.contentShape(Rectangle()).onTapGesture { toggleSelection(item) }` instead of `NavigationLink`. No `AuthImage` fullscreen should trigger. The entire tile is the tap target.
-- **Multi-select activation**: Long-press (0.4s) on any item (row or tile) enters select mode via `.highPriorityGesture(LongPressGesture())`. Haptic feedback via `UIImpactFeedbackGenerator(style: .medium)`.
-- **Scroll indicators**: Always apply `.scrollIndicators(.hidden)` to every `ScrollView`, `List`, and `Form`. No scroll bars should ever be visible anywhere in the app.
-- **Description/notes fields in add/create forms**: Always use `DescriptionField` from Components.swift (not inline `TextField` or `TextEditor`). `DescriptionField` opens `DescriptionEditorSheet` as a separate full-screen sheet when tapped — this prevents the keyboard from breaking compact form layouts.
-- **`SwipeRevealRow` must NOT be used inside main item lists** — it conflicts with the system scroll gesture. Use it only in standalone lists (like `ArchivedItemsView`) where swipe-to-reveal is the primary action. In main lists, use `swipeActions` instead.
-
-## Items view multi-select — bulk action bar
-
-When `selectMode == true`:
-- Tab bar is hidden (`.toolbar(selectMode ? .hidden : .visible, for: .tabBar)`)
-- Navigation title shows "Select Items" or "N Selected"
-- "Done" button in top-right trailing toolbar
-- "Archive" button in top-left leading toolbar
-- Bottom bar via `ToolbarItemGroup(placement: .bottomBar)` with:
-  - "Select All" — sets `selectedIds` to all filtered item IDs
-  - "Deselect All" — clears `selectedIds` (disabled when empty)
-  - "Edit" (bold) — opens `BulkEditSheet` (disabled when empty)
-
-## Items view sorting
-
-`SortOption` enum with `@AppStorage("itemsSortOption")` persistence:
-| Case | Display | Icon |
+| File | Purpose | Critical Watch-outs & Gotchas |
 |---|---|---|
-| `nameAZ` | Name: A-Z | `text.sort.ascending` |
-| `nameZA` | Name: Z-A | `text.sort.descending` |
-| `dateNewest` | Date: Newest | `clock.fill` |
-| `dateOldest` | Date: Oldest | `clock` |
-| `quantityHighToLow` | Quantity: High to Low | `arrow.up.circle.fill` |
-| `quantityLowToHigh` | Quantity: Low to High | `arrow.down.circle.fill` |
+| [HomeboxCatalogApp.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/HomeboxCatalogApp.swift) | Main entry point. Defines `ContentView`, `ShowSiteMenuKey` environment key, and handles toast overlay. | App launches `.task` to refresh groups, locations, and item counts concurrently. |
+| [SiteMenuPopover.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/SiteMenuPopover.swift) | Group-switching popover layout & animation. Declares `.showToast` and `.showSettings` notifications. | Stays in the view hierarchy to preserve state. Tapping settings fires notification. |
+| [OnboardingView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/OnboardingView.swift) | Login form + server configuration. | Entirely replaces `ContentView` tabs when `!store.isAuthenticated`. |
+| [Theme.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/Theme.swift) | Defines 30 HSL-based themes. | `Color(hex:)` is **non-failable** — never write `?? someColor`. Solid backgrounds only. |
+| [Models.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/Models.swift) | Main `@MainActor` `HomeboxStore` state manager. | Handles API requests scoped by `activeGroupId` using computed clients. DFS-flattens location trees. |
+| [HomeboxClient.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/HomeboxClient.swift) | Raw async/await HTTP client & Codable models. | `X-Tenant` header handles multi-tenancy. Bearer token has **no** `"Bearer "` prefix. |
+| [Keychain.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/Keychain.swift) | Keyring storage wrapper. | Token-only persistence. Password is never saved. |
+| [PhotoSource.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/PhotoSource.swift) | Camera/photo helpers, handles downscaling to keep JPEGs < 300KB. | Downscaling maxDimension = 1600. |
+| [AddItemView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/AddItemView.swift) | Compact entry form. debounced Apple Intelligence tag suggestion. | Compact VStack (no ScrollView) to fit screen + keyboard. Pre-seeded parent ID for components. |
+| [ItemsListView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/ItemsListView.swift) | Items tab. Lists, tiles, filters, sorting, bulk actions, and hybrid semantic search. | Uses `ThumbnailStore` for performance. Holds `SortOption` and view state. |
+| [LocationsTabView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/LocationsTabView.swift) | Tree navigation list of locations. | Pinned left expand/collapse chevrons with 36px wide touch target. |
+| [LocationDetailView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/LocationDetailView.swift) | Detail list of items in location, edit/delete sheet. | Registers nav route destinations. |
+| [ItemDetailView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/ItemDetailView.swift) | Item detail view, sub-components cards, maintenance cards, and full-screen image cover. | `allowsFullScreen: true` is set on detail image loading only. |
+| [ArchivedItemsView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/ArchivedItemsView.swift) | Archived items list accessible from Settings -> Library. | **The ONLY place `SwipeRevealRow` is allowed.** Handles bulk unarchiving. |
+| [Components.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/Components.swift) | Custom UI elements (`DescriptionField`, `QuantityControl`, `AlphabetIndexBar`, etc.) | `ThumbnailStore` is a plain `@MainActor class` (NOT ObservableObject). |
+| [project.yml](file:///Users/nitin/Documents/antigravity/HomeBoy/project.yml) | xcodegen project configuration. | Spec file. Any new `.swift` file in root is auto-included. |
+| `apps.json` | AltStore source manifest. | CI patches automatically. **Never edit by hand.** |
 
-Sort menu is a `Menu` with `Picker` inside the filter panel. Shows current sort as a capsule chip. Non-default sorts use accent color fill.
+---
 
-## Items view filter chips
+## 5. Critical Architecture Rules (Never Violate)
+1. **Button Styles**: Do NOT define custom `.glass` or `.glassProminent` button styles — they conflict with native styles in the iOS 26 SDK, causing `ambiguous use of 'glass'` errors.
+2. **Background Pattern**: Always use `.background(theme.current.backgroundColor.ignoresSafeArea())` as a modifier directly on the scrollable container (List/ScrollView/Form). Never wrap the structure in a `ZStack { background; content }` as it breaks safe area rendering and width calculation.
+3. **Scroll Bars**: Apply `.scrollIndicators(.hidden)` to every single `ScrollView`, `List`, and `Form` to ensure scroll bars are completely invisible everywhere.
+4. **Steppers**: `Stepper(...).labelsHidden()` is broken in iOS 26. Always use the custom `QuantityControl` component from `Components.swift`.
+5. **JSON Models**: Recursive codable structs fail compilation. `HBTreeItem` must remain a `final class`.
+6. **Authorization Header**: Send the raw token string in the `Authorization` header. Do NOT prefix it with `"Bearer "`.
+7. **Item Tags**: Always use `item.effectiveLabels` (computed as `labels ?? tags`). Never access `.labels` or `.tags` directly, as Homebox api naming varies across versions.
+8. **Tag Filter Nil Guard**: If `item.effectiveLabels` is `nil`, the tag filtering block must return `true`. This trusts the server-side `?labels=` query pre-filtering. Returning `false` will wipe the list.
+9. **Deduplicated Row Rendering**: Never make `ThumbnailStore` (or other per-row loading stores) an `ObservableObject`. Keep it a plain `@MainActor class` and use local `@State` to avoid full-list re-renders when rows load.
+10. **Description Fields**: Never place inline TextFields or TextEditors for descriptions/notes in add, create, or edit forms. Use `DescriptionField` from `Components.swift`. It renders a compact row that opens a full-screen `DescriptionEditorSheet` (with a draft pattern), preventing keyboard layout issues.
+11. **Swipe Actions**: Do NOT use `SwipeRevealRow` in main item list scroll views due to gesture conflicts. Use native `.swipeActions` in main lists. Limit `SwipeRevealRow` usage strictly to standalone, non-nested lists (such as `ArchivedItemsView`).
+12. **Parent IDs**: `HBItemUpdate.parentId` MUST be a nullable `String?` (not `String`). Homebox's Go backend expects a UUID; sending an empty string `""` crashes the parser with a `500 Internal Server Error`. Sending JSON `null` (accomplished by setting `parentId = nil` in Swift) decodes to `uuid.Nil` which safely clears the parent relationship.
+13. **Bulk Action Results**: Never swallow errors silently in bulk commands (delete, archive, unarchive) via empty `catch` blocks. Always post a toast notifying the user of the success count and the last error message.
+14. **Sendable Closures**: Do not directly capture `@MainActor` variables (like `theme.current.accentColor`) in `@Sendable` closures (e.g., PhotosPicker label). Capture it in a local constant first: `let accentColor = theme.current.accentColor`.
+15. **Filter Chips Gestures**: Place filter panels *outside* and *above* scroll views (as siblings in a wrapping VStack). Use `.contentShape(Capsule())` and direct `.onTapGesture` / `.onLongPressGesture` rather than `Button` or `.simultaneousGesture` to prevent touches from bleeding through to cells below.
+16. **Select Mode Buttons**: Use `ToolbarItemGroup(placement: .bottomBar)` with native borderless buttons for select mode. Do NOT use custom button shapes or `.ultraThinMaterial` / glass styling. Pinned status headers should use `.navigationTitle` and `.navigationBarTitleDisplayMode(.inline)` to avoid `S...` truncation.
+17. **Full-screen Image Covers**: Row/cell image thumbnails must set `allowsFullScreen: false`. Limit full-screen image zooming to `ItemDetailView` only.
 
-Filter panel shown when `showFilters == true` (toggled via toolbar filter icon):
-- **Location chip**: Shows location breadcrumb when active, "Location" when inactive. Tap toggles clear/pick. Long-press always opens picker.
-- **Tag chip**: Shows "N tags" when active, "Tags" when inactive. Same tap/long-press behavior.
-- **Sort chip**: `Menu` dropdown with all `SortOption` cases. Current sort has checkmark.
-- **Archive chip**: Toggles `showArchivedItems`. When active, `listItems(includeArchived: true)` is used and archived rows appear dimmed. Session-only (resets on reopen).
-- **Clear button**: Appears when any filter is active.
+---
 
-## AddItemView layout (compact, keyboard-safe)
+## 6. Key Subsystems & Core Implementations
 
-All content in a VStack with no ScrollView — must fit on screen even with keyboard open (~400px available on iPhone 16):
-- `parentRow` (shown when `isComponent`): slim accent-tinted capsule badge "Sub-item of X"
-- `nameField`: single row HStack, no section header
-- `locationRow` (hidden when `isComponent`): compact single row; auto-inherited from parent when sub-item
-- `qtyTagsRow`: QuantityControl pill + Tags picker in one HStack
-- `photosNotesRow`: PhotosPicker tile + `DescriptionField` side by side
-- `lockTogglesRow`: inline HStack; Lock Location toggle hidden when `isComponent`
-- Two action buttons in `.safeAreaInset(edge: .bottom)`: "Add Another" (`.glass`) + "Add" (`.glassProminent`), icon `plus.square.fill`
+### Multi-Tenant Group Switching (X-Tenant Header)
+Homebox isolates groups via the `X-Tenant: <groupUUID>` HTTP header.
+1. `HomeboxClient` appends the `X-Tenant` header dynamically if `tenantId` is set.
+2. `HomeboxStore.client` is a computed property that automatically binds `activeGroupId` as the `tenantId`.
+3. Updating `store.activeGroupId` automatically scopes all future network requests. No re-login or credentials swap is required.
+4. Each tab listens for group changes via `.onChange(of: store.activeGroupId)` to wipe local caches and reload.
+5. Inactive group counts on the popover use `store.cachedGroupStats`, populated concurrently during app start and popover display by `refreshAllGroupStats()`.
 
-## Common tasks
+### Hybrid Semantic Search
+`ItemsListView` implements a hybrid search running asynchronously:
+1. Fast synchronous substring check `.contains()` on `allItems`.
+2. If query length is $\ge 3$ characters and substring yields 0 matches: an async background task calculates semantic distance.
+3. It evaluates `min(wordEmbedding, sentenceEmbedding)` distance using `NLEmbedding`.
+4. **Threshold**: `1.15` (relaxed to accommodate single-word synonyms). Do NOT restrict search to pure sentence embeddings or lower thresholds.
 
-### Add a new optional field to items
-1. Add property to `HBItemCreate` (and `HBItemUpdate`) in `HomeboxClient.swift`.
-2. Add `@State` + UI in `AddItemView.swift`.
-3. Wire into `payload` in `submit()`.
+### AI Tag Suggestions
+`AddItemView` queries the local OS `FoundationModels` (`LanguageModelSession`) to suggest tags on the fly:
+- Triggered by name updates (length $\ge 4$ characters) debounced by 0.8s.
+- Feeds available tag names along with the item name to the model.
+- Parses comma-separated names from the result.
+- Displays as inline sparkle chips. Silently skipped if Apple Intelligence is unavailable.
 
-### Wire a new endpoint
-Method on `HomeboxClient`. Reuse `request(path:method:body:contentType:query:)` — sets auth, handles 401/transport errors.
+### Sub-Items / Component Cards
+Items link parents and children via `parentId`.
+- The child detail screen displays a "Part of: X" navigation link.
+- The parent detail screen shows a "Components" `GlassCard` listing child items (fetched via `listItems(parentIds: [itemId])`).
+- Tapping "Add component" launches `AddItemView` with pre-filled parent data, hiding the location picker (location is automatically inherited from the parent).
 
-### Show a toast from anywhere
-```swift
-NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Done!"])
+### Maintenance Logs
+Real v0.25.x API integration via endpoints under `/v1/items/{id}/maintenance` and `/v1/maintenance/{id}`:
+- `HBMaintenanceEntry` contains `id`, `name`, `description`, completed `date` (ISO 8601), `scheduledDate` (ISO 8601), and `cost`.
+- The detail view displays a "Maintenance" `GlassCard` sorting completed logs first, then scheduled.
+- `MaintenanceRow` indicates status via a green (completed) or orange (scheduled) dot.
+- Adding/Editing uses `MaintenanceEntrySheet` with date/cost toggles.
+
+### Archive Feature
+Archiving is handled by flipping `archived: Bool` on `HBItemUpdate` and PUTing.
+- Archived items are filtered out by default on the server unless `includeArchived=true` is sent.
+- Accessible via the detail view ••• menu, bulk select bar ("Archive"), and from Settings -> Library -> Archived Items (`ArchivedItemsView`).
+
+---
+
+## 7. API Endpoints Reference (v0.25.x)
+All requests are scoped to `${serverURL}/api/v1/` with raw `Authorization` tokens.
+
+| Method | Endpoint | Description / Body |
+|---|---|---|
+| `POST` | `/users/login` | **Form-encoded** (not JSON) credentials. |
+| `GET` | `/groups/all` | Retrieves user's groups. |
+| `GET` | `/locations` | Retrieves flat location list. |
+| `GET` | `/locations/tree?withItems=false` | Retrieves recursive location tree (`HBTreeItem`). |
+| `POST` | `/locations` | Creates location: `{ name, parentId?, description }`. |
+| `GET` | `/items?page=1&pageSize=1000` | Retrieves item list. Can pass `parentIds` and `includeArchived`. |
+| `GET` | `/items?page=1&pageSize=1` | Cheaply fetches the total item count. |
+| `GET` | `/items?labels=<id>` | Filters items by tag ID. Repeat parameters for multiple tags. |
+| `POST` | `/items` | Creates item: `{ name, quantity, description, locationId, tagIds, parentId? }`. |
+| `GET/PUT/DELETE` | `/items/{id}` | Item CRUD. PUT requires building `HBItemUpdate` from the detail struct. |
+| `POST` | `/items/{id}/attachments` | Hand-rolled multipart image upload. |
+| `DELETE` | `/items/{id}/attachments/{aid}` | Deletes primary or secondary photo attachments. |
+| `GET` | `/items/{id}/maintenance` | Fetches maintenance entries (`[HBMaintenanceEntry]`). |
+| `POST` | `/items/{id}/maintenance` | Creates maintenance entry (`HBMaintenanceCreate`). |
+| `PUT` | `/maintenance/{id}` | Updates maintenance entry. |
+| `DELETE` | `/maintenance/{id}` | Deletes maintenance entry. |
+| `GET/POST/PUT/DELETE` | `/tags` | Tag CRUD. payload: `TagCreatePayload`. |
+
+---
+
+## 8. User Collaboration Guidelines (Nitin)
+- **ADHD Style**: Keep all responses and explanations **extremely concise, short, and focused**. Bullet points are preferred. Never post walls of text.
+- **Background**: Nitin has a basic understanding of programming concepts (variables, conditions, loops from high school C++ ~20 years ago) but lacks experience with concurrent programming, advanced Swift, network protocols, or pointers.
+- **Workflow (Vibecoding)**:
+  1. Nitin requests a feature or adjustment.
+  2. Implement changes, commit, and push to BOTH branches.
+  3. GitHub Actions builds the unsigned IPA.
+  4. Nitin sideloads via AltStore on his iPhone, tests, and reports back.
+  5. Repeat.
+- **Concept Explanations**: Provide brief, simple analogies or high-level explanations of *why* a change was made, connecting new concepts directly to files he is familiar with.
+- **Token Efficiency**: Never repeat explanations, avoid unnecessary file reads of unmodified code, and immediately compress memory when requested.
+
+---
+
+## 9. View Navigation Flow
+
 ```
-
-### Force re-login on token expiry
-Wire `POST /v1/users/refresh` inside `HomeboxClient.request` on `HBError.unauthorized`, retry once.
-
-### Change the app icon
-Replace `Assets.xcassets/AppIcon.appiconset/AppIcon.png` with a new 1024×1024 PNG.
-
-### Push and trigger a build
-```bash
-git add <files>
-git commit -m "..."
-git push origin HEAD:main
-git push origin claude/ipad-release-visibility-LWSdB
+App Entry
+├── ContentView (if authenticated)
+│   ├── TabView
+│   │   ├── Tab 0: ItemsListView (NavigationStack)
+│   │   │   ├── → ItemDetailView (push via ItemDetailRoute)
+│   │   │   │   ├── EditItemSheet (sheet)
+│   │   │   │   │   ├── LocationPickerSheet
+│   │   │   │   │   ├── TagPickerSheet
+│   │   │   │   │   └── CameraSheet / PhotosPicker
+│   │   │   │   ├── FullScreenImageView (fullScreenCover)
+│   │   │   │   ├── AddItemView (sheet, "Add component" → sub-item)
+│   │   │   │   └── MaintenanceEntrySheet (sheet)
+│   │   │   ├── → LocationDetailView (push via LocationDetailRoute)
+│   │   │   ├── AddItemView (sheet, from FAB)
+│   │   │   │   ├── LocationPickerSheet
+│   │   │   │   ├── TagPickerSheet
+│   │   │   │   └── CameraSheet
+│   │   │   ├── BulkEditSheet (sheet, from multi-select)
+│   │   │   │   ├── LocationPickerSheet
+│   │   │   │   └── TagPickerSheet
+│   │   │   ├── LocationPickerSheet (filter)
+│   │   │   └── TagPickerSheet (filter)
+│   │   │
+│   │   ├── Tab 1: LocationsTabView (NavigationStack)
+│   │   │   ├── → LocationDetailView (push)
+│   │   │   │   ├── EditLocationSheet (sheet)
+│   │   │   │   │   └── LocationPickerSheet
+│   │   │   │   └── → LocationDetailView (push, recursive)
+│   │   │   ├── → ItemDetailView (push)
+│   │   │   └── CreateLocationSheet (sheet, from FAB)
+│   │   │       └── LocationPickerSheet
+│   │   │
+│   │   └── Tab 2: TagsTabView (NavigationStack)
+│   │       ├── → TagDetailView (push)
+│   │       │   ├── TagEditSheet (sheet)
+│   │       │   └── → ItemDetailView (push)
+│   │       ├── → ItemDetailView (push)
+│   │       └── TagEditSheet (sheet, from FAB, mode: .create)
+│   │
+│   ├── SiteMenuPopover (zIndex 100, overlay)
+│   │   └── SettingsView (sheet)
+│   │       └── ArchivedItemsView (NavigationLink push)
+│   └── Toast overlay (zIndex 200)
+│
+└── OnboardingView (if not authenticated)
 ```
-IPA appears at https://github.com/nphil/HomeBoy/releases/tag/latest.
-
-## Known gotchas
-- xcodegen sources path is `.` — any new `.swift` file in root is auto-included.
-- `SKIP_INSTALL=NO` and `INSTALL_PATH="/Applications"` required in archive or `.app` won't appear in xcarchive.
-- Authorization header takes **raw token** — no `"Bearer "` prefix.
-- `homebox.software` docs show the **unreleased** `/v1/entities` API. v0.25.x uses `/v1/items` + `/v1/locations`. Always check `routes.go` at the target release tag.
-- For >1000 items, pagination is needed. Currently `pageSize=1000` in one shot.
-- `refreshItemTotal()` uses `pageSize=1` — it only needs the `total` field from `HBItemListResponse`, not the items themselves.
-- **Semantic Search**: hybrid `min(sentenceEmbedding, wordEmbedding)` threshold 1.15. Do not revert to strict sentence embedding — single-word synonyms break.
-- **AI tag suggestions**: FoundationModels (Apple Intelligence). Check `SystemLanguageModel.default.isAvailable` before use; silently skip if unavailable.
-- **`listTags()` dual-shape decoding**: Homebox versions return tags as either a bare `[HBTag]` array or wrapped in `{ items: [HBTag] }`. The client tries both.
-- **Login is form-encoded** (`application/x-www-form-urlencoded`), not JSON.
-- **`HBItemDetail` has nearly all fields optional** except `id` and `name`. Always handle nil values.
-- **`ConditionalSearchable` modifier**: Workaround because `.searchable` on iOS has no clean way to programmatically toggle visibility. Only applies searchable when `isPresented` or text non-empty.
-- **`HBItemUpdate.parentId` MUST be `String?` (nullable), NOT `String`**: The Homebox Go backend's `ItemUpdate.ParentID` is typed as `uuid.UUID`. Sending an empty string `""` fails `uuid.UnmarshalText` → HTTP 500 "error unknown". The server logic is `if data.ParentID != uuid.Nil { SetParentID } else { ClearParent() }` — sending JSON `null` decodes to `uuid.Nil`, which safely clears the parent. Swift's `JSONEncoder` encodes `nil` Optional as JSON `null` by default, so declare `var parentId: String?` and set `self.parentId = d.parent?.id` (no `?? ""`).
-- **`archived: Bool` is a real v0.25.x field** on `HBItemUpdate`. It is NOT an entities API. Confirmed in `backend/internal/data/repo/repo_items.go` — `Archived` is unconditionally set from the PUT body, same as `LocationID`.
-- **Bulk action error swallowing**: Always report outcomes via toast after bulk operations (archive, delete, etc.). A silent `catch {}` makes failures invisible and the UI appears broken. Show count of successes and last error message.
-- **`DescriptionEditorSheet` draft pattern**: The sheet uses a `@State private var draft` to buffer edits. "Done" commits `draft → text`; "Cancel" dismisses without updating. Never bind `TextEditor` directly to the parent binding inside a sheet.
-- **Sendable warnings in closures**: When referencing `theme.current.accentColor` (or other `@MainActor` properties) inside `PhotosPicker` or other `@Sendable` closures, capture it into a local `let` before the closure: `let accentColor = theme.current.accentColor`.
