@@ -144,6 +144,13 @@ struct ItemsListView: View {
             }
             .toolbar {
                 if selectMode {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button("Archive") {
+                            Task { await archiveSelected() }
+                        }
+                        .foregroundStyle(.orange)
+                        .disabled(selectedIds.isEmpty)
+                    }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button("Done") {
                             withAnimation {
@@ -766,6 +773,29 @@ struct ItemsListView: View {
         } catch {
             NotificationCenter.default.post(name: .showToast, object: nil,
                                             userInfo: ["message": "Archive failed"])
+        }
+    }
+
+    private func archiveSelected() async {
+        guard let client = store.client else { return }
+        let ids = Array(selectedIds)
+        var archived: [String] = []
+        for id in ids {
+            do {
+                let detail = try await client.getItem(id: id)
+                var update = HBItemUpdate(from: detail)
+                update.archived = true
+                try await client.updateItem(update)
+                archived.append(id)
+            } catch {}
+        }
+        await MainActor.run {
+            withAnimation {
+                allItems.removeAll { archived.contains($0.id) }
+                selectedIds = []
+                selectMode = false
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
         }
     }
 
