@@ -62,7 +62,7 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 | [LocationDetailView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/LocationDetailView.swift) | Detail list of items in location, edit/delete sheet. | Registers nav route destinations. |
 | [ItemDetailView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/ItemDetailView.swift) | Item detail view, sub-components cards, maintenance cards, and full-screen image cover. | `allowsFullScreen: true` is set on detail image loading only. |
 | [ArchivedItemsView.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/ArchivedItemsView.swift) | Archived items list accessible from Settings -> Library. | **The ONLY place `SwipeRevealRow` is allowed.** Handles bulk unarchiving. |
-| [Components.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/Components.swift) | Custom UI elements (`DescriptionField`, `QuantityControl`, `AlphabetIndexBar`, etc.) | `ThumbnailStore` is a plain `@MainActor class` (NOT ObservableObject). |
+| [Components.swift](file:///Users/nitin/Documents/antigravity/HomeBoy/Components.swift) | Custom UI elements (`FloatingCardContainer`/`.floatingCardCover`, `DescriptionField`, `QuantityControl`, `AlphabetIndexBar`, `SwipeRevealRow`, etc.) | `ThumbnailStore` is a plain `@MainActor class` (NOT ObservableObject). Use `.floatingCardCover` for Add/Create modals (NOT `.sheet`). |
 | [project.yml](file:///Users/nitin/Documents/antigravity/HomeBoy/project.yml) | xcodegen project configuration. | Spec file. Any new `.swift` file in root is auto-included. |
 | `apps.json` | AltStore source manifest. | CI patches automatically. **Never edit by hand.** |
 
@@ -86,6 +86,7 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 15. **Filter Chips Gestures**: Place filter panels *outside* and *above* scroll views (as siblings in a wrapping VStack). Use `.contentShape(Capsule())` and direct `.onTapGesture` / `.onLongPressGesture` rather than `Button` or `.simultaneousGesture` to prevent touches from bleeding through to cells below.
 16. **Select Mode Buttons**: Use `ToolbarItemGroup(placement: .bottomBar)` with native borderless buttons for select mode. Do NOT use custom button shapes or `.ultraThinMaterial` / glass styling. Pinned status headers should use `.navigationTitle` and `.navigationBarTitleDisplayMode(.inline)` to avoid `S...` truncation.
 17. **Full-screen Image Covers**: Row/cell image thumbnails must set `allowsFullScreen: false`. Limit full-screen image zooming to `ItemDetailView` only.
+18. **Add/Create Modals**: Present `AddItemView`, `CreateLocationSheet`, and `TagEditSheet` via `.floatingCardCover(isPresented:onDismiss:)` from `Components.swift` — NOT `.sheet(isPresented:)`. SwiftUI sheets always anchor to the screen bottom and get clipped by the device's rounded corners. `.floatingCardCover` wraps the content in `FloatingCardContainer` inside `.fullScreenCover` + `.presentationBackground(.clear)`, producing a rounded card inset on all four sides over a dimmed backdrop (tap-to-dismiss). Pass any post-dismiss reload work via the modifier's `onDismiss` so backdrop-tap and X-button dismissals behave identically.
 
 ---
 
@@ -185,10 +186,10 @@ App Entry
 │   │   │   │   │   ├── TagPickerSheet
 │   │   │   │   │   └── CameraSheet / PhotosPicker
 │   │   │   │   ├── FullScreenImageView (fullScreenCover)
-│   │   │   │   ├── AddItemView (sheet, "Add component" → sub-item)
+│   │   │   │   ├── AddItemView (floatingCardCover, "Add component" → sub-item)
 │   │   │   │   └── MaintenanceEntrySheet (sheet)
 │   │   │   ├── → LocationDetailView (push via LocationDetailRoute)
-│   │   │   ├── AddItemView (sheet, from FAB)
+│   │   │   ├── AddItemView (floatingCardCover, from FAB)
 │   │   │   │   ├── LocationPickerSheet
 │   │   │   │   ├── TagPickerSheet
 │   │   │   │   └── CameraSheet
@@ -204,15 +205,15 @@ App Entry
 │   │   │   │   │   └── LocationPickerSheet
 │   │   │   │   └── → LocationDetailView (push, recursive)
 │   │   │   ├── → ItemDetailView (push)
-│   │   │   └── CreateLocationSheet (sheet, from FAB)
+│   │   │   └── CreateLocationSheet (floatingCardCover, from FAB)
 │   │   │       └── LocationPickerSheet
 │   │   │
 │   │   └── Tab 2: TagsTabView (NavigationStack)
 │   │       ├── → TagDetailView (push)
-│   │       │   ├── TagEditSheet (sheet)
+│   │       │   ├── TagEditSheet (floatingCardCover)
 │   │       │   └── → ItemDetailView (push)
 │   │       ├── → ItemDetailView (push)
-│   │       └── TagEditSheet (sheet, from FAB, mode: .create)
+│   │       └── TagEditSheet (floatingCardCover, from FAB, mode: .create)
 │   │
 │   ├── SiteMenuPopover (zIndex 100, overlay)
 │   │   └── SettingsView (sheet)
