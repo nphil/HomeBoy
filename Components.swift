@@ -9,7 +9,7 @@ struct FloatingCardContainer<Content: View>: View {
     @Binding var isPresented: Bool
     var topInset: CGFloat = 70
     var bottomInset: CGFloat = 0
-    var horizontalInset: CGFloat = 12
+    var horizontalInset: CGFloat = 4
     @ViewBuilder let content: () -> Content
 
     @EnvironmentObject private var theme: ThemeManager
@@ -51,11 +51,9 @@ struct FloatingCardContainer<Content: View>: View {
                 .simultaneousGesture(
                     DragGesture()
                         .updating($dragOffset) { value, state, _ in
-                            guard value.startLocation.y < 56 else { return }
                             state = max(0, value.translation.height)
                         }
                         .onEnded { value in
-                            guard value.startLocation.y < 56 else { return }
                             if value.translation.height > 100
                                 || value.predictedEndTranslation.height > 200 {
                                 isPresented = false
@@ -77,7 +75,7 @@ extension View {
         isPresented: Binding<Bool>,
         topInset: CGFloat = 70,
         bottomInset: CGFloat = 0,
-        horizontalInset: CGFloat = 12,
+        horizontalInset: CGFloat = 4,
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
