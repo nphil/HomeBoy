@@ -17,6 +17,14 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "1.0.40",
+          "buildVersion": "1.0.40",
+          "date": "2026-05-25T07:04:58Z",
+          "localizedDescription": "Unsigned IPA \u2014 sideload with AltStore. Built from `aa6f5e0` on 2026-05-25 07:04 UTC",
+          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.40/HomeboxCatalog.ipa",
+          "size": 3954416
+        },
+        {
           "version": "1.0.39",
           "buildVersion": "1.0.39",
           "date": "2026-05-25T06:53:43Z",
