@@ -14,8 +14,8 @@ struct FloatingCardContainer<Content: View>: View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, horizontalInset)
-            .presentationDetents([.fraction(0.85)])
-            .presentationDragIndicator(.hidden)
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
             .presentationBackground {
                 ZStack {
                     Rectangle().fill(.ultraThinMaterial)
