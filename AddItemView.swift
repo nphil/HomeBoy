@@ -216,14 +216,7 @@ struct AddItemView: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 44)
-        .background {
-            RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
-        )
+        .glassEffect(in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func keepButton(isOn: Binding<Bool>) -> some View {
@@ -329,9 +322,7 @@ struct AddItemView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 44)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1))
+            .glassEffect(in: RoundedRectangle(cornerRadius: 10))
             
             Spacer(minLength: 0)
 
