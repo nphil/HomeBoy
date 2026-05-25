@@ -13,11 +13,16 @@ struct ItemDetailView: View {
     var onChange: () -> Void = {}
 
     @State private var item: HBItemDetail?
+    @State private var children: [HBItem] = []
+    @State private var maintenance: [HBMaintenanceEntry] = []
     @State private var isLoading = false
     @State private var loadError: String?
     @State private var showEdit = false
     @State private var confirmDelete = false
     @State private var isDeleting = false
+    @State private var showAddSubItem = false
+    @State private var showMaintenanceSheet = false
+    @State private var editingEntry: HBMaintenanceEntry? = nil
 
     var body: some View {
         ZStack {
@@ -31,6 +36,14 @@ struct ItemDetailView: View {
                 Menu {
                     Button { showEdit = true } label: { Label("Edit", systemImage: "pencil") }
                         .disabled(item == nil)
+                    Button {
+                        Task { await toggleArchive() }
+                    } label: {
+                        Label(item?.archived == true ? "Unarchive" : "Archive",
+                              systemImage: item?.archived == true ? "archivebox.fill" : "archivebox")
+                    }
+                    .disabled(item == nil)
+                    Divider()
                     Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
                 } label: {
                     Image(systemName: "ellipsis.circle").font(.title3)
@@ -47,6 +60,18 @@ struct ItemDetailView: View {
                 .environmentObject(store)
                 .environmentObject(theme)
             }
+        }
+        .sheet(isPresented: $showAddSubItem, onDismiss: { Task { await load() } }) {
+            if let item {
+                AddItemView(parentId: item.id, parentName: item.name)
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
+        }
+        .sheet(isPresented: $showMaintenanceSheet, onDismiss: { Task { await load() } }) {
+            MaintenanceEntrySheet(itemId: itemId, existing: editingEntry)
+                .environmentObject(store)
+                .environmentObject(theme)
         }
         .alert("Delete item?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
@@ -71,6 +96,10 @@ struct ItemDetailView: View {
                     if !(item.notes ?? "").isEmpty {
                         notesCard(item)
                     }
+                    if !children.isEmpty {
+                        subItemsCard(item)
+                    }
+                    maintenanceCard(item)
                 }
                 .padding(16)
                 .padding(.bottom, 60)
@@ -118,8 +147,24 @@ struct ItemDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text(item.name).font(.title2.weight(.semibold))
                     Spacer()
+                    if item.archived == true {
+                        Label("Archived", systemImage: "archivebox")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Capsule().fill(Color.secondary.opacity(0.15)))
+                    }
                     Text("× \(item.quantityInt)").font(.title3.monospacedDigit().weight(.medium))
                         .foregroundStyle(.secondary)
+                }
+                if let parent = item.parent {
+                    NavigationLink(value: ItemDetailRoute(id: parent.id)) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.up.square").font(.caption)
+                            Text("Part of: \(parent.name)").font(.callout)
+                        }
+                        .foregroundStyle(theme.current.accentColor)
+                    }
                 }
                 if let loc = item.location {
                     HStack(spacing: 4) {
@@ -170,6 +215,73 @@ struct ItemDetailView: View {
         }
     }
 
+    // MARK: - Sub-items & Maintenance cards
+
+    private func subItemsCard(_ item: HBItemDetail) -> some View {
+        GlassCard(title: "Components") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(children.sorted { $0.name.lowercased() < $1.name.lowercased() }) { child in
+                    NavigationLink(value: ItemDetailRoute(id: child.id)) {
+                        HStack {
+                            Text(child.name).font(.body).foregroundStyle(.primary)
+                            Spacer()
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                Button {
+                    showAddSubItem = true
+                } label: {
+                    Label("Add component", systemImage: "plus.circle")
+                        .font(.callout)
+                        .foregroundStyle(theme.current.accentColor)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+        }
+    }
+
+    private func maintenanceCard(_ item: HBItemDetail) -> some View {
+        GlassCard(title: "Maintenance") {
+            VStack(alignment: .leading, spacing: 8) {
+                let sorted = maintenance.sorted {
+                    let a = $0.scheduledDate ?? $0.date ?? $0.createdAt ?? ""
+                    let b = $1.scheduledDate ?? $1.date ?? $1.createdAt ?? ""
+                    return a > b
+                }
+                ForEach(sorted) { entry in
+                    MaintenanceRow(entry: entry)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            editingEntry = entry
+                            showMaintenanceSheet = true
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                Task { await deleteMaintEntry(entry) }
+                            } label: { Label("Delete", systemImage: "trash") }
+                        }
+                }
+                if maintenance.isEmpty {
+                    Text("No maintenance records")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                Button {
+                    editingEntry = nil
+                    showMaintenanceSheet = true
+                } label: {
+                    Label("Add entry", systemImage: "plus.circle")
+                        .font(.callout)
+                        .foregroundStyle(theme.current.accentColor)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 2)
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func locationPath(_ loc: HBLocationSummary) -> String {
@@ -200,9 +312,42 @@ struct ItemDetailView: View {
     private func load() async {
         guard let client = store.client else { return }
         isLoading = true; loadError = nil
-        do { item = try await client.getItem(id: itemId) }
-        catch { loadError = error.localizedDescription }
+        do {
+            async let itemTask  = client.getItem(id: itemId)
+            async let childTask = client.listItems(parentIds: [itemId], pageSize: 500)
+            async let maintTask = client.listMaintenance(itemId: itemId)
+            item        = try await itemTask
+            children    = (try? await childTask)?.items ?? []
+            maintenance = (try? await maintTask) ?? []
+        } catch {
+            loadError = error.localizedDescription
+        }
         isLoading = false
+    }
+
+    private func toggleArchive() async {
+        guard let client = store.client, let current = item else { return }
+        var update = HBItemUpdate(from: current)
+        update.archived = !(current.archived ?? false)
+        do {
+            try await client.updateItem(update)
+            item = try await client.getItem(id: itemId)
+            let msg = update.archived ? "Item archived" : "Item unarchived"
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": msg])
+            onChange()
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Failed: \(error.localizedDescription)"])
+        }
+    }
+
+    private func deleteMaintEntry(_ entry: HBMaintenanceEntry) async {
+        guard let client = store.client else { return }
+        do {
+            try await client.deleteMaintenance(id: entry.id)
+            maintenance.removeAll { $0.id == entry.id }
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Delete failed"])
+        }
     }
 
     private func performDelete() async {
@@ -685,3 +830,196 @@ struct FullScreenImageView: View {
     }
 }
 
+// MARK: - Maintenance row
+
+private struct MaintenanceRow: View {
+    let entry: HBMaintenanceEntry
+
+    private var isCompleted: Bool { !(entry.date ?? "").isEmpty && !isEpoch(entry.date) }
+    private var isScheduled: Bool { !isCompleted && !(entry.scheduledDate ?? "").isEmpty && !isEpoch(entry.scheduledDate) }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Circle()
+                .fill(isCompleted ? Color.green : isScheduled ? Color.orange : Color.secondary.opacity(0.4))
+                .frame(width: 8, height: 8)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.name).font(.body.weight(.medium)).foregroundStyle(.primary)
+                if let d = entry.description, !d.isEmpty {
+                    Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                if isCompleted, let date = formatDate(entry.date) {
+                    Text(date).font(.caption2).foregroundStyle(.secondary)
+                } else if isScheduled, let date = formatDate(entry.scheduledDate) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "calendar").font(.caption2)
+                        Text(date).font(.caption2)
+                    }
+                    .foregroundStyle(.orange)
+                }
+            }
+            Spacer()
+            if let cost = entry.cost, cost > 0 {
+                Text(String(format: "%.2f", cost))
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func isEpoch(_ s: String?) -> Bool { (s ?? "").hasPrefix("0001-01-01") }
+
+    private func formatDate(_ s: String?) -> String? {
+        guard let s, !s.isEmpty, !isEpoch(s) else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = f.date(from: s) { return d.formatted(date: .abbreviated, time: .omitted) }
+        f.formatOptions = [.withInternetDateTime]
+        if let d = f.date(from: s) { return d.formatted(date: .abbreviated, time: .omitted) }
+        return nil
+    }
+}
+
+// MARK: - Maintenance entry create/edit sheet
+
+struct MaintenanceEntrySheet: View {
+    @EnvironmentObject var store: HomeboxStore
+    @EnvironmentObject var theme: ThemeManager
+    @Environment(\.dismiss) var dismiss
+
+    let itemId: String
+    let existing: HBMaintenanceEntry?
+
+    @State private var name: String
+    @State private var description: String
+    @State private var cost: String
+    @State private var hasDate: Bool
+    @State private var date: Date
+    @State private var hasScheduledDate: Bool
+    @State private var scheduledDate: Date
+    @State private var isSaving = false
+    @State private var errorMsg: String?
+
+    private static let isoFull: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let isoBasic: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
+    init(itemId: String, existing: HBMaintenanceEntry?) {
+        self.itemId = itemId
+        self.existing = existing
+        _name = State(initialValue: existing?.name ?? "")
+        _description = State(initialValue: existing?.description ?? "")
+        _cost = State(initialValue: existing?.cost.map { $0 > 0 ? String(format: "%.2f", $0) : "" } ?? "")
+
+        let parseDate: (String?) -> Date? = { s in
+            guard let s, !s.isEmpty, !s.hasPrefix("0001-01-01") else { return nil }
+            if let d = Self.isoFull.date(from: s) { return d }
+            return Self.isoBasic.date(from: s)
+        }
+
+        let d = parseDate(existing?.date)
+        _hasDate = State(initialValue: d != nil)
+        _date = State(initialValue: d ?? Date())
+
+        let sd = parseDate(existing?.scheduledDate)
+        _hasScheduledDate = State(initialValue: sd != nil)
+        _scheduledDate = State(initialValue: sd ?? Date())
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Entry") {
+                    TextField("Name", text: $name)
+                        .textInputAutocapitalization(.sentences)
+                    TextField("Description (optional)", text: $description, axis: .vertical)
+                        .lineLimit(1...3)
+                    HStack {
+                        Text("Cost")
+                        Spacer()
+                        TextField("0.00", text: $cost)
+                            .keyboardType(.decimalPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+                }
+
+                Section("Date performed") {
+                    Toggle("Mark as completed", isOn: $hasDate)
+                        .tint(theme.current.accentColor)
+                    if hasDate {
+                        DatePicker("Date", selection: $date, displayedComponents: .date)
+                    }
+                }
+
+                Section("Scheduled date") {
+                    Toggle("Schedule maintenance", isOn: $hasScheduledDate)
+                        .tint(theme.current.accentColor)
+                    if hasScheduledDate {
+                        DatePicker("Date", selection: $scheduledDate, displayedComponents: .date)
+                    }
+                }
+
+                if let errorMsg {
+                    Section {
+                        Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red).font(.callout)
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(theme.current.backgroundColor.ignoresSafeArea())
+            .navigationTitle(existing == nil ? "Add maintenance" : "Edit maintenance")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        Task { await save() }
+                    } label: {
+                        if isSaving { ProgressView().controlSize(.small) }
+                        else { Text("Save").bold() }
+                    }
+                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func toISO(_ d: Date) -> String { Self.isoFull.string(from: d) }
+
+    private func save() async {
+        guard let client = store.client else { return }
+        isSaving = true; errorMsg = nil
+        let entry = HBMaintenanceCreate(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            description: description,
+            date: hasDate ? toISO(date) : "",
+            scheduledDate: hasScheduledDate ? toISO(scheduledDate) : "",
+            cost: Double(cost.replacingOccurrences(of: ",", with: ".")) ?? 0
+        )
+        do {
+            if let existing {
+                try await client.updateMaintenance(id: existing.id, entry: entry)
+            } else {
+                try await client.createMaintenance(itemId: itemId, entry: entry)
+            }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+        } catch {
+            errorMsg = error.localizedDescription
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        }
+        isSaving = false
+    }
+}

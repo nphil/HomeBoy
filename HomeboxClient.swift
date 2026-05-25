@@ -141,6 +141,7 @@ struct HBItemDetail: Codable, Identifiable, Hashable {
     var soldPrice: Double?
     var soldTime: String?
     var soldNotes: String?
+    var parent: HBItemSummary?
     var syncChildItemsLocations: Bool?
     var createdAt: String?
     var updatedAt: String?
@@ -178,6 +179,7 @@ struct HBItemUpdate: Codable {
     var soldNotes: String
     var notes: String
     var syncChildItemsLocations: Bool
+    var parentId: String
 }
 
 extension HBItemUpdate {
@@ -207,6 +209,7 @@ extension HBItemUpdate {
         self.soldNotes = d.soldNotes ?? ""
         self.notes = d.notes ?? ""
         self.syncChildItemsLocations = d.syncChildItemsLocations ?? false
+        self.parentId = d.parent?.id ?? ""
     }
 }
 
@@ -227,6 +230,31 @@ struct HBLocationUpdate: Codable {
     var name: String
     var description: String
     var parentId: String?
+}
+
+/// Minimal parent/child reference used in item detail responses.
+struct HBItemSummary: Codable, Identifiable, Hashable {
+    let id: String
+    let name: String
+}
+
+struct HBMaintenanceEntry: Codable, Identifiable {
+    let id: String
+    let name: String
+    var description: String?
+    var date: String?
+    var scheduledDate: String?
+    var cost: Double?
+    var createdAt: String?
+    var updatedAt: String?
+}
+
+struct HBMaintenanceCreate: Codable {
+    var name: String
+    var description: String
+    var date: String
+    var scheduledDate: String
+    var cost: Double
 }
 
 struct HBBarcodeItem: Codable {
@@ -366,7 +394,7 @@ struct HomeboxClient {
     // MARK: Items
 
     /// `GET /v1/items` — paginated list of items, optionally filtered.
-    func listItems(query: String? = nil, locationIds: [String] = [], labelIds: [String] = [], page: Int = 1, pageSize: Int = 500) async throws -> HBItemListResponse {
+    func listItems(query: String? = nil, locationIds: [String] = [], labelIds: [String] = [], parentIds: [String] = [], includeArchived: Bool = false, page: Int = 1, pageSize: Int = 500) async throws -> HBItemListResponse {
         var items: [URLQueryItem] = [
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pageSize", value: String(pageSize)),
@@ -374,6 +402,8 @@ struct HomeboxClient {
         if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
         for id in locationIds { items.append(URLQueryItem(name: "locations", value: id)) }
         for id in labelIds { items.append(URLQueryItem(name: "tags", value: id)) }
+        for id in parentIds { items.append(URLQueryItem(name: "parentIds", value: id)) }
+        if includeArchived { items.append(URLQueryItem(name: "includeArchived", value: "true")) }
         let data = try await request("v1/items", method: "GET", query: items)
         do { return try JSONDecoder().decode(HBItemListResponse.self, from: data) }
         catch { throw HBError.decode(error) }
@@ -532,6 +562,31 @@ struct HomeboxClient {
                                   query: [URLQueryItem(name: "data", value: data)])
         do { return try JSONDecoder().decode([HBBarcodeProduct].self, from: d) }
         catch { throw HBError.decode(error) }
+    }
+
+    // MARK: Maintenance
+
+    func listMaintenance(itemId: String) async throws -> [HBMaintenanceEntry] {
+        let data = try await request("v1/items/\(itemId)/maintenance", method: "GET")
+        do { return try JSONDecoder().decode([HBMaintenanceEntry].self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
+
+    @discardableResult
+    func createMaintenance(itemId: String, entry: HBMaintenanceCreate) async throws -> HBMaintenanceEntry {
+        let body = try JSONEncoder().encode(entry)
+        let data = try await request("v1/items/\(itemId)/maintenance", method: "POST", body: body)
+        do { return try JSONDecoder().decode(HBMaintenanceEntry.self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
+
+    func updateMaintenance(id: String, entry: HBMaintenanceCreate) async throws {
+        let body = try JSONEncoder().encode(entry)
+        _ = try await request("v1/maintenance/\(id)", method: "PUT", body: body)
+    }
+
+    func deleteMaintenance(id: String) async throws {
+        _ = try await request("v1/maintenance/\(id)", method: "DELETE")
     }
 
     /// `GET /v1/assets/{numericId}` — look up an item by its asset ID string (e.g. "000-001").

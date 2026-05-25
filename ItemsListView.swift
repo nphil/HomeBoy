@@ -100,6 +100,7 @@ struct ItemsListView: View {
     @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
     @State private var showQRScanner = false
     @State private var qrFoundItemId: String? = nil
+    @State private var showArchivedItems = false
 
     enum ViewMode: String { case list, tile }
 
@@ -292,7 +293,7 @@ struct ItemsListView: View {
 
     // MARK: - Filter panel
 
-    private var hasActiveFilters: Bool { filterLocationId != nil || !filterTagIds.isEmpty }
+    private var hasActiveFilters: Bool { filterLocationId != nil || !filterTagIds.isEmpty || showArchivedItems }
 
     private var filterPanel: some View {
         HStack(spacing: 8) {
@@ -338,9 +339,17 @@ struct ItemsListView: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
 
+            filterChip(
+                label: showArchivedItems ? "Archived" : "Active",
+                icon: "archivebox",
+                isActive: showArchivedItems,
+                onTap: { showArchivedItems.toggle(); Task { await load() } },
+                onLongPress: { showArchivedItems.toggle(); Task { await load() } }
+            )
+
             Spacer()
             if hasActiveFilters {
-                Button("Clear") { filterLocationId = nil; filterTagIds = [] }
+                Button("Clear") { filterLocationId = nil; filterTagIds = []; showArchivedItems = false; Task { await load() } }
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -526,6 +535,7 @@ struct ItemsListView: View {
                 }
             }
         }
+        .opacity(item.archived == true ? 0.55 : 1)
         .background {
             RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
             RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
@@ -565,6 +575,7 @@ struct ItemsListView: View {
                 .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
                         lineWidth: isSelected ? 2 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            .opacity(item.archived == true ? 0.55 : 1)
             if selectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
@@ -572,6 +583,15 @@ struct ItemsListView: View {
                     .padding(6)
                     .background(Circle().fill(.ultraThinMaterial).frame(width: 24, height: 24))
                     .padding(6)
+            }
+            if item.archived == true && !selectMode {
+                ZStack(alignment: .topTrailing) {
+                    Color.clear
+                    Image(systemName: "archivebox")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(5)
+                }
             }
         }
         .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
@@ -735,7 +755,7 @@ struct ItemsListView: View {
         isLoading = true; loadError = nil
         do {
             // Pass labelIds so server can pre-filter; client-side filter below catches cases where server ignores it
-            let resp = try await client.listItems(labelIds: Array(filterTagIds), pageSize: 1000)
+            let resp = try await client.listItems(labelIds: Array(filterTagIds), includeArchived: showArchivedItems, pageSize: 1000)
             allItems = resp.items
             store.updateCachedItemTotal(resp.total ?? resp.items.count)
             lastLoadedAt = Date()

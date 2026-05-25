@@ -7,6 +7,10 @@ struct AddItemView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
 
+    // Set when opening as a sub-item (from ItemDetailView "Add component")
+    var parentId: String? = nil
+    var parentName: String? = nil
+
     // Fields
     @State private var name = ""
     @State private var quantity = 1
@@ -62,7 +66,7 @@ struct AddItemView: View {
                     }
                 }
             }
-            .navigationTitle("New Item")
+            .navigationTitle(parentName != nil ? "New Component" : "New Item")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -117,8 +121,34 @@ struct AddItemView: View {
 
     // MARK: - Main form
 
+    @ViewBuilder private var parentRow: some View {
+        if let parentName {
+            HStack(spacing: 10) {
+                Image(systemName: "arrow.up.square")
+                    .font(.title3)
+                    .foregroundStyle(theme.current.accentColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("COMPONENT OF").font(.caption.weight(.semibold)).tracking(0.6)
+                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                    Text(parentName)
+                        .font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(maxWidth: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
+        }
+    }
+
     private var addForm: some View {
         VStack(alignment: .leading, spacing: 12) {
+            parentRow
             nameField
             tagSuggestionRow
             locationRow
@@ -475,7 +505,7 @@ struct AddItemView: View {
         submitError = nil; isSubmitting = true
         let payload = HBItemCreate(
             name: trimmedName, quantity: Double(quantity), description: description,
-            locationId: selectedLocationId, parentId: nil, tagIds: Array(selectedTagIds)
+            locationId: selectedLocationId, parentId: parentId, tagIds: Array(selectedTagIds)
         )
         let photosToUpload = photos
         Task {
