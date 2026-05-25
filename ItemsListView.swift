@@ -512,49 +512,41 @@ struct ItemsListView: View {
     // MARK: - Row
 
     @ViewBuilder
+    @ViewBuilder
     private func itemListRow(_ item: HBItem) -> some View {
         let isSelected = selectedIds.contains(item.id)
-        SwipeRevealRow(
-            buttonLabel: "Archive",
-            buttonIcon: "archivebox.fill",
-            buttonColor: .orange,
-            disabled: selectMode
-        ) {
-            Task { await archiveItem(item) }
-        } content: {
-            HStack(spacing: 0) {
+        HStack(spacing: 0) {
+            if selectMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
+                    .font(.title3)
+                    .padding(.leading, 12)
+                    .transition(.move(edge: .leading).combined(with: .opacity))
+            }
+            Group {
                 if selectMode {
-                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
-                        .font(.title3)
-                        .padding(.leading, 12)
-                        .transition(.move(edge: .leading).combined(with: .opacity))
-                }
-                Group {
-                    if selectMode {
+                    ItemListRowContent(item: item, thumbStore: thumbStore)
+                        .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
+                } else {
+                    NavigationLink(value: ItemDetailRoute(id: item.id)) {
                         ItemListRowContent(item: item, thumbStore: thumbStore)
-                            .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
-                    } else {
-                        NavigationLink(value: ItemDetailRoute(id: item.id)) {
-                            ItemListRowContent(item: item, thumbStore: thumbStore)
-                        }.buttonStyle(.plain)
-                    }
+                    }.buttonStyle(.plain)
                 }
             }
-            .background {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 14)
-                .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                        lineWidth: isSelected ? 2 : 1))
-            .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-                if !selectMode {
-                    withAnimation { selectMode = true; selectedIds.insert(item.id) }
-                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                }
-            })
         }
+        .background {
+            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
+        }
+        .overlay(RoundedRectangle(cornerRadius: 14)
+            .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                    lineWidth: isSelected ? 2 : 1))
+        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+            if !selectMode {
+                withAnimation { selectMode = true; selectedIds.insert(item.id) }
+                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            }
+        })
     }
 
     // MARK: - Tile
