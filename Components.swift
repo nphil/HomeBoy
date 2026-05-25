@@ -9,33 +9,24 @@ struct FloatingCardContainer<Content: View>: View {
 
     @EnvironmentObject private var theme: ThemeManager
 
-    private var cardShape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(
-            topLeadingRadius: 28, bottomLeadingRadius: 0,
-            bottomTrailingRadius: 0, topTrailingRadius: 28
-        )
-    }
-
     var body: some View {
         let accent = theme.current.accentColor
-        // presentationBackground fills the system sheet container, which already
-        // extends to the physical screen edge past the home-indicator safe area.
-        // This is more reliable than ignoresSafeArea modifiers inside the sheet.
-        // The cardShape has rounded top corners and square bottom corners so the
-        // bottom seam is flush. The 4pt horizontal padding creates the side gaps.
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, horizontalInset)
             .presentationDetents([.fraction(0.85)])
             .presentationDragIndicator(.hidden)
             .presentationBackground {
+                // Full-width Rectangle so there are no visible side edges.
+                // presentationCornerRadius(28) handles top rounding natively.
+                // The system sheet container extends to the physical screen bottom,
+                // so the material fill is seamless with no home-indicator gap.
                 ZStack {
-                    cardShape.fill(.ultraThinMaterial)
-                    cardShape.fill(accent.opacity(0.06))
+                    Rectangle().fill(.ultraThinMaterial)
+                    Rectangle().fill(accent.opacity(0.06))
                 }
-                .padding(.horizontal, horizontalInset)
             }
-            .presentationCornerRadius(0)
+            .presentationCornerRadius(28)
     }
 }
 
