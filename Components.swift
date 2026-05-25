@@ -2,14 +2,12 @@ import SwiftUI
 
 // MARK: - Floating Card Modal
 
-/// Full-screen bottom-sheet card. Top corners are rounded; bottom runs flush
-/// to the physical screen edge. Drag is handled entirely in UIKit via
-/// UIPanGestureRecognizer + UIView.transform so SwiftUI is never re-evaluated
-/// during the gesture — gives true 120Hz ProMotion tracking.
+/// Bottom-sheet card backed by UISheetPresentationController (native iOS sheet)
+/// for true 120Hz ProMotion drag. The card renders inside the sheet with a
+/// frosted-glass background and 4pt horizontal insets. `.presentationBackground(.clear)`
+/// removes the system background so our custom dim + card visuals fill the space.
 struct FloatingCardContainer<Content: View>: View {
     @Binding var isPresented: Bool
-    var topInset: CGFloat = 70
-    var bottomInset: CGFloat = 0
     var horizontalInset: CGFloat = 4
     @ViewBuilder let content: () -> Content
 
@@ -23,146 +21,50 @@ struct FloatingCardContainer<Content: View>: View {
     }
 
     var body: some View {
+        let accent = theme.current.accentColor
         ZStack {
+            // Custom dim — tap outside the card to dismiss.
+            // Required because .presentationBackground(.clear) removes system dimming.
             Color.black.opacity(0.42)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { isPresented = false }
 
-            // CardPanHost owns the gesture entirely in UIKit.
-            // AnyView is intentional: the hosted content rarely changes after
-            // presentation, and we must not re-create it on every body call.
-            CardPanHost(isPresented: $isPresented, card: AnyView(styledCard))
-                .padding(.top, topInset)
-                .padding(.horizontal, horizontalInset)
-                .padding(.bottom, bottomInset)
-                .ignoresSafeArea(.container, edges: .bottom)
-        }
-        .presentationBackground(.clear)
-    }
-
-    private var styledCard: some View {
-        content()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background {
-                ZStack {
-                    cardShape.fill(.ultraThinMaterial)
-                    cardShape.fill(theme.current.accentColor.opacity(0.06))
-                }
-            }
-            .clipShape(cardShape)
-            .overlay(cardShape.stroke(theme.current.accentColor.opacity(0.22), lineWidth: 1.2))
-            .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
-    }
-}
-
-// MARK: UIKit pan host — zero SwiftUI re-renders during drag
-
-private struct CardPanHost: UIViewRepresentable {
-    @Binding var isPresented: Bool
-    let card: AnyView
-
-    func makeCoordinator() -> Coordinator { Coordinator($isPresented) }
-
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
-        container.backgroundColor = .clear
-        container.clipsToBounds = false
-
-        let host = UIHostingController(rootView: card)
-        host.view.translatesAutoresizingMaskIntoConstraints = false
-        host.view.backgroundColor = .clear
-        container.addSubview(host.view)
-        NSLayoutConstraint.activate([
-            host.view.topAnchor.constraint(equalTo: container.topAnchor),
-            host.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            host.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            host.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-        ])
-        context.coordinator.hostingController = host
-
-        let pan = UIPanGestureRecognizer(target: context.coordinator,
-                                         action: #selector(Coordinator.handlePan(_:)))
-        pan.delegate = context.coordinator
-        container.addGestureRecognizer(pan)
-        context.coordinator.containerView = container
-
-        // Add as child VC so sheets/pickers inside the hosted content work correctly.
-        DispatchQueue.main.async {
-            if let parent = container.nearestViewController() {
-                parent.addChild(host)
-                host.didMove(toParent: parent)
-            }
-        }
-        return container
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        context.coordinator.isPresented = $isPresented
-        // Do not update rootView after first mount — would reset @State inside AddItemView.
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var isPresented: Binding<Bool>
-        weak var containerView: UIView?
-        var hostingController: UIHostingController<AnyView>?
-
-        init(_ b: Binding<Bool>) { isPresented = b }
-
-        @objc func handlePan(_ g: UIPanGestureRecognizer) {
-            guard let v = containerView else { return }
-            let dy = g.translation(in: v.superview).y
-            switch g.state {
-            case .changed:
-                v.transform = CGAffineTransform(translationX: 0, y: max(0, dy))
-            case .ended, .cancelled, .failed:
-                let vy = g.velocity(in: v.superview).y
-                if dy > 100 || dy + vy * 0.15 > 250 {
-                    isPresented.wrappedValue = false
-                } else {
-                    UIView.animate(withDuration: 0.5, delay: 0,
-                                   usingSpringWithDamping: 0.8,
-                                   initialSpringVelocity: max(0, vy / 600),
-                                   options: .allowUserInteraction) {
-                        v.transform = .identity
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    ZStack {
+                        cardShape.fill(.ultraThinMaterial)
+                        cardShape.fill(accent.opacity(0.06))
                     }
+                    .overlay(cardShape.stroke(accent.opacity(0.22), lineWidth: 1.2))
                 }
-            default: break
-            }
+                .clipShape(cardShape)
+                .padding(.horizontal, horizontalInset)
         }
-
-        func gestureRecognizer(_ g: UIGestureRecognizer,
-                               shouldRecognizeSimultaneouslyWith o: UIGestureRecognizer) -> Bool { true }
-    }
-}
-
-private extension UIView {
-    func nearestViewController() -> UIViewController? {
-        var r: UIResponder? = self
-        while let next = r { if let vc = next as? UIViewController { return vc }; r = next.next }
-        return nil
+        .presentationDetents([.large])
+        .presentationDragIndicator(.hidden)   // content provides its own grabber capsule
+        .presentationBackground(.clear)
+        .presentationCornerRadius(0)
     }
 }
 
 extension View {
-    /// Present `content` as a floating card inset from all four screen edges,
-    /// over a dimmed backdrop. Use in place of `.sheet(isPresented:)` when the
-    /// presented view's bottom would otherwise be clipped by the device's
-    /// rounded screen corners. `onDismiss` fires whenever the cover dismisses,
-    /// including via backdrop tap.
+    /// Present `content` as a frosted card with 4pt side insets over a dimmed
+    /// backdrop. Backed by UISheetPresentationController (.large detent) for
+    /// native 120Hz drag-to-dismiss. `onDismiss` fires on any dismissal path
+    /// including swipe-down and backdrop tap.
     func floatingCardCover<Content: View>(
         isPresented: Binding<Bool>,
-        topInset: CGFloat = 70,
+        topInset: CGFloat = 70,       // unused — sheet handles top gap naturally
         bottomInset: CGFloat = 0,
         horizontalInset: CGFloat = 4,
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        fullScreenCover(isPresented: isPresented, onDismiss: onDismiss) {
+        sheet(isPresented: isPresented, onDismiss: onDismiss) {
             FloatingCardContainer(
                 isPresented: isPresented,
-                topInset: topInset,
-                bottomInset: bottomInset,
                 horizontalInset: horizontalInset,
                 content: content
             )

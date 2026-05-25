@@ -595,7 +595,7 @@ struct CreateLocationSheet: View {
                 actionButtons
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
-                    .padding(.bottom, 36)
+                    .padding(.bottom, 16)
             }
         }
         .sheet(isPresented: $showParentPicker) {
