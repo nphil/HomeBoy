@@ -76,8 +76,9 @@ struct ItemDetailView: View {
                 .presentationDragIndicator(.hidden)
                 .presentationBackground {
                     ZStack {
-                        Color.clear.background(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: 28)
+                        UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
+                            .fill(.ultraThinMaterial)
+                        UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
                             .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
                     }
                 }
