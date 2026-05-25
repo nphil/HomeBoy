@@ -4,7 +4,6 @@ import SwiftUI
 
 struct FloatingCardContainer<Content: View>: View {
     @Binding var isPresented: Bool
-    var topInset: CGFloat = 0
     var horizontalInset: CGFloat = 4
     @ViewBuilder let content: () -> Content
 
@@ -20,34 +19,23 @@ struct FloatingCardContainer<Content: View>: View {
     var body: some View {
         let accent = theme.current.accentColor
         ZStack {
-            // Layer 1: dim — fills entire sheet including drag-handle region above card
-            Color.black.opacity(0.42)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { isPresented = false }
-
-            // Layer 2: card background only — extends past bottom safe area so it
-            // appears flush with the physical screen edge (no square gap above home bar)
-            VStack(spacing: 0) {
-                Color.clear.frame(height: topInset)
-                ZStack {
-                    cardShape.fill(.ultraThinMaterial)
-                    cardShape.fill(accent.opacity(0.06))
-                }
-                .overlay(cardShape.stroke(accent.opacity(0.22), lineWidth: 1.2))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, horizontalInset)
-                .ignoresSafeArea(.container, edges: .bottom)
+            // Card background — no custom dim behind it so ultraThinMaterial picks up
+            // real app content rather than a black layer. Extends past bottom safe area
+            // for a seamless physical screen edge.
+            ZStack {
+                cardShape.fill(.ultraThinMaterial)
+                cardShape.fill(accent.opacity(0.06))
             }
+            .overlay(cardShape.stroke(accent.opacity(0.22), lineWidth: 1.2))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, horizontalInset)
+            .ignoresSafeArea(.container, edges: .bottom)
             .allowsHitTesting(false)
 
-            // Layer 3: content — stays within safe area so buttons sit above home indicator
-            VStack(spacing: 0) {
-                Color.clear.frame(height: topInset)
-                content()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(.horizontal, horizontalInset)
-            }
+            // Content — stays within safe area so buttons sit above home indicator
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, horizontalInset)
         }
         .presentationDetents([.fraction(0.85)])
         .presentationDragIndicator(.hidden)
@@ -59,7 +47,6 @@ struct FloatingCardContainer<Content: View>: View {
 extension View {
     func floatingCardCover<Content: View>(
         isPresented: Binding<Bool>,
-        topInset: CGFloat = 0,
         horizontalInset: CGFloat = 4,
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
@@ -67,7 +54,6 @@ extension View {
         sheet(isPresented: isPresented, onDismiss: onDismiss) {
             FloatingCardContainer(
                 isPresented: isPresented,
-                topInset: topInset,
                 horizontalInset: horizontalInset,
                 content: content
             )
