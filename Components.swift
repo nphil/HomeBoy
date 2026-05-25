@@ -13,8 +13,9 @@ struct FloatingCardContainer<Content: View>: View {
     @ViewBuilder let content: () -> Content
 
     @EnvironmentObject private var theme: ThemeManager
-    // @GestureState tracks in sync with the render loop — no manual snap-back needed.
-    @GestureState private var dragOffset: CGFloat = 0
+    // resetTransaction drives the snap-back spring when released below the dismiss threshold.
+    @GestureState(resetTransaction: .init(animation: .spring(response: 0.35, dampingFraction: 0.75)))
+    private var dragOffset: CGFloat = 0
 
     private var cardShape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(
@@ -40,7 +41,7 @@ struct FloatingCardContainer<Content: View>: View {
                 }
                 .clipShape(cardShape)
                 .overlay(cardShape.stroke(theme.current.accentColor.opacity(0.22), lineWidth: 1.2))
-                .shadow(color: .black.opacity(0.22), radius: 22, x: 0, y: 8)
+                .shadow(color: .black.opacity(0.18), radius: 8, x: 0, y: 4)
                 .padding(.top, topInset)
                 .padding(.horizontal, horizontalInset)
                 .padding(.bottom, bottomInset)
@@ -50,7 +51,8 @@ struct FloatingCardContainer<Content: View>: View {
                 // @GestureState auto-springs back to 0 on release; no manual animation needed.
                 .simultaneousGesture(
                     DragGesture()
-                        .updating($dragOffset) { value, state, _ in
+                        .updating($dragOffset) { value, state, transaction in
+                            transaction.animation = nil  // instant tracking — no lag between finger and card
                             state = max(0, value.translation.height)
                         }
                         .onEnded { value in
