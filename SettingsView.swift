@@ -74,6 +74,7 @@ struct SettingsView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Settings")
             .alert("Sign out?", isPresented: $confirmLogout) {

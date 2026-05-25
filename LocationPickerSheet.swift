@@ -70,6 +70,7 @@ struct LocationPickerSheet: View {
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .searchable(text: $query, prompt: "Search locations")
             .refreshable {
                 try? await store.refreshLocations()

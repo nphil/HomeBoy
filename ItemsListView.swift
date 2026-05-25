@@ -1010,6 +1010,7 @@ struct BulkEditSheet: View {
                             }
                             .padding(.vertical, 4)
                         }
+                        .scrollIndicators(.hidden)
                         .frame(maxHeight: 120)
                     } label: {
                         HStack {
@@ -1085,6 +1086,7 @@ struct BulkEditSheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Bulk Edit")
             .navigationBarTitleDisplayMode(.inline)

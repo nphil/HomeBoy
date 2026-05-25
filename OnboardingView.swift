@@ -79,6 +79,7 @@ struct OnboardingView: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
         }
     }

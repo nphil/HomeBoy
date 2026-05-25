@@ -106,6 +106,7 @@ struct ItemDetailView: View {
                 .padding(16)
                 .padding(.bottom, 60)
             }
+            .scrollIndicators(.hidden)
         } else if let loadError {
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 32)).foregroundStyle(.orange)
@@ -548,6 +549,7 @@ struct EditItemSheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Edit item")
             .navigationBarTitleDisplayMode(.inline)
@@ -980,6 +982,7 @@ struct MaintenanceEntrySheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle(existing == nil ? "Add maintenance" : "Edit maintenance")
             .navigationBarTitleDisplayMode(.inline)

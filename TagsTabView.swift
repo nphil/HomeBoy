@@ -355,51 +355,78 @@ struct TagEditSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Name") {
-                    TextField("e.g. fragile", text: $name)
-                        .focused($nameFocused)
-                        .textInputAutocapitalization(.never)
-                }
+            ZStack {
+                theme.current.backgroundColor.ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Circle().fill(Color(hex: colorHex)).frame(width: 22, height: 22)
+                            .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                        TextField("Tag name", text: $name)
+                            .font(.title3.weight(.semibold))
+                            .focused($nameFocused)
+                            .textInputAutocapitalization(.never)
+                            .submitLabel(.done)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
+                    }
+                    .overlay(RoundedRectangle(cornerRadius: 12)
+                        .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
+                                lineWidth: name.isEmpty ? 1.5 : 1))
 
-                Section("Color") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
-                        ForEach(HomeboxTagPalette, id: \.self) { hex in
-                            Button { colorHex = hex } label: {
-                                Circle()
-                                    .fill(Color(hex: hex))
-                                    .frame(height: 36)
-                                    .overlay(
-                                        Circle().stroke(colorHex == hex ? Color.primary : Color.primary.opacity(0.1),
-                                                        lineWidth: colorHex == hex ? 3 : 1)
-                                    )
-                                    .overlay(
-                                        Image(systemName: "checkmark")
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(.white)
-                                            .opacity(colorHex == hex ? 1 : 0)
-                                    )
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Color").font(.caption.weight(.semibold))
+                            .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                            .padding(.horizontal, 4)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+                            ForEach(HomeboxTagPalette, id: \.self) { hex in
+                                Button { colorHex = hex } label: {
+                                    Circle()
+                                        .fill(Color(hex: hex))
+                                        .frame(height: 32)
+                                        .overlay(
+                                            Circle().stroke(colorHex == hex ? Color.primary : Color.primary.opacity(0.1),
+                                                            lineWidth: colorHex == hex ? 3 : 1)
+                                        )
+                                        .overlay(
+                                            Image(systemName: "checkmark")
+                                                .font(.caption.weight(.bold))
+                                                .foregroundStyle(.white)
+                                                .opacity(colorHex == hex ? 1 : 0)
+                                        )
+                                }
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.vertical, 4)
-                }
-
-                Section("Description (optional)") {
-                    TextField("Notes about this tag", text: $description, axis: .vertical)
-                        .lineLimit(1...3)
-                }
-
-                if let errorMsg {
-                    Section {
-                        Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red).font(.callout)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
                     }
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+
+                    DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
+
+                    if let errorMsg {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text(errorMsg).font(.callout)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
+                        .foregroundStyle(.primary)
+                    }
+
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
             }
-            .scrollContentBackground(.hidden)
-            .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle(isEditing ? "Edit tag" : "New tag")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -420,7 +447,7 @@ struct TagEditSheet: View {
                     description = tag.description ?? ""
                     colorHex = tag.color ?? "#3b82f6"
                 } else {
-                    nameFocused = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
                 }
             }
         }

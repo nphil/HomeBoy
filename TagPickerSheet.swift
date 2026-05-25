@@ -80,6 +80,7 @@ struct TagPickerSheet: View {
                 }
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
+                .scrollIndicators(.hidden)
                 .searchable(text: $query, prompt: "Search tags")
                 .refreshable { await load() }
             }

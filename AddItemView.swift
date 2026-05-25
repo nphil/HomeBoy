@@ -45,7 +45,6 @@ struct AddItemView: View {
     @State private var submitError: String?
 
     @FocusState private var nameFocused: Bool
-    @FocusState private var descFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -56,17 +55,14 @@ struct AddItemView: View {
                 if !store.isAuthenticated {
                     notConfiguredView
                 } else {
-                    ScrollView {
-                        addForm
-                    }
-                    .scrollDismissesKeyboard(.interactively)
-                    .scrollIndicators(.hidden)
-                    .safeAreaInset(edge: .bottom) {
-                        actionButtons
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 8)
-                            .background(Color.clear)
-                    }
+                    addForm
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .safeAreaInset(edge: .bottom) {
+                            actionButtons
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color.clear)
+                        }
                 }
             }
             .navigationTitle(parentName != nil ? "New Component" : "New Item")
@@ -129,110 +125,95 @@ struct AddItemView: View {
 
     @ViewBuilder private var parentRow: some View {
         if let parentName {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 Image(systemName: "arrow.up.square")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(theme.current.accentColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("COMPONENT OF").font(.caption.weight(.semibold)).tracking(0.6)
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    Text(parentName)
-                        .font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
-                }
+                Text("Component of")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.current.accentColor.opacity(0.85))
+                Text(parentName)
+                    .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 14).padding(.vertical, 12)
+            .padding(.horizontal, 12).padding(.vertical, 6)
             .frame(maxWidth: .infinity)
-            .background {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 14)
-                .stroke(theme.current.accentColor.opacity(0.2), lineWidth: 1))
+            .background(Capsule().fill(theme.current.accentColor.opacity(0.10)))
+            .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
         }
     }
 
     private var addForm: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             parentRow
             nameField
-            tagSuggestionRow
             if !isComponent {
                 locationRow
             }
-            compactOptionals
-            descriptionField
-
-            Spacer(minLength: 0)
+            tagSuggestionRow
+            qtyTagsRow
+            photosNotesRow
+            lockTogglesRow
 
             if let submitError { errorPill(submitError) }
             if let justAdded   { successPill(justAdded) }
+
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 12)
-        .padding(.bottom, 100)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
     }
 
     // MARK: - Subviews
 
     private var nameField: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("ITEM").font(.caption.weight(.semibold)).tracking(0.6)
-                .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                .padding(.horizontal, 14)
+        HStack(spacing: 8) {
+            TextField("Item name", text: $name)
+                .font(.title3.weight(.semibold))
+                .textInputAutocapitalization(.sentences)
+                .focused($nameFocused)
+                .submitLabel(.done)
 
-            HStack(spacing: 8) {
-                TextField("What is it?", text: $name)
-                    .font(.title3.weight(.semibold))
-                    .textInputAutocapitalization(.sentences)
-                    .focused($nameFocused)
-                    .submitLabel(.next)
-                    .onSubmit { descFocused = true }
-
-                Button { showBarcodeScanner = true } label: {
-                    Image(systemName: "barcode.viewfinder")
-                        .font(.title3)
-                        .foregroundStyle(theme.current.accentColor)
-                }
-                .buttonStyle(.plain)
+            Button { showBarcodeScanner = true } label: {
+                Image(systemName: "barcode.viewfinder")
+                    .font(.title3)
+                    .foregroundStyle(theme.current.accentColor)
             }
-            .padding(.horizontal, 14).padding(.vertical, 12)
-            .background {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 14)
-                .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
-                        lineWidth: name.isEmpty ? 1.5 : 1))
+            .buttonStyle(.plain)
         }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
+        }
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
+                    lineWidth: name.isEmpty ? 1.5 : 1))
     }
 
     private var locationRow: some View {
         Button { showLocationPicker = true } label: {
             HStack(spacing: 10) {
                 Image(systemName: selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
-                    .font(.title3)
+                    .font(.body)
                     .foregroundStyle(theme.current.accentColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("LOCATION").font(.caption.weight(.semibold)).tracking(0.6)
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    if let id = selectedLocationId {
-                        Text(store.pathString(forLocationId: id))
-                            .font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
-                    } else {
-                        Text("Tap to choose — required").foregroundStyle(.secondary).font(.callout)
-                    }
+                if let id = selectedLocationId {
+                    Text(store.pathString(forLocationId: id))
+                        .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                } else {
+                    Text("Choose location — required").foregroundStyle(.secondary).font(.callout)
                 }
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
             }
-            .padding(.horizontal, 14).padding(.vertical, 12)
+            .padding(.horizontal, 14).padding(.vertical, 10)
             .frame(maxWidth: .infinity)
             .background {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.07))
+                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
             }
-            .overlay(RoundedRectangle(cornerRadius: 14)
+            .overlay(RoundedRectangle(cornerRadius: 12)
                 .stroke(selectedLocationId == nil
                         ? theme.current.accentColor.opacity(0.35)
                         : theme.current.accentColor.opacity(0.2),
@@ -242,182 +223,150 @@ struct AddItemView: View {
         .buttonStyle(.plain)
     }
 
-    private var compactOptionals: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // ROW 1: QTY & TAGS
-            HStack(spacing: 0) {
-                // QTY Left side
-                VStack(spacing: 4) {
-                    Text("QTY").font(.caption2.weight(.semibold)).tracking(0.4)
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    QuantityControl(value: $quantity)
+    private var qtyTagsRow: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Text("QTY").font(.caption2.weight(.semibold))
+                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                QuantityControl(value: $quantity)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+
+            Button { showTagPicker = true } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "tag.fill").font(.caption)
+                        .foregroundStyle(theme.current.accentColor)
+                    Text(selectedTagIds.isEmpty ? "Tags" : "\(selectedTagIds.count) tag\(selectedTagIds.count == 1 ? "" : "s")")
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(selectedTagIds.isEmpty ? .secondary : .primary)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption2)
                 }
+                .padding(.horizontal, 12).padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
-                
-                Divider().frame(height: 36)
-                
-                // TAGS Right side
-                Button { showTagPicker = true } label: {
-                    VStack(spacing: 4) {
-                        Text("TAGS").font(.caption2.weight(.semibold)).tracking(0.4)
-                            .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                        HStack(spacing: 4) {
-                            Image(systemName: "tag.fill").font(.caption)
-                                .foregroundStyle(theme.current.accentColor)
-                            Text(selectedTagIds.isEmpty ? "None" : "\(selectedTagIds.count) tag\(selectedTagIds.count == 1 ? "" : "s")")
-                                .font(.callout.weight(.medium))
-                        }
-                        .padding(.horizontal, 12).padding(.vertical, 5)
-                        .background(Capsule().fill(.ultraThinMaterial))
-                        .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1))
+                .background {
+                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var photosNotesRow: some View {
+        HStack(spacing: 8) {
+            photosTile
+            DescriptionField(text: $description, placeholder: "Notes", title: "Notes")
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder private var photosTile: some View {
+        let accentColor = theme.current.accentColor
+        if photos.isEmpty {
+            HStack(spacing: 6) {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button { showCamera = true } label: {
+                        Image(systemName: "camera.fill")
+                            .font(.body)
+                            .foregroundStyle(accentColor)
+                            .frame(width: 40, height: 40)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.18), lineWidth: 1))
                     }
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(.plain)
+                }
+                PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.body)
+                        .foregroundStyle(accentColor)
+                        .frame(width: 40, height: 40)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.18), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.top, 4)
-
-            Divider()
-
-            // ROW 2: PHOTOS (left) & SAVE SETTINGS (right)
-            HStack(alignment: .top, spacing: 0) {
-                // Left side: PHOTOS
-                VStack(alignment: .leading, spacing: 6) {
-                    let accentColor = theme.current.accentColor
-                    Text("PHOTOS").font(.caption2.weight(.semibold)).tracking(0.4)
-                        .foregroundStyle(accentColor.opacity(0.75))
-                        .padding(.horizontal, 4)
-
-                    if photos.isEmpty {
-                        // Display camera and library as identical square icon buttons side-by-side
-                        HStack(spacing: 8) {
-                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                                Button { showCamera = true } label: {
-                                    Image(systemName: "camera.fill")
-                                        .font(.body)
-                                        .foregroundStyle(accentColor)
-                                        .frame(width: 44, height: 44)
-                                        .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-                                        .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.2), lineWidth: 1))
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
-                                Image(systemName: "photo.on.rectangle")
-                                    .font(.body)
-                                    .foregroundStyle(accentColor)
-                                    .frame(width: 44, height: 44)
-                                    .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(accentColor.opacity(0.2), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
+        } else {
+            HStack(spacing: 4) {
+                ForEach(photos.indices.prefix(2), id: \.self) { idx in
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: photos[idx]).resizable().scaledToFill()
+                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 8))
+                        Button {
+                            photos.remove(at: idx)
+                            pickerItems.removeAll()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.caption2).foregroundStyle(.white)
+                                .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
                         }
-                        .padding(.horizontal, 4)
-                    } else {
-                        // Scrollable thumbnails row
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                ForEach(photos.indices, id: \.self) { idx in
-                                    ZStack(alignment: .topTrailing) {
-                                        Image(uiImage: photos[idx]).resizable().scaledToFill()
-                                            .frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 8))
-                                        Button {
-                                            photos.remove(at: idx)
-                                            pickerItems.removeAll()
-                                        } label: {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .font(.caption2).foregroundStyle(.white)
-                                                .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
-                                        }
-                                        .buttonStyle(.plain)
-                                        .offset(x: 4, y: -4)
-                                    }
-                                }
-
-                                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                                    Button { showCamera = true } label: {
-                                        Image(systemName: "camera.fill").font(.caption)
-                                            .foregroundStyle(accentColor)
-                                            .frame(width: 44, height: 44)
-                                            .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
-                                    }.buttonStyle(.plain)
-                                }
-                                PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
-                                    Image(systemName: "photo.on.rectangle").font(.caption)
-                                        .foregroundStyle(accentColor)
-                                        .frame(width: 44, height: 44)
-                                        .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
-                                }.buttonStyle(.plain)
-                            }
-                            .padding(.horizontal, 4).padding(.vertical, 4)
-                        }
+                        .buttonStyle(.plain)
+                        .offset(x: 4, y: -4)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                
-                Divider().frame(height: 56).padding(.horizontal, 8)
-                
-                // Right side: KEEP SETTINGS
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("KEEP").font(.caption2.weight(.semibold)).tracking(0.4)
-                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
-
-                    if !isComponent {
-                        Toggle(isOn: $lockLocation) {
-                            HStack(spacing: 3) {
-                                Image(systemName: lockLocation ? "mappin.and.ellipse" : "mappin")
-                                    .font(.caption2)
-                                    .foregroundStyle(lockLocation ? theme.current.accentColor : .secondary)
-                                Text("Location")
-                                    .font(.caption2.weight(.medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .tint(theme.current.accentColor)
-                    }
-
-                    Toggle(isOn: $lockTags) {
-                        HStack(spacing: 3) {
-                            Image(systemName: lockTags ? "tag.fill" : "tag")
-                                .font(.caption2)
-                                .foregroundStyle(lockTags ? theme.current.accentColor : .secondary)
-                            Text("Tags")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .tint(theme.current.accentColor)
+                if photos.count > 2 {
+                    Text("+\(photos.count - 2)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(accentColor)
+                        .frame(width: 40, height: 40)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(accentColor.opacity(0.15)))
                 }
-                .frame(width: 140)
+                PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(accentColor)
+                        .frame(width: 40, height: 40)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial))
+                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(accentColor.opacity(0.18), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 4)
-            .padding(.bottom, 4)
         }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.05))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
     }
 
-    private var descriptionField: some View {
-        TextField("Description / notes (optional)", text: $description, axis: .vertical)
-            .focused($descFocused)
-            .lineLimit(1...3)
-            .textInputAutocapitalization(.sentences)
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .background {
-                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.05))
+    @ViewBuilder private var lockTogglesRow: some View {
+        HStack(spacing: 14) {
+            Text("KEEP").font(.caption2.weight(.semibold))
+                .foregroundStyle(theme.current.accentColor.opacity(0.75))
+
+            if !isComponent {
+                Toggle(isOn: $lockLocation) {
+                    HStack(spacing: 4) {
+                        Image(systemName: lockLocation ? "mappin.and.ellipse" : "mappin")
+                            .font(.caption2)
+                            .foregroundStyle(lockLocation ? theme.current.accentColor : .secondary)
+                        Text("Location").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                    }
+                }
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(theme.current.accentColor)
+                .fixedSize()
             }
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+
+            Toggle(isOn: $lockTags) {
+                HStack(spacing: 4) {
+                    Image(systemName: lockTags ? "tag.fill" : "tag")
+                        .font(.caption2)
+                        .foregroundStyle(lockTags ? theme.current.accentColor : .secondary)
+                    Text("Tags").font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                }
+            }
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .tint(theme.current.accentColor)
+            .fixedSize()
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 6)
     }
 
     private var actionButtons: some View {

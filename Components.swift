@@ -1,5 +1,115 @@
 import SwiftUI
 
+// MARK: - Description Editor Sheet
+
+/// Full-screen editor used by Add/Create forms whose description fields
+/// would otherwise force the parent form to scroll when the keyboard opens.
+struct DescriptionEditorSheet: View {
+    @EnvironmentObject var theme: ThemeManager
+    @Environment(\.dismiss) private var dismiss
+    @Binding var text: String
+    let title: String
+    let placeholder: String
+
+    @FocusState private var focused: Bool
+    @State private var draft: String = ""
+
+    init(text: Binding<String>, title: String = "Notes", placeholder: String = "Add notes…") {
+        self._text = text
+        self.title = title
+        self.placeholder = placeholder
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack(alignment: .topLeading) {
+                theme.current.backgroundColor.ignoresSafeArea()
+                TextEditor(text: $draft)
+                    .focused($focused)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .scrollContentBackground(.hidden)
+                    .scrollIndicators(.hidden)
+                    .background(Color.clear)
+
+                if draft.isEmpty {
+                    Text(placeholder)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 17)
+                        .padding(.vertical, 16)
+                        .allowsHitTesting(false)
+                }
+            }
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        text = draft
+                        dismiss()
+                    }
+                    .bold()
+                }
+            }
+            .onAppear {
+                draft = text
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = true }
+            }
+        }
+    }
+}
+
+/// Compact tappable row that opens `DescriptionEditorSheet` instead of
+/// activating an inline keyboard. Use for description / notes fields in
+/// add/create forms that need to fit on screen without scrolling.
+struct DescriptionField: View {
+    @EnvironmentObject var theme: ThemeManager
+    @Binding var text: String
+    let placeholder: String
+    let title: String
+
+    @State private var showEditor = false
+
+    init(text: Binding<String>, placeholder: String = "Add notes…", title: String = "Notes") {
+        self._text = text
+        self.placeholder = placeholder
+        self.title = title
+    }
+
+    var body: some View {
+        Button { showEditor = true } label: {
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: text.isEmpty ? "note.text" : "note.text.badge.plus")
+                    .font(.body)
+                    .foregroundStyle(theme.current.accentColor)
+                Text(text.isEmpty ? placeholder : text)
+                    .font(.callout)
+                    .foregroundStyle(text.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .sheet(isPresented: $showEditor) {
+            DescriptionEditorSheet(text: $text, title: title, placeholder: placeholder)
+                .environmentObject(theme)
+        }
+    }
+}
+
 // MARK: - Search Modifier
 
 struct ConditionalSearchable: ViewModifier {

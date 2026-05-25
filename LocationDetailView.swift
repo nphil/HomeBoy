@@ -68,6 +68,7 @@ struct LocationDetailView: View {
                 .padding(16)
                 .padding(.bottom, 60)
             }
+            .scrollIndicators(.hidden)
         } else if let loadError {
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 32)).foregroundStyle(.orange)
@@ -237,6 +238,7 @@ struct EditLocationSheet: View {
                 }
             }
             .scrollContentBackground(.hidden)
+            .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Edit location")
             .navigationBarTitleDisplayMode(.inline)

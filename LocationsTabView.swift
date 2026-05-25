@@ -496,50 +496,67 @@ struct CreateLocationSheet: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Name") {
-                    TextField("e.g. Garage Shelf 3", text: $name)
+            ZStack {
+                theme.current.backgroundColor.ignoresSafeArea()
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField("Location name", text: $name)
+                        .font(.title3.weight(.semibold))
                         .focused($focused, equals: .name)
-                        .submitLabel(.next)
-                        .onSubmit { focused = .description }
+                        .submitLabel(.done)
                         .textInputAutocapitalization(.words)
-                }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .background {
+                            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                            RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
+                        }
+                        .overlay(RoundedRectangle(cornerRadius: 12)
+                            .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
+                                    lineWidth: name.isEmpty ? 1.5 : 1))
 
-                Section("Parent location (optional)") {
-                    Button {
-                        showParentPicker = true
-                    } label: {
-                        HStack {
+                    Button { showParentPicker = true } label: {
+                        HStack(spacing: 10) {
                             Image(systemName: parentId == nil ? "house" : "folder.fill")
+                                .foregroundStyle(theme.current.accentColor)
                             if let id = parentId {
                                 Text(store.pathString(forLocationId: id))
-                                    .foregroundStyle(.primary)
+                                    .font(.callout.weight(.medium))
+                                    .foregroundStyle(.primary).lineLimit(1)
                             } else {
-                                Text("Top level (no parent)").foregroundStyle(.secondary)
+                                Text("Top level (no parent)").font(.callout).foregroundStyle(.secondary)
                             }
-                            Spacer()
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
                         }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity)
+                        .background {
+                            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                            RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+                        }
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                }
 
-                Section("Description (optional)") {
-                    TextField("Notes about this location", text: $description, axis: .vertical)
-                        .focused($focused, equals: .description)
-                        .lineLimit(1...4)
-                }
+                    DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
 
-                if let errorMsg {
-                    Section {
-                        Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red).font(.callout)
+                    if let errorMsg {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                            Text(errorMsg).font(.callout)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
+                        .foregroundStyle(.primary)
                     }
+
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
             }
-            .scrollContentBackground(.hidden)
-            .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("New location")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -559,7 +576,9 @@ struct CreateLocationSheet: View {
                     .environmentObject(store)
                     .environmentObject(theme)
             }
-            .onAppear { focused = .name }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = .name }
+            }
         }
     }
 
