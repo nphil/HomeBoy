@@ -603,7 +603,7 @@ struct HomeboxClient {
     /// UPC Item DB — free trial tier (100 lookups/day), good for general products.
     static func lookupUPCItemDB(barcode: String) async -> HBBarcodeProduct? {
         guard let url = URL(string: "https://api.upcitemdb.com/prod/trial/lookup?upc=\(barcode)") else { return nil }
-        guard let (data, _) = try? await URLSession.shared.data(for: url) else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return nil }
 
         struct UPCResponse: Decodable {
             let code: String?
@@ -617,7 +617,8 @@ struct HomeboxClient {
 
         guard let r = try? JSONDecoder().decode(UPCResponse.self, from: data),
               let first = r.items?.first,
-              let name = first.title.flatMap({ $0.trimmingCharacters(in: .whitespaces).nilIfEmpty })
+              let rawName = first.title,
+              let name = rawName.trimmingCharacters(in: .whitespaces).nilIfEmpty
         else { return nil }
 
         return HBBarcodeProduct(
