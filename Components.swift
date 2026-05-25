@@ -18,29 +18,24 @@ struct FloatingCardContainer<Content: View>: View {
 
     var body: some View {
         let accent = theme.current.accentColor
-        ZStack {
-            // Card background — no custom dim behind it so ultraThinMaterial picks up
-            // real app content rather than a black layer. Extends past bottom safe area
-            // for a seamless physical screen edge.
-            ZStack {
-                cardShape.fill(.ultraThinMaterial)
-                cardShape.fill(accent.opacity(0.06))
-            }
-            .overlay(cardShape.stroke(accent.opacity(0.22), lineWidth: 1.2))
+        // Content stays within safe area so buttons sit above home indicator.
+        // background(ignoresSafeAreaEdges:) extends the card glass past the
+        // system home-indicator inset to the physical screen edge, while the
+        // primary view (content) still respects safe area.
+        content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, horizontalInset)
-            .ignoresSafeArea(.container, edges: .bottom)
-            .allowsHitTesting(false)
-
-            // Content — stays within safe area so buttons sit above home indicator
-            content()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ignoresSafeAreaEdges: .bottom) {
+                ZStack {
+                    cardShape.fill(.ultraThinMaterial)
+                    cardShape.fill(accent.opacity(0.06))
+                }
                 .padding(.horizontal, horizontalInset)
-        }
-        .presentationDetents([.fraction(0.85)])
-        .presentationDragIndicator(.hidden)
-        .presentationBackground(.clear)
-        .presentationCornerRadius(0)
+            }
+            .presentationDetents([.fraction(0.85)])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(.clear)
+            .presentationCornerRadius(0)
     }
 }
 
