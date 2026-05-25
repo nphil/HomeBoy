@@ -94,7 +94,7 @@ struct AddItemView: View {
                         actionButtons
                             .padding(.horizontal, 20)
                             .padding(.top, 12)
-                            .padding(.bottom, 16)
+                            .padding(.bottom, 36)
                     }
                 }
             }

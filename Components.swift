@@ -11,11 +11,20 @@ import SwiftUI
 struct FloatingCardContainer<Content: View>: View {
     @Binding var isPresented: Bool
     var topInset: CGFloat = 70
-    var bottomInset: CGFloat = 28
+    var bottomInset: CGFloat = 0
     var horizontalInset: CGFloat = 12
     @ViewBuilder let content: () -> Content
 
     @EnvironmentObject private var theme: ThemeManager
+    @State private var dragOffset: CGFloat = 0
+
+    private let cardShape = UnevenRoundedRectangle(
+        topLeadingRadius: 28,
+        bottomLeadingRadius: 0,
+        bottomTrailingRadius: 0,
+        topTrailingRadius: 28
+    )
+    private let dismissThreshold: CGFloat = 120
 
     var body: some View {
         ZStack {
@@ -24,23 +33,45 @@ struct FloatingCardContainer<Content: View>: View {
                 .contentShape(Rectangle())
                 .onTapGesture { isPresented = false }
 
-            content()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 28).fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: 28).fill(theme.current.accentColor.opacity(0.06))
+            ZStack(alignment: .top) {
+                content()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background {
+                        ZStack {
+                            cardShape.fill(.ultraThinMaterial)
+                            cardShape.fill(theme.current.accentColor.opacity(0.06))
+                        }
                     }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 28))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28)
-                        .stroke(theme.current.accentColor.opacity(0.22), lineWidth: 1.2)
-                )
-                .shadow(color: .black.opacity(0.22), radius: 22, x: 0, y: 8)
-                .padding(.top, topInset)
-                .padding(.horizontal, horizontalInset)
-                .padding(.bottom, bottomInset)
+                    .clipShape(cardShape)
+                    .overlay(cardShape.stroke(theme.current.accentColor.opacity(0.22), lineWidth: 1.2))
+                    .shadow(color: .black.opacity(0.22), radius: 22, x: 0, y: 8)
+
+                // Invisible drag handle area at the top covers the grabber.
+                // Swipe down to dismiss; small drags snap back.
+                Color.clear
+                    .frame(height: 56)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture()
+                            .onChanged { value in
+                                dragOffset = max(0, value.translation.height)
+                            }
+                            .onEnded { value in
+                                if value.translation.height > dismissThreshold {
+                                    isPresented = false
+                                } else {
+                                    withAnimation(.spring(duration: 0.25, bounce: 0.2)) {
+                                        dragOffset = 0
+                                    }
+                                }
+                            }
+                    )
+            }
+            .offset(y: dragOffset)
+            .padding(.top, topInset)
+            .padding(.horizontal, horizontalInset)
+            .padding(.bottom, bottomInset)
+            .ignoresSafeArea(.container, edges: .bottom)
         }
         .presentationBackground(.clear)
     }
