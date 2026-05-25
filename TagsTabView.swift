@@ -35,7 +35,9 @@ struct TagsTabView: View {
                         HStack {
                             Spacer()
                             Button {
-                                showCreate = true
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    showCreate = true
+                                }
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.title2.weight(.semibold))
@@ -86,9 +88,34 @@ struct TagsTabView: View {
                 tags = []
                 Task { await load() }
             }
-            .sheet(isPresented: $showCreate) {
-                TagEditSheet(mode: .create) { await load() }
-                    .environmentObject(store).environmentObject(theme)
+            .overlay {
+                if showCreate {
+                    ZStack {
+                        Color.black.opacity(0.35)
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    showCreate = false
+                                }
+                            }
+
+                        TagEditSheet(mode: .create, onSave: {
+                            await load()
+                        }, onDismiss: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showCreate = false
+                            }
+                        })
+                        .frame(maxWidth: 400)
+                        .padding(.horizontal, 16)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
+                            removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
+                        ))
+                    }
+                    .zIndex(150)
+                }
             }
             .navigationDestination(for: TagDetailRoute.self) { route in
                 TagDetailView(tagId: route.id, initialName: route.name, initialColor: route.color, onChange: { Task { await load() } })
@@ -98,6 +125,7 @@ struct TagsTabView: View {
                 ItemDetailView(itemId: route.id)
                     .environmentObject(store).environmentObject(theme)
             }
+            .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
     }
 
@@ -285,7 +313,11 @@ struct TagDetailView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
-                    Button { showEdit = true } label: { Label("Edit", systemImage: "pencil") }
+                    Button {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            showEdit = true
+                        }
+                    } label: { Label("Edit", systemImage: "pencil") }
                     Button(role: .destructive) { showDelete = true } label: { Label("Delete", systemImage: "trash") }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -293,13 +325,34 @@ struct TagDetailView: View {
             }
         }
         .task { await load() }
-        .sheet(isPresented: $showEdit) {
-            if let tag {
-                TagEditSheet(mode: .edit(tag)) {
-                    onChange()
-                    await load()
+        .overlay {
+            if showEdit, let tag {
+                ZStack {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showEdit = false
+                            }
+                        }
+
+                    TagEditSheet(mode: .edit(tag), onSave: {
+                        onChange()
+                        await load()
+                    }, onDismiss: {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            showEdit = false
+                        }
+                    })
+                    .frame(maxWidth: 400)
+                    .padding(.horizontal, 16)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.01, anchor: .center).combined(with: .opacity),
+                        removal: .scale(scale: 0.01, anchor: .center).combined(with: .opacity)
+                    ))
                 }
-                .environmentObject(store).environmentObject(theme)
+                .zIndex(150)
             }
         }
         .alert("Delete tag?", isPresented: $showDelete) {
@@ -308,6 +361,7 @@ struct TagDetailView: View {
         } message: {
             Text("This removes the tag from all items. The items themselves are kept.")
         }
+        .toolbar(showEdit ? .hidden : .visible, for: .tabBar)
     }
 
     private func load() async {
@@ -340,11 +394,11 @@ struct TagDetailView: View {
 struct TagEditSheet: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
-    @Environment(\.dismiss) var dismiss
 
     enum Mode { case create, edit(HBTag) }
     let mode: Mode
     var onSave: () async -> Void = {}
+    var onDismiss: () -> Void = {}
 
     @State private var name = ""
     @State private var description = ""
@@ -354,106 +408,141 @@ struct TagEditSheet: View {
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                theme.current.backgroundColor.ignoresSafeArea()
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 10) {
-                        Circle().fill(Color(hex: colorHex)).frame(width: 22, height: 22)
-                            .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
-                        TextField("Tag name", text: $name)
-                            .font(.title3.weight(.semibold))
-                            .focused($nameFocused)
-                            .textInputAutocapitalization(.never)
-                            .submitLabel(.done)
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: isEditing ? "tag.fill" : "tag.circle.fill")
+                        .foregroundStyle(theme.current.accentColor)
+                        .font(.headline)
+                    Text(isEditing ? "Edit Tag" : "New Tag")
+                        .font(.headline.weight(.semibold))
+                }
+                Spacer()
+                Button {
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.bottom, 4)
+
+            // Content
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Circle().fill(Color(hex: colorHex)).frame(width: 22, height: 22)
+                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                    TextField("Tag name", text: $name)
+                        .font(.title3.weight(.semibold))
+                        .focused($nameFocused)
+                        .textInputAutocapitalization(.never)
+                        .submitLabel(.done)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background {
+                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
+                            lineWidth: name.isEmpty ? 1.5 : 1))
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Color").font(.caption.weight(.semibold))
+                        .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                        .padding(.horizontal, 4)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
+                        ForEach(HomeboxTagPalette, id: \.self) { hex in
+                            Button { colorHex = hex } label: {
+                                Circle()
+                                    .fill(Color(hex: hex))
+                                    .frame(height: 32)
+                                    .overlay(
+                                        Circle().stroke(colorHex == hex ? Color.primary : Color.primary.opacity(0.1),
+                                                        lineWidth: colorHex == hex ? 3 : 1)
+                                    )
+                                    .overlay(
+                                        Image(systemName: "checkmark")
+                                            .font(.caption.weight(.bold))
+                                            .foregroundStyle(.white)
+                                            .opacity(colorHex == hex ? 1 : 0)
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12).padding(.vertical, 10)
+                .background {
+                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+
+                DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
+
+                if let errorMsg {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(errorMsg).font(.callout)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background {
-                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
-                    }
-                    .overlay(RoundedRectangle(cornerRadius: 12)
-                        .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
-                                lineWidth: name.isEmpty ? 1.5 : 1))
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Color").font(.caption.weight(.semibold))
-                            .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                            .padding(.horizontal, 4)
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
-                            ForEach(HomeboxTagPalette, id: \.self) { hex in
-                                Button { colorHex = hex } label: {
-                                    Circle()
-                                        .fill(Color(hex: hex))
-                                        .frame(height: 32)
-                                        .overlay(
-                                            Circle().stroke(colorHex == hex ? Color.primary : Color.primary.opacity(0.1),
-                                                            lineWidth: colorHex == hex ? 3 : 1)
-                                        )
-                                        .overlay(
-                                            Image(systemName: "checkmark")
-                                                .font(.caption.weight(.bold))
-                                                .foregroundStyle(.white)
-                                                .opacity(colorHex == hex ? 1 : 0)
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 10)
-                    .background {
-                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                        RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-                    }
-                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
-
-                    DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
-
-                    if let errorMsg {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(errorMsg).font(.callout)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
-                        .foregroundStyle(.primary)
-                    }
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-            }
-            .navigationTitle(isEditing ? "Edit tag" : "New tag")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if isSaving { ProgressView().controlSize(.small) }
-                        else { Text("Save").bold() }
-                    }
-                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
+                    .foregroundStyle(.primary)
                 }
             }
-            .onAppear {
-                if case .edit(let tag) = mode {
-                    name = tag.name
-                    description = tag.description ?? ""
-                    colorHex = tag.color ?? "#3b82f6"
-                } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
-                }
+
+            // Action buttons
+            actionButtons
+                .padding(.top, 4)
+        }
+        .padding(20)
+        .background {
+            RoundedRectangle(cornerRadius: 24).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 24).fill(theme.current.accentColor.opacity(0.06))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1.5)
+        )
+        .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
+        .onAppear {
+            if case .edit(let tag) = mode {
+                name = tag.name
+                description = tag.description ?? ""
+                colorHex = tag.color ?? "#3b82f6"
             }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
         }
     }
 
     private var isEditing: Bool { if case .edit = mode { return true } else { return false } }
+
+    private var actionButtons: some View {
+        Button {
+            Task { await save() }
+        } label: {
+            HStack {
+                if isSaving {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: isEditing ? "checkmark.circle.fill" : "plus.circle.fill")
+                        .font(.body.weight(.semibold))
+                }
+                Text(isEditing ? "Save Tag" : "Create Tag")
+                    .font(.body.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.glassProminent)
+        .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+    }
 
     private func save() async {
         guard let client = store.client else { return }
@@ -469,7 +558,7 @@ struct TagEditSheet: View {
             }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             await onSave()
-            dismiss()
+            onDismiss()
         } catch {
             errorMsg = error.localizedDescription
             UINotificationFeedbackGenerator().notificationOccurred(.error)

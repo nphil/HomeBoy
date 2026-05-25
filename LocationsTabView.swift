@@ -30,7 +30,9 @@ struct LocationsTabView: View {
                         HStack {
                             Spacer()
                             Button {
-                                showCreate = true
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    showCreate = true
+                                }
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.title2.weight(.semibold))
@@ -82,10 +84,32 @@ struct LocationsTabView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showCreate) {
-                CreateLocationSheet()
-                    .environmentObject(store)
-                    .environmentObject(theme)
+            .overlay {
+                if showCreate {
+                    ZStack {
+                        Color.black.opacity(0.35)
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    showCreate = false
+                                }
+                            }
+
+                        CreateLocationSheet(onDismiss: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showCreate = false
+                            }
+                        })
+                        .frame(maxWidth: 400)
+                        .padding(.horizontal, 16)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
+                            removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
+                        ))
+                    }
+                    .zIndex(150)
+                }
             }
             .task {
                 if store.locationsFlat.isEmpty && store.isAuthenticated {
@@ -126,6 +150,7 @@ struct LocationsTabView: View {
                     .environmentObject(store)
                     .environmentObject(theme)
             }
+            .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
     }
 
@@ -479,10 +504,12 @@ private struct LocationTile: View {
 
 // MARK: - Create location sheet
 
+// MARK: - Create location sheet
+
 struct CreateLocationSheet: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
-    @Environment(\.dismiss) var dismiss
+    var onDismiss: () -> Void = {}
 
     @State private var name: String = ""
     @State private var description: String = ""
@@ -490,96 +517,130 @@ struct CreateLocationSheet: View {
     @State private var showParentPicker = false
     @State private var isSubmitting = false
     @State private var errorMsg: String?
-    @FocusState private var focused: Field?
-
-    enum Field { case name, description }
+    @FocusState private var nameFocused: Bool
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                theme.current.backgroundColor.ignoresSafeArea()
-                VStack(alignment: .leading, spacing: 12) {
-                    TextField("Location name", text: $name)
-                        .font(.title3.weight(.semibold))
-                        .focused($focused, equals: .name)
-                        .submitLabel(.done)
-                        .textInputAutocapitalization(.words)
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .background {
-                            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                            RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
-                        }
-                        .overlay(RoundedRectangle(cornerRadius: 12)
-                            .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
-                                    lineWidth: name.isEmpty ? 1.5 : 1))
-
-                    Button { showParentPicker = true } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: parentId == nil ? "house" : "folder.fill")
-                                .foregroundStyle(theme.current.accentColor)
-                            if let id = parentId {
-                                Text(store.pathString(forLocationId: id))
-                                    .font(.callout.weight(.medium))
-                                    .foregroundStyle(.primary).lineLimit(1)
-                            } else {
-                                Text("Top level (no parent)").font(.callout).foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .frame(maxWidth: .infinity)
-                        .background {
-                            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                            RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-                        }
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-
-                    DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
-
-                    if let errorMsg {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(errorMsg).font(.callout)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
-                        .foregroundStyle(.primary)
-                    }
-
-                    Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack {
+                HStack(spacing: 8) {
+                    Image(systemName: "mappin.circle.fill")
+                        .foregroundStyle(theme.current.accentColor)
+                        .font(.headline)
+                    Text("New Location")
+                        .font(.headline.weight(.semibold))
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
+                Spacer()
+                Button {
+                    onDismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
             }
-            .navigationTitle("New location")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        submit()
-                    } label: {
-                        if isSubmitting { ProgressView().controlSize(.small) }
-                        else { Text("Create").bold() }
+            .padding(.bottom, 4)
+
+            // Content
+            VStack(alignment: .leading, spacing: 10) {
+                TextField("Location name", text: $name)
+                    .font(.title3.weight(.semibold))
+                    .focused($nameFocused)
+                    .submitLabel(.done)
+                    .textInputAutocapitalization(.words)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
                     }
-                    .disabled(isSubmitting || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .overlay(RoundedRectangle(cornerRadius: 12)
+                        .stroke(theme.current.accentColor.opacity(name.isEmpty ? 0.35 : 0.2),
+                                lineWidth: name.isEmpty ? 1.5 : 1))
+
+                Button { showParentPicker = true } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: parentId == nil ? "house" : "folder.fill")
+                            .foregroundStyle(theme.current.accentColor)
+                        if let id = parentId {
+                            Text(store.pathString(forLocationId: id))
+                                .font(.callout.weight(.medium))
+                                .foregroundStyle(.primary).lineLimit(1)
+                        } else {
+                            Text("Top level (no parent)").font(.callout).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background {
+                        RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+                    }
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
+
+                if let errorMsg {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text(errorMsg).font(.callout)
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
+                    .foregroundStyle(.primary)
                 }
             }
-            .sheet(isPresented: $showParentPicker) {
-                LocationPickerSheet(selectedId: $parentId)
-                    .environmentObject(store)
-                    .environmentObject(theme)
-            }
-            .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { focused = .name }
-            }
+
+            // Action buttons
+            actionButtons
+                .padding(.top, 4)
         }
+        .padding(20)
+        .background {
+            RoundedRectangle(cornerRadius: 24).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 24).fill(theme.current.accentColor.opacity(0.06))
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1.5)
+        )
+        .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
+        .sheet(isPresented: $showParentPicker) {
+            LocationPickerSheet(selectedId: $parentId)
+                .environmentObject(store)
+                .environmentObject(theme)
+        }
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
+        }
+    }
+
+    private var actionButtons: some View {
+        Button {
+            submit()
+        } label: {
+            HStack {
+                if isSubmitting {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.body.weight(.semibold))
+                }
+                Text("Create Location")
+                    .font(.body.weight(.semibold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.glassProminent)
+        .disabled(isSubmitting || name.trimmingCharacters(in: .whitespaces).isEmpty)
     }
 
     private func submit() {
@@ -593,7 +654,7 @@ struct CreateLocationSheet: View {
                 try? await store.refreshLocations()
                 await MainActor.run {
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
-                    dismiss()
+                    onDismiss()
                 }
             } catch {
                 await MainActor.run {

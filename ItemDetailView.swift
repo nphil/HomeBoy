@@ -61,15 +61,37 @@ struct ItemDetailView: View {
                 .environmentObject(theme)
             }
         }
-        .sheet(isPresented: $showAddSubItem, onDismiss: { Task { await load() } }) {
-            if let item {
-                AddItemView(
-                    parentId: item.id,
-                    parentName: item.name,
-                    parentLocationId: item.location?.id
-                )
-                .environmentObject(store)
-                .environmentObject(theme)
+        .overlay {
+            if showAddSubItem, let item = item {
+                ZStack {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showAddSubItem = false
+                            }
+                        }
+
+                    AddItemView(
+                        parentId: item.id,
+                        parentName: item.name,
+                        parentLocationId: item.location?.id,
+                        onDismiss: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showAddSubItem = false
+                            }
+                            Task { await load() }
+                        }
+                    )
+                    .frame(maxWidth: 400)
+                    .padding(.horizontal, 16)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.01, anchor: .center).combined(with: .opacity),
+                        removal: .scale(scale: 0.01, anchor: .center).combined(with: .opacity)
+                    ))
+                }
+                .zIndex(150)
             }
         }
         .sheet(isPresented: $showMaintenanceSheet, onDismiss: { Task { await load() } }) {
@@ -83,6 +105,7 @@ struct ItemDetailView: View {
         } message: {
             Text("This removes the item from Homebox permanently.")
         }
+        .toolbar(showAddSubItem ? .hidden : .visible, for: .tabBar)
     }
 
     @ViewBuilder
@@ -234,7 +257,9 @@ struct ItemDetailView: View {
                     .buttonStyle(.plain)
                 }
                 Button {
-                    showAddSubItem = true
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                        showAddSubItem = true
+                    }
                 } label: {
                     Label("Add component", systemImage: "plus.circle")
                         .font(.callout)

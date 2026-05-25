@@ -11,6 +11,7 @@ struct AddItemView: View {
     var parentId: String? = nil
     var parentName: String? = nil
     var parentLocationId: String? = nil
+    var onDismiss: () -> Void = {}
 
     private var isComponent: Bool { parentId != nil }
 
@@ -48,76 +49,95 @@ struct AddItemView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                theme.current.backgroundColor.ignoresSafeArea()
-
-                if !store.isAuthenticated {
-                    notConfiguredView
-                } else {
-                    addForm
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .safeAreaInset(edge: .bottom) {
-                            actionButtons
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 8)
-                                .background(Color.clear)
+        ZStack {
+            if !store.isAuthenticated {
+                notConfiguredView
+                    .padding(24)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Header
+                    HStack {
+                        HStack(spacing: 8) {
+                            Image(systemName: parentName != nil ? "plus.rectangle.on.folder" : "plus.square")
+                                .foregroundStyle(theme.current.accentColor)
+                                .font(.headline)
+                            Text(parentName != nil ? "New Component" : "New Item")
+                                .font(.headline.weight(.semibold))
                         }
-                }
-            }
-            .navigationTitle(parentName != nil ? "New Component" : "New Item")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
-            .sheet(isPresented: $showLocationPicker) {
-                LocationPickerSheet(selectedId: $selectedLocationId)
-                    .environmentObject(store).environmentObject(theme)
-            }
-            .sheet(isPresented: $showTagPicker) {
-                TagPickerSheet(selectedIds: $selectedTagIds)
-                    .environmentObject(store).environmentObject(theme)
-            }
-            .sheet(isPresented: $showCamera) {
-                CameraSheet { img in photos.append(downscale(img)) }.ignoresSafeArea()
-            }
-            .sheet(isPresented: $showBarcodeScanner) {
-                BarcodeScannerSheet(mode: .barcode) { code in
-                    showBarcodeScanner = false
-                    Task { await lookupBarcode(code) }
-                }
-                .ignoresSafeArea()
-            }
-            .sheet(isPresented: $showProductMatch) {
-                ProductMatchSheet(
-                    products: pendingProducts,
-                    onAccept: { applyProduct($0) },
-                    onScanAgain: { showBarcodeScanner = true }
-                )
-                .environmentObject(theme)
-            }
-            .onChange(of: pickerItems) { _, newItems in
-                Task {
-                    var loaded: [UIImage] = []
-                    for item in newItems {
-                        if let data = try? await item.loadTransferable(type: Data.self),
-                           let img = UIImage(data: data) {
-                            loaded.append(downscale(img))
+                        Spacer()
+                        Button {
+                            onDismiss()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
                         }
+                        .buttonStyle(.plain)
                     }
-                    await MainActor.run { photos = loaded }
+                    .padding(.bottom, 4)
+
+                    addForm
+
+                    actionButtons
+                        .padding(.top, 4)
                 }
-            }
-            .task { await loadTags() }
-            .onChange(of: name) { _, newName in scheduleSuggestion(for: newName) }
-            .onAppear {
-                if isComponent, selectedLocationId == nil {
-                    selectedLocationId = parentLocationId
+                .padding(20)
+                .background {
+                    RoundedRectangle(cornerRadius: 24).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 24).fill(theme.current.accentColor.opacity(0.06))
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .stroke(theme.current.accentColor.opacity(0.25), lineWidth: 1.5)
+                )
+                .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 12)
             }
+        }
+        .sheet(isPresented: $showLocationPicker) {
+            LocationPickerSheet(selectedId: $selectedLocationId)
+                .environmentObject(store).environmentObject(theme)
+        }
+        .sheet(isPresented: $showTagPicker) {
+            TagPickerSheet(selectedIds: $selectedTagIds)
+                .environmentObject(store).environmentObject(theme)
+        }
+        .sheet(isPresented: $showCamera) {
+            CameraSheet { img in photos.append(downscale(img)) }.ignoresSafeArea()
+        }
+        .sheet(isPresented: $showBarcodeScanner) {
+            BarcodeScannerSheet(mode: .barcode) { code in
+                showBarcodeScanner = false
+                Task { await lookupBarcode(code) }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showProductMatch) {
+            ProductMatchSheet(
+                products: pendingProducts,
+                onAccept: { applyProduct($0) },
+                onScanAgain: { showBarcodeScanner = true }
+            )
+            .environmentObject(theme)
+        }
+        .onChange(of: pickerItems) { _, newItems in
+            Task {
+                var loaded: [UIImage] = []
+                for item in newItems {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let img = UIImage(data: data) {
+                        loaded.append(downscale(img))
+                    }
+                }
+                await MainActor.run { photos = loaded }
+            }
+        }
+        .task { await loadTags() }
+        .onChange(of: name) { _, newName in scheduleSuggestion(for: newName) }
+        .onAppear {
+            if isComponent, selectedLocationId == nil {
+                selectedLocationId = parentLocationId
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
         }
     }
 
@@ -488,7 +508,7 @@ struct AddItemView: View {
                     showSuccessPill("\"\(trimmedName)\"")
                     resetForm()
                     if andDismiss {
-                        dismiss()
+                        onDismiss()
                     }
                 }
             } catch {

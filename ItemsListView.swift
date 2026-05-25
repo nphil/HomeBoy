@@ -127,7 +127,11 @@ struct ItemsListView: View {
                                             .shadow(color: theme.current.accentColor.opacity(0.3), radius: 4, x: 0, y: 3)
                                     }
                                 }
-                                Button { showAddSheet = true } label: {
+                                Button {
+                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                        showAddSheet = true
+                                    }
+                                } label: {
                                     Image(systemName: "plus")
                                         .font(.title2.weight(.semibold))
                                         .foregroundStyle(.white)
@@ -269,9 +273,33 @@ struct ItemsListView: View {
                 }
                 .environmentObject(store).environmentObject(theme)
             }
-            .sheet(isPresented: $showAddSheet) {
-                AddItemView()
-                    .environmentObject(store).environmentObject(theme)
+            .overlay {
+                if showAddSheet {
+                    ZStack {
+                        Color.black.opacity(0.35)
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+                            .onTapGesture {
+                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                    showAddSheet = false
+                                }
+                            }
+
+                        AddItemView(onDismiss: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showAddSheet = false
+                            }
+                            Task { await load(force: true) }
+                        })
+                        .frame(maxWidth: 400)
+                        .padding(.horizontal, 16)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
+                            removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
+                        ))
+                    }
+                    .zIndex(150)
+                }
             }
             .sheet(isPresented: $showQRScanner) {
                 BarcodeScannerSheet(mode: .qr) { code in
@@ -291,7 +319,7 @@ struct ItemsListView: View {
                     }
                 }
             }
-            .toolbar(selectMode ? .hidden : .visible, for: .tabBar)
+            .toolbar(selectMode || showAddSheet ? .hidden : .visible, for: .tabBar)
             .navigationTitle(selectMode ? (selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected") : "")
             .navigationBarTitleDisplayMode(.inline)
         }
