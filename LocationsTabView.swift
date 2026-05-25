@@ -139,6 +139,7 @@ struct LocationsTabView: View {
                     UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
                         .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
                 }
+                .ignoresSafeArea()
             }
             .presentationCornerRadius(28)
             .environmentObject(store)
