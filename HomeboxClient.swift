@@ -179,7 +179,7 @@ struct HBItemUpdate: Codable {
     var soldNotes: String
     var notes: String
     var syncChildItemsLocations: Bool
-    var parentId: String
+    var parentId: String?
 }
 
 extension HBItemUpdate {
@@ -209,7 +209,7 @@ extension HBItemUpdate {
         self.soldNotes = d.soldNotes ?? ""
         self.notes = d.notes ?? ""
         self.syncChildItemsLocations = d.syncChildItemsLocations ?? false
-        self.parentId = d.parent?.id ?? ""
+        self.parentId = d.parent?.id
     }
 }
 
