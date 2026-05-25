@@ -88,35 +88,7 @@ struct TagsTabView: View {
                 tags = []
                 Task { await load() }
             }
-            .overlay {
-                if showCreate {
-                    ZStack {
-                        Color.black.opacity(0.35)
-                            .ignoresSafeArea()
-                            .transition(.opacity)
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                    showCreate = false
-                                }
-                            }
 
-                        TagEditSheet(mode: .create, onSave: {
-                            await load()
-                        }, onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                showCreate = false
-                            }
-                        })
-                        .frame(maxWidth: 400)
-                        .padding(.horizontal, 16)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
-                            removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
-                        ))
-                    }
-                    .zIndex(150)
-                }
-            }
             .navigationDestination(for: TagDetailRoute.self) { route in
                 TagDetailView(tagId: route.id, initialName: route.name, initialColor: route.color, onChange: { Task { await load() } })
                     .environmentObject(store).environmentObject(theme)
@@ -126,6 +98,39 @@ struct TagsTabView: View {
                     .environmentObject(store).environmentObject(theme)
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
+        }
+        .overlay {
+            if showCreate {
+                ZStack {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showCreate = false
+                            }
+                        }
+
+                    ZStack(alignment: .center) {
+                        TagEditSheet(mode: .create, onSave: {
+                            await load()
+                        }, onDismiss: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showCreate = false
+                            }
+                        })
+                        .frame(maxWidth: 400)
+                        .padding(.horizontal, 16)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea()
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
+                        removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
+                    ))
+                }
+                .zIndex(150)
+            }
         }
     }
 

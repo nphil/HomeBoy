@@ -84,33 +84,7 @@ struct LocationsTabView: View {
                     }
                 }
             }
-            .overlay {
-                if showCreate {
-                    ZStack {
-                        Color.black.opacity(0.35)
-                            .ignoresSafeArea()
-                            .transition(.opacity)
-                            .onTapGesture {
-                                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                    showCreate = false
-                                }
-                            }
 
-                        CreateLocationSheet(onDismiss: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                showCreate = false
-                            }
-                        })
-                        .frame(maxWidth: 400)
-                        .padding(.horizontal, 16)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
-                            removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
-                        ))
-                    }
-                    .zIndex(150)
-                }
-            }
             .task {
                 if store.locationsFlat.isEmpty && store.isAuthenticated {
                     try? await store.refreshLocations()
@@ -151,6 +125,37 @@ struct LocationsTabView: View {
                     .environmentObject(theme)
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
+        }
+        .overlay {
+            if showCreate {
+                ZStack {
+                    Color.black.opacity(0.35)
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showCreate = false
+                            }
+                        }
+
+                    ZStack(alignment: .center) {
+                        CreateLocationSheet(onDismiss: {
+                            withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                                showCreate = false
+                            }
+                        })
+                        .frame(maxWidth: 400)
+                        .padding(.horizontal, 16)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .ignoresSafeArea()
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity),
+                        removal: .scale(scale: 0.01, anchor: .bottomTrailing).combined(with: .opacity)
+                    ))
+                }
+                .zIndex(150)
+            }
         }
     }
 

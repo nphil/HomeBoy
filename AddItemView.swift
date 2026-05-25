@@ -170,10 +170,10 @@ struct AddItemView: View {
             if !isComponent {
                 locationRow
             }
+            tagsSelectionRow
             tagSuggestionRow
-            qtyTagsRow
-            photosNotesRow
-            lockTogglesRow
+            qtyPhotosRow
+            notesRow
 
             if let submitError { errorPill(submitError) }
             if let justAdded   { successPill(justAdded) }
@@ -212,62 +212,78 @@ struct AddItemView: View {
                     lineWidth: name.isEmpty ? 1.5 : 1))
     }
 
-    private var locationRow: some View {
-        Button { showLocationPicker = true } label: {
-            HStack(spacing: 10) {
-                Image(systemName: selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
-                    .font(.body)
-                    .foregroundStyle(theme.current.accentColor)
-                if let id = selectedLocationId {
-                    Text(store.pathString(forLocationId: id))
-                        .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
-                } else {
-                    Text("Choose location — required").foregroundStyle(.secondary).font(.callout)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+    private func keepButton(isOn: Binding<Bool>) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: isOn.wrappedValue ? "pin.fill" : "pin")
+                    .font(.caption)
+                Text("Keep")
+                    .font(.caption.weight(.semibold))
             }
-            .padding(.horizontal, 14).padding(.vertical, 10)
-            .frame(maxWidth: .infinity)
-            .background {
-                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(selectedLocationId == nil
-                        ? theme.current.accentColor.opacity(0.35)
-                        : theme.current.accentColor.opacity(0.2),
-                        lineWidth: selectedLocationId == nil ? 1.5 : 1))
-            .contentShape(Rectangle())
+            .padding(.horizontal, 10)
+            .frame(height: 40)
+            .background(isOn.wrappedValue ? theme.current.accentColor.opacity(0.18) : Color.clear)
+            .foregroundStyle(isOn.wrappedValue ? theme.current.accentColor : .secondary)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isOn.wrappedValue ? theme.current.accentColor.opacity(0.4) : Color.primary.opacity(0.15), lineWidth: 1.2)
+            )
         }
         .buttonStyle(.plain)
     }
 
-    private var qtyTagsRow: some View {
+    private var locationRow: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Text("QTY").font(.caption2.weight(.semibold))
-                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                QuantityControl(value: $quantity)
+            Button { showLocationPicker = true } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
+                        .font(.body)
+                        .foregroundStyle(theme.current.accentColor)
+                    if let id = selectedLocationId {
+                        Text(store.pathString(forLocationId: id))
+                            .font(.callout.weight(.medium)).foregroundStyle(.primary).lineLimit(1)
+                    } else {
+                        Text("Choose location — required").foregroundStyle(.secondary).font(.callout)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background {
+                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.07))
+                }
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .stroke(selectedLocationId == nil
+                            ? theme.current.accentColor.opacity(0.35)
+                            : theme.current.accentColor.opacity(0.2),
+                            lineWidth: selectedLocationId == nil ? 1.5 : 1))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background {
-                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-            }
-            .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+            .buttonStyle(.plain)
 
+            keepButton(isOn: $lockLocation)
+        }
+    }
+
+    private var tagsSelectionRow: some View {
+        HStack(spacing: 8) {
             Button { showTagPicker = true } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "tag.fill").font(.caption)
+                HStack(spacing: 10) {
+                    Image(systemName: "tag.fill")
+                        .font(.body)
                         .foregroundStyle(theme.current.accentColor)
                     Text(selectedTagIds.isEmpty ? "Tags" : "\(selectedTagIds.count) tag\(selectedTagIds.count == 1 ? "" : "s")")
                         .font(.callout.weight(.medium))
                         .foregroundStyle(selectedTagIds.isEmpty ? .secondary : .primary)
                     Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption2)
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
                 }
-                .padding(.horizontal, 12).padding(.vertical, 10)
+                .padding(.horizontal, 14).padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
                 .background {
                     RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
@@ -277,15 +293,34 @@ struct AddItemView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+
+            keepButton(isOn: $lockTags)
         }
     }
 
-    private var photosNotesRow: some View {
+    private var qtyPhotosRow: some View {
         HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Text("QTY").font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                QuantityControl(value: $quantity)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background {
+                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
+            }
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+            .fixedSize(horizontal: true, vertical: false)
+
+            Spacer(minLength: 0)
+
             photosTile
-            DescriptionField(text: $description, placeholder: "Notes", title: "Notes")
-                .frame(maxWidth: .infinity)
         }
+    }
+
+    private var notesRow: some View {
+        DescriptionField(text: $description, placeholder: "Notes (optional)", title: "Notes")
     }
 
     @ViewBuilder private var photosTile: some View {
@@ -349,44 +384,6 @@ struct AddItemView: View {
                 .buttonStyle(.plain)
             }
         }
-    }
-
-    @ViewBuilder private var lockTogglesRow: some View {
-        HStack(spacing: 14) {
-            Text("KEEP").font(.caption2.weight(.semibold))
-                .foregroundStyle(theme.current.accentColor.opacity(0.75))
-
-            if !isComponent {
-                Toggle(isOn: $lockLocation) {
-                    HStack(spacing: 4) {
-                        Image(systemName: lockLocation ? "mappin.and.ellipse" : "mappin")
-                            .font(.caption2)
-                            .foregroundStyle(lockLocation ? theme.current.accentColor : .secondary)
-                        Text("Location").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                    }
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .tint(theme.current.accentColor)
-                .fixedSize()
-            }
-
-            Toggle(isOn: $lockTags) {
-                HStack(spacing: 4) {
-                    Image(systemName: lockTags ? "tag.fill" : "tag")
-                        .font(.caption2)
-                        .foregroundStyle(lockTags ? theme.current.accentColor : .secondary)
-                    Text("Tags").font(.caption.weight(.medium)).foregroundStyle(.secondary)
-                }
-            }
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .tint(theme.current.accentColor)
-            .fixedSize()
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14).padding(.vertical, 6)
     }
 
     private var actionButtons: some View {
