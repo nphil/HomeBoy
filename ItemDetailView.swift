@@ -74,7 +74,13 @@ struct ItemDetailView: View {
                 )
                 .presentationDetents([.fraction(0.85)])
                 .presentationDragIndicator(.hidden)
-                .presentationBackground(.clear)
+                .presentationBackground {
+                    ZStack {
+                        Color.clear.background(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 28)
+                            .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
+                    }
+                }
                 .presentationCornerRadius(28)
                 .environmentObject(store)
                 .environmentObject(theme)

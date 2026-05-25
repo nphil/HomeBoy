@@ -132,7 +132,13 @@ struct LocationsTabView: View {
             })
             .presentationDetents([.fraction(0.65)])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(.clear)
+            .presentationBackground {
+                ZStack {
+                    Color.clear.background(.ultraThinMaterial)
+                    RoundedRectangle(cornerRadius: 28)
+                        .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
+                }
+            }
             .presentationCornerRadius(28)
             .environmentObject(store)
             .environmentObject(theme)
@@ -602,13 +608,6 @@ struct CreateLocationSheet: View {
                     .padding(.bottom, 16)
             }
         }
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 28))
-        .overlay(
-            RoundedRectangle(cornerRadius: 28)
-                .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
-        )
-        .padding(.bottom, 10)
         .sheet(isPresented: $showParentPicker) {
             LocationPickerSheet(selectedId: $parentId)
                 .environmentObject(store)
