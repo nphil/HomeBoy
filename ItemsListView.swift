@@ -295,26 +295,13 @@ struct ItemsListView: View {
             .toolbar(selectMode ? .hidden : .visible, for: .tabBar)
             .navigationTitle(selectMode ? (selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected") : "")
             .navigationBarTitleDisplayMode(.inline)
-            .sheet(isPresented: $showAddSheet) {
-                AddItemView(onDismiss: {
-                    showAddSheet = false
-                    Task { await load(force: true) }
-                })
-                .presentationDetents([.fraction(0.85)])
-                .presentationDragIndicator(.hidden)
-                .presentationBackground {
-                    ZStack {
-                        UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                            .fill(.ultraThinMaterial)
-                        UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                            .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea()
-                }
-                .presentationCornerRadius(28)
-                .environmentObject(store)
-                .environmentObject(theme)
+            .floatingCardCover(
+                isPresented: $showAddSheet,
+                onDismiss: { Task { await load(force: true) } }
+            ) {
+                AddItemView(onDismiss: { showAddSheet = false })
+                    .environmentObject(store)
+                    .environmentObject(theme)
             }
         }
     }

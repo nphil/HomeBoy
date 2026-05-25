@@ -99,25 +99,12 @@ struct TagsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
-        .sheet(isPresented: $showCreate) {
+        .floatingCardCover(isPresented: $showCreate) {
             TagEditSheet(mode: .create, onSave: {
                 await load()
             }, onDismiss: {
                 showCreate = false
             })
-            .presentationDetents([.fraction(0.75)])
-            .presentationDragIndicator(.hidden)
-            .presentationBackground {
-                ZStack {
-                    UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                        .fill(.ultraThinMaterial)
-                    UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                        .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
-            }
-            .presentationCornerRadius(28)
             .environmentObject(store)
             .environmentObject(theme)
         }
@@ -319,7 +306,7 @@ struct TagDetailView: View {
             }
         }
         .task { await load() }
-        .sheet(isPresented: $showEdit) {
+        .floatingCardCover(isPresented: $showEdit) {
             if let tag = tag {
                 TagEditSheet(mode: .edit(tag), onSave: {
                     onChange()
@@ -327,19 +314,6 @@ struct TagDetailView: View {
                 }, onDismiss: {
                     showEdit = false
                 })
-                .presentationDetents([.fraction(0.75)])
-                .presentationDragIndicator(.hidden)
-                .presentationBackground {
-                    ZStack {
-                        UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                            .fill(.ultraThinMaterial)
-                        UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                            .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .ignoresSafeArea()
-                }
-                .presentationCornerRadius(28)
                 .environmentObject(store)
                 .environmentObject(theme)
             }

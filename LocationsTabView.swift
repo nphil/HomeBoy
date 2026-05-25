@@ -126,23 +126,10 @@ struct LocationsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
-        .sheet(isPresented: $showCreate) {
+        .floatingCardCover(isPresented: $showCreate) {
             CreateLocationSheet(onDismiss: {
                 showCreate = false
             })
-            .presentationDetents([.fraction(0.65)])
-            .presentationDragIndicator(.hidden)
-            .presentationBackground {
-                ZStack {
-                    UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                        .fill(.ultraThinMaterial)
-                    UnevenRoundedRectangle(topLeadingRadius: 28, bottomLeadingRadius: 0, bottomTrailingRadius: 0, topTrailingRadius: 28)
-                        .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .ignoresSafeArea()
-            }
-            .presentationCornerRadius(28)
             .environmentObject(store)
             .environmentObject(theme)
         }

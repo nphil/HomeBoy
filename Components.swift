@@ -1,5 +1,77 @@
 import SwiftUI
 
+// MARK: - Floating Card Modal
+
+/// Renders content as a "floating card" inset from all four screen edges with
+/// a dimmed backdrop. Tap the backdrop to dismiss. Designed to be the body of
+/// a `.fullScreenCover` so it can sit above the navigation/tab bars while
+/// preserving margins on every side (avoiding clipping by the physical
+/// rounded-corner screen mask). See `.floatingCardCover(...)` for the
+/// convenience modifier.
+struct FloatingCardContainer<Content: View>: View {
+    @Binding var isPresented: Bool
+    var topInset: CGFloat = 70
+    var bottomInset: CGFloat = 28
+    var horizontalInset: CGFloat = 12
+    @ViewBuilder let content: () -> Content
+
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.42)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture { isPresented = false }
+
+            content()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 28).fill(.ultraThinMaterial)
+                        RoundedRectangle(cornerRadius: 28).fill(theme.current.accentColor.opacity(0.06))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 28))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28)
+                        .stroke(theme.current.accentColor.opacity(0.22), lineWidth: 1.2)
+                )
+                .shadow(color: .black.opacity(0.22), radius: 22, x: 0, y: 8)
+                .padding(.top, topInset)
+                .padding(.horizontal, horizontalInset)
+                .padding(.bottom, bottomInset)
+        }
+        .presentationBackground(.clear)
+    }
+}
+
+extension View {
+    /// Present `content` as a floating card inset from all four screen edges,
+    /// over a dimmed backdrop. Use in place of `.sheet(isPresented:)` when the
+    /// presented view's bottom would otherwise be clipped by the device's
+    /// rounded screen corners. `onDismiss` fires whenever the cover dismisses,
+    /// including via backdrop tap.
+    func floatingCardCover<Content: View>(
+        isPresented: Binding<Bool>,
+        topInset: CGFloat = 70,
+        bottomInset: CGFloat = 28,
+        horizontalInset: CGFloat = 12,
+        onDismiss: (() -> Void)? = nil,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        fullScreenCover(isPresented: isPresented, onDismiss: onDismiss) {
+            FloatingCardContainer(
+                isPresented: isPresented,
+                topInset: topInset,
+                bottomInset: bottomInset,
+                horizontalInset: horizontalInset,
+                content: content
+            )
+        }
+    }
+}
+
 // MARK: - Description Editor Sheet
 
 /// Full-screen editor used by Add/Create forms whose description fields
