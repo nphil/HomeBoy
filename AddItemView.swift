@@ -36,6 +36,8 @@ struct AddItemView: View {
     @State private var showLocationPicker = false
     @State private var showTagPicker = false
     @State private var showCamera = false
+    @State private var showPhotoOptions = false
+    @State private var showPhotoPicker = false
     @State private var showBarcodeScanner = false
     @State private var showProductMatch = false
     @State private var pendingProducts: [HBBarcodeProduct] = []
@@ -110,6 +112,7 @@ struct AddItemView: View {
         .sheet(isPresented: $showCamera) {
             CameraSheet { img in photos.append(downscale(img)) }.ignoresSafeArea()
         }
+        .photosPicker(isPresented: $showPhotoPicker, selection: $pickerItems, matching: .images, photoLibrary: .shared())
         .sheet(isPresented: $showBarcodeScanner) {
             BarcodeScannerSheet(mode: .barcode) { code in
                 showBarcodeScanner = false
@@ -126,6 +129,7 @@ struct AddItemView: View {
             .environmentObject(theme)
         }
         .onChange(of: pickerItems) { _, newItems in
+            guard !newItems.isEmpty else { return }
             Task {
                 var loaded: [UIImage] = []
                 for item in newItems {
@@ -134,7 +138,10 @@ struct AddItemView: View {
                         loaded.append(downscale(img))
                     }
                 }
-                await MainActor.run { photos = loaded }
+                await MainActor.run {
+                    photos.append(contentsOf: loaded)
+                    pickerItems = []
+                }
             }
         }
         .task { await loadTags() }
@@ -338,57 +345,47 @@ struct AddItemView: View {
 
     @ViewBuilder private var photosTile: some View {
         let accentColor = theme.current.accentColor
-        if photos.isEmpty {
-            HStack(spacing: 6) {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) {
-                    Button { showCamera = true } label: {
-                        Image(systemName: "camera.fill")
-                            .font(.body)
-                            .foregroundStyle(accentColor)
-                            .frame(width: 44, height: 44)
-                    }
-                    .buttonStyle(.glass)
-                }
-                PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
-                    Image(systemName: "photo.on.rectangle")
-                        .font(.body)
-                        .foregroundStyle(accentColor)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.glass)
+        HStack(spacing: 6) {
+            // Always-visible add button — shows camera/library action sheet
+            Button { showPhotoOptions = true } label: {
+                Image(systemName: "camera.fill")
+                    .font(.body)
+                    .foregroundStyle(accentColor)
+                    .frame(width: 44, height: 44)
             }
-        } else {
-            HStack(spacing: 4) {
-                ForEach(photos.indices.prefix(2), id: \.self) { idx in
-                    ZStack(alignment: .topTrailing) {
-                        Image(uiImage: photos[idx]).resizable().scaledToFill()
-                            .frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 10))
-                        Button {
-                            photos.remove(at: idx)
-                            pickerItems.removeAll()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.caption2).foregroundStyle(.white)
-                                .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
+            .buttonStyle(.glass)
+            .confirmationDialog("", isPresented: $showPhotoOptions, titleVisibility: .hidden) {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button("Take Photo") { showCamera = true }
+                }
+                Button("Choose from Library") { showPhotoPicker = true }
+                Button("Cancel", role: .cancel) {}
+            }
+
+            // Scrollable photo strip — shown only when photos exist
+            if !photos.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 4) {
+                        ForEach(Array(photos.enumerated()), id: \.offset) { idx, photo in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: photo).resizable().scaledToFill()
+                                    .frame(width: 44, height: 44)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                Button {
+                                    photos.remove(at: idx)
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption2).foregroundStyle(.white)
+                                        .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
+                                }
+                                .buttonStyle(.plain)
+                                .offset(x: 4, y: -4)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .offset(x: 4, y: -4)
                     }
+                    .padding(.vertical, 4)
                 }
-                if photos.count > 2 {
-                    Text("+\(photos.count - 2)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(accentColor)
-                        .frame(width: 44, height: 44)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(accentColor.opacity(0.15)))
-                }
-                PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(accentColor)
-                        .frame(width: 44, height: 44)
-                }
-                .buttonStyle(.glass)
+                .scrollIndicators(.hidden)
             }
         }
     }
