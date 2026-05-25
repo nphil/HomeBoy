@@ -97,12 +97,13 @@ struct AddItemView: View {
                             .padding(.bottom, 16)
                     }
                 }
-                .background(Color.clear)
+                .background(.ultraThinMaterial)
                 .clipShape(RoundedRectangle(cornerRadius: 28))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28)
                         .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
                 )
+                .padding(.bottom, 10)
             }
         }
         .sheet(isPresented: $showLocationPicker) {
@@ -255,9 +256,9 @@ struct AddItemView: View {
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
             .buttonStyle(.glass)
 
             keepButton(isOn: $lockLocation)
@@ -278,9 +279,9 @@ struct AddItemView: View {
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 14)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 44)
             .buttonStyle(.glass)
 
             keepButton(isOn: $lockTags)

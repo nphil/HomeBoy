@@ -132,7 +132,7 @@ struct LocationsTabView: View {
             })
             .presentationDetents([.fraction(0.65)])
             .presentationDragIndicator(.hidden)
-            .presentationBackground(.ultraThinMaterial)
+            .presentationBackground(.clear)
             .presentationCornerRadius(28)
             .environmentObject(store)
             .environmentObject(theme)
@@ -571,9 +571,9 @@ struct CreateLocationSheet: View {
                                 Image(systemName: "chevron.right").foregroundStyle(.secondary).font(.caption)
                             }
                             .padding(.horizontal, 14)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
                         }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
                         .buttonStyle(.glass)
 
                         DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
@@ -602,12 +602,13 @@ struct CreateLocationSheet: View {
                     .padding(.bottom, 16)
             }
         }
-        .background(Color.clear)
+        .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 28))
         .overlay(
             RoundedRectangle(cornerRadius: 28)
                 .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
         )
+        .padding(.bottom, 10)
         .sheet(isPresented: $showParentPicker) {
             LocationPickerSheet(selectedId: $parentId)
                 .environmentObject(store)
