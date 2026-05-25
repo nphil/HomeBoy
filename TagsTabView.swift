@@ -480,7 +480,7 @@ struct TagEditSheet: View {
                     .padding(.bottom, 16)
             }
         }
-        .background(.ultraThinMaterial)
+        .background(Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 28))
         .overlay(
             RoundedRectangle(cornerRadius: 28)
@@ -495,7 +495,6 @@ struct TagEditSheet: View {
                 description = tag.description ?? ""
                 colorHex = tag.color ?? "#3b82f6"
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
         }
     }
 

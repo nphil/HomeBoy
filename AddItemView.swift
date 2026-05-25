@@ -97,7 +97,7 @@ struct AddItemView: View {
                             .padding(.bottom, 16)
                     }
                 }
-                .background(.ultraThinMaterial)
+                .background(Color.clear)
                 .clipShape(RoundedRectangle(cornerRadius: 28))
                 .overlay(
                     RoundedRectangle(cornerRadius: 28)
@@ -152,7 +152,6 @@ struct AddItemView: View {
             if isComponent, selectedLocationId == nil {
                 selectedLocationId = parentLocationId
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
         }
     }
 
@@ -627,7 +626,6 @@ struct AddItemView: View {
         if !lockTags { selectedTagIds = [] }
         if !lockLocation && !isComponent { selectedLocationId = nil }
         if isComponent { selectedLocationId = parentLocationId }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { nameFocused = true }
     }
 
     private func lookupBarcode(_ code: String) async {

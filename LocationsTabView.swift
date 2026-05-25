@@ -601,7 +601,7 @@ struct CreateLocationSheet: View {
                     .padding(.bottom, 16)
             }
         }
-        .background(.ultraThinMaterial)
+        .background(Color.clear)
         .clipShape(RoundedRectangle(cornerRadius: 28))
         .overlay(
             RoundedRectangle(cornerRadius: 28)
@@ -616,7 +616,6 @@ struct CreateLocationSheet: View {
                 .environmentObject(theme)
         }
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
         }
     }
 
