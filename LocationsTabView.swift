@@ -130,7 +130,9 @@ struct LocationsTabView: View {
             CreateLocationSheet(onDismiss: {
                 showCreate = false
             })
-            .presentationBackground(.ultraThinMaterial)
+            .presentationDetents([.fraction(0.65)])
+            .presentationDragIndicator(.hidden)
+            .presentationBackground(.clear)
             .environmentObject(store)
             .environmentObject(theme)
         }
@@ -503,94 +505,111 @@ struct CreateLocationSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            HStack {
-                HStack(spacing: 8) {
-                    Image(systemName: "mappin.circle.fill")
-                        .foregroundStyle(theme.current.accentColor)
-                        .font(.headline)
-                    Text("New Location")
-                        .font(.headline.weight(.semibold))
-                }
-                Spacer()
-                Button {
-                    onDismiss()
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-            .padding(.bottom, 12)
+            // Grabber indicator
+            Capsule()
+                .fill(Color.secondary.opacity(0.5))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
 
-            // Content
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    TextField("Location name", text: $name)
-                        .font(.callout.weight(.semibold))
-                        .focused($nameFocused)
-                        .submitLabel(.done)
-                        .textInputAutocapitalization(.words)
-                        .padding(.horizontal, 14)
-                        .frame(height: 40)
-                        .background {
-                            RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
-                            RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
-                        )
-
-                    Button { showParentPicker = true } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: parentId == nil ? "house" : "folder.fill")
-                                .foregroundStyle(theme.current.accentColor)
-                            if let id = parentId {
-                                Text(store.pathString(forLocationId: id))
-                                    .font(.callout.weight(.medium))
-                                    .foregroundStyle(.primary).lineLimit(1)
-                            } else {
-                                Text("Top level (no parent)").font(.callout).foregroundStyle(.secondary)
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right").foregroundStyle(.secondary).font(.caption)
-                        }
-                        .padding(.horizontal, 14)
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    HStack(spacing: 8) {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundStyle(theme.current.accentColor)
+                            .font(.headline)
+                        Text("New Location")
+                            .font(.headline.weight(.semibold))
                     }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 40)
-                    .buttonStyle(.glass)
-
-                    DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
-
-                    if let errorMsg {
-                        HStack(spacing: 8) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                            Text(errorMsg).font(.callout)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
-                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
-                        .foregroundStyle(.primary)
+                    Spacer()
+                    Button {
+                        onDismiss()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
                     }
-
-                    Spacer(minLength: 0)
+                    .buttonStyle(.plain)
                 }
                 .padding(.horizontal, 20)
-            }
-
-            // Action buttons
-            actionButtons
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
+                .padding(.top, 14)
                 .padding(.bottom, 12)
+
+                // Content
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        TextField("Location name", text: $name)
+                            .font(.callout.weight(.semibold))
+                            .focused($nameFocused)
+                            .submitLabel(.done)
+                            .textInputAutocapitalization(.words)
+                            .padding(.horizontal, 14)
+                            .frame(height: 44)
+                            .background {
+                                RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
+                                RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
+                            }
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
+                            )
+
+                        Button { showParentPicker = true } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: parentId == nil ? "house" : "folder.fill")
+                                    .foregroundStyle(theme.current.accentColor)
+                                if let id = parentId {
+                                    Text(store.pathString(forLocationId: id))
+                                        .font(.callout.weight(.medium))
+                                        .foregroundStyle(.primary).lineLimit(1)
+                                } else {
+                                    Text("Top level (no parent)").font(.callout).foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").foregroundStyle(.secondary).font(.caption)
+                            }
+                            .padding(.horizontal, 14)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .buttonStyle(.glass)
+
+                        DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
+
+                        if let errorMsg {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                Text(errorMsg).font(.callout)
+                            }
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
+                            .foregroundStyle(.primary)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 20)
+                }
+
+                // Action buttons
+                actionButtons
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .padding(.bottom, 16)
+            }
         }
-        .background(theme.current.accentColor.opacity(0.03))
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 28))
+        .overlay(
+            RoundedRectangle(cornerRadius: 28)
+                .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
+        )
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
+        .padding(.top, 8)
         .sheet(isPresented: $showParentPicker) {
             LocationPickerSheet(selectedId: $parentId)
                 .environmentObject(store)

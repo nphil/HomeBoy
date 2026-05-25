@@ -95,7 +95,7 @@ struct DescriptionField: View {
             }
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity)
-            .frame(height: 40)
+            .frame(height: 44)
         }
         .buttonStyle(.glass)
         .sheet(isPresented: $showEditor) {

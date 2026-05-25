@@ -300,7 +300,9 @@ struct ItemsListView: View {
                     showAddSheet = false
                     Task { await load(force: true) }
                 })
-                .presentationBackground(.ultraThinMaterial)
+                .presentationDetents([.fraction(0.85)])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(.clear)
                 .environmentObject(store)
                 .environmentObject(theme)
             }

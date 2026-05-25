@@ -72,7 +72,9 @@ struct ItemDetailView: View {
                         Task { await load() }
                     }
                 )
-                .presentationBackground(.ultraThinMaterial)
+                .presentationDetents([.fraction(0.85)])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(.clear)
                 .environmentObject(store)
                 .environmentObject(theme)
             }

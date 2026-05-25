@@ -55,40 +55,57 @@ struct AddItemView: View {
                     .padding(24)
             } else {
                 VStack(spacing: 0) {
-                    // Header
-                    HStack {
-                        HStack(spacing: 8) {
-                            Image(systemName: parentName != nil ? "plus.rectangle.on.folder" : "plus.square")
-                                .foregroundStyle(theme.current.accentColor)
-                                .font(.headline)
-                            Text(parentName != nil ? "New Component" : "New Item")
-                                .font(.headline.weight(.semibold))
-                        }
-                        Spacer()
-                        Button {
-                            onDismiss()
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.title3)
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 20)
-                    .padding(.bottom, 12)
+                    // Grabber indicator
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.5))
+                        .frame(width: 36, height: 5)
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
 
-                    ScrollView(.vertical, showsIndicators: false) {
-                        addForm
-                            .padding(.horizontal, 20)
-                    }
-
-                    actionButtons
+                    VStack(spacing: 0) {
+                        // Header
+                        HStack {
+                            HStack(spacing: 8) {
+                                Image(systemName: parentName != nil ? "plus.rectangle.on.folder" : "plus.square")
+                                    .foregroundStyle(theme.current.accentColor)
+                                    .font(.headline)
+                                Text(parentName != nil ? "New Component" : "New Item")
+                                    .font(.headline.weight(.semibold))
+                            }
+                            Spacer()
+                            Button {
+                                onDismiss()
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.title3)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
                         .padding(.horizontal, 20)
-                        .padding(.top, 12)
+                        .padding(.top, 14)
                         .padding(.bottom, 12)
+
+                        ScrollView(.vertical, showsIndicators: false) {
+                            addForm
+                                .padding(.horizontal, 20)
+                        }
+
+                        actionButtons
+                            .padding(.horizontal, 20)
+                            .padding(.top, 12)
+                            .padding(.bottom, 16)
+                    }
                 }
-                .background(theme.current.accentColor.opacity(0.03))
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 28))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 28)
+                        .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1.5)
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 16)
+                .padding(.top, 8)
             }
         }
         .sheet(isPresented: $showLocationPicker) {
@@ -201,7 +218,7 @@ struct AddItemView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 14)
-        .frame(height: 40)
+        .frame(height: 44)
         .background {
             RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
             RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
@@ -225,7 +242,7 @@ struct AddItemView: View {
             }
             .padding(.horizontal, 12)
         }
-        .frame(height: 40)
+        .frame(height: 44)
         .modifier(KeepButtonStyleModifier(isOn: isOn.wrappedValue))
         .shadow(color: isOn.wrappedValue ? theme.current.accentColor.opacity(0.4) : .clear, radius: 6)
     }
@@ -241,7 +258,7 @@ struct AddItemView: View {
                         Text(store.pathString(forLocationId: id))
                             .font(.callout.weight(.medium)).lineLimit(1)
                     } else {
-                        Text("Choose location — required").foregroundStyle(.secondary).font(.callout)
+                        Text("Location (required)").foregroundStyle(.secondary).font(.callout)
                     }
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
@@ -249,7 +266,7 @@ struct AddItemView: View {
                 .padding(.horizontal, 14)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 40)
+            .frame(height: 44)
             .buttonStyle(.glass)
 
             keepButton(isOn: $lockLocation)
@@ -272,7 +289,7 @@ struct AddItemView: View {
                 .padding(.horizontal, 14)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 40)
+            .frame(height: 44)
             .buttonStyle(.glass)
 
             keepButton(isOn: $lockTags)
@@ -281,18 +298,49 @@ struct AddItemView: View {
 
     private var qtyPhotosRow: some View {
         HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Text("QTY").font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                QuantityControl(value: $quantity)
+            HStack(spacing: 12) {
+                Text("QTY")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.current.accentColor.opacity(0.85))
+                
+                Button {
+                    if quantity > 1 {
+                        quantity -= 1
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(theme.current.accentColor)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(quantity <= 1)
+                
+                Text("\(quantity)")
+                    .font(.title3.monospacedDigit().weight(.semibold))
+                    .frame(minWidth: 24)
+                    .contentTransition(.numericText())
+                
+                Button {
+                    quantity += 1
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(theme.current.accentColor)
+                        .frame(width: 28, height: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 40)
+            .padding(.horizontal, 12)
+            .frame(height: 44)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1))
-            .fixedSize(horizontal: true, vertical: false)
-
+            
             Spacer(minLength: 0)
 
             photosTile
@@ -312,7 +360,7 @@ struct AddItemView: View {
                         Image(systemName: "camera.fill")
                             .font(.body)
                             .foregroundStyle(accentColor)
-                            .frame(width: 40, height: 40)
+                            .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.glass)
                 }
@@ -320,7 +368,7 @@ struct AddItemView: View {
                     Image(systemName: "photo.on.rectangle")
                         .font(.body)
                         .foregroundStyle(accentColor)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.glass)
             }
@@ -329,7 +377,7 @@ struct AddItemView: View {
                 ForEach(photos.indices.prefix(2), id: \.self) { idx in
                     ZStack(alignment: .topTrailing) {
                         Image(uiImage: photos[idx]).resizable().scaledToFill()
-                            .frame(width: 40, height: 40).clipShape(RoundedRectangle(cornerRadius: 10))
+                            .frame(width: 44, height: 44).clipShape(RoundedRectangle(cornerRadius: 10))
                         Button {
                             photos.remove(at: idx)
                             pickerItems.removeAll()
@@ -346,14 +394,14 @@ struct AddItemView: View {
                     Text("+\(photos.count - 2)")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(accentColor)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                         .background(RoundedRectangle(cornerRadius: 10).fill(accentColor.opacity(0.15)))
                 }
                 PhotosPicker(selection: $pickerItems, matching: .images, photoLibrary: .shared()) {
                     Image(systemName: "plus")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(accentColor)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.glass)
             }
