@@ -771,6 +771,7 @@ struct ItemsListView: View {
         guard let client = store.client else { return }
         let ids = Array(selectedIds)
         var archived: [String] = []
+        var lastError: String? = nil
         for id in ids {
             do {
                 let detail = try await client.getItem(id: id)
@@ -778,15 +779,32 @@ struct ItemsListView: View {
                 update.archived = true
                 try await client.updateItem(update)
                 archived.append(id)
-            } catch {}
+            } catch {
+                lastError = error.localizedDescription
+            }
         }
+        let archivedCount = archived.count
+        let totalCount = ids.count
+        let failureMsg = lastError
         await MainActor.run {
             withAnimation {
                 allItems.removeAll { archived.contains($0.id) }
                 selectedIds = []
                 selectMode = false
             }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            if archivedCount == totalCount {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "Archived \(archivedCount) item\(archivedCount == 1 ? "" : "s")"])
+            } else if archivedCount > 0 {
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "Archived \(archivedCount) of \(totalCount). Last error: \(failureMsg ?? "unknown")"])
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "Archive failed: \(failureMsg ?? "unknown")"])
+            }
         }
     }
 

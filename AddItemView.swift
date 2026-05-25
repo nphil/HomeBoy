@@ -10,6 +10,9 @@ struct AddItemView: View {
     // Set when opening as a sub-item (from ItemDetailView "Add component")
     var parentId: String? = nil
     var parentName: String? = nil
+    var parentLocationId: String? = nil
+
+    private var isComponent: Bool { parentId != nil }
 
     // Fields
     @State private var name = ""
@@ -114,6 +117,9 @@ struct AddItemView: View {
             .task { await loadTags() }
             .onChange(of: name) { _, newName in scheduleSuggestion(for: newName) }
             .onAppear {
+                if isComponent, selectedLocationId == nil {
+                    selectedLocationId = parentLocationId
+                }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { nameFocused = true }
             }
         }
@@ -151,7 +157,9 @@ struct AddItemView: View {
             parentRow
             nameField
             tagSuggestionRow
-            locationRow
+            if !isComponent {
+                locationRow
+            }
             compactOptionals
             descriptionField
 
@@ -354,21 +362,23 @@ struct AddItemView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("KEEP").font(.caption2.weight(.semibold)).tracking(0.4)
                         .foregroundStyle(theme.current.accentColor.opacity(0.75))
-                    
-                    Toggle(isOn: $lockLocation) {
-                        HStack(spacing: 3) {
-                            Image(systemName: lockLocation ? "mappin.and.ellipse" : "mappin")
-                                .font(.caption2)
-                                .foregroundStyle(lockLocation ? theme.current.accentColor : .secondary)
-                            Text("Location")
-                                .font(.caption2.weight(.medium))
-                                .foregroundStyle(.secondary)
+
+                    if !isComponent {
+                        Toggle(isOn: $lockLocation) {
+                            HStack(spacing: 3) {
+                                Image(systemName: lockLocation ? "mappin.and.ellipse" : "mappin")
+                                    .font(.caption2)
+                                    .foregroundStyle(lockLocation ? theme.current.accentColor : .secondary)
+                                Text("Location")
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .tint(theme.current.accentColor)
                     }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .tint(theme.current.accentColor)
-                    
+
                     Toggle(isOn: $lockTags) {
                         HStack(spacing: 3) {
                             Image(systemName: lockTags ? "tag.fill" : "tag")
@@ -440,7 +450,7 @@ struct AddItemView: View {
                     if isSubmitting {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: "checkmark.circle.fill")
+                        Image(systemName: "plus.square.fill")
                             .font(.body.weight(.semibold))
                     }
                     Text("Add")
@@ -627,7 +637,8 @@ struct AddItemView: View {
         photos = []; pickerItems = []
         suggestedTagIds = []; suggestionTask?.cancel()
         if !lockTags { selectedTagIds = [] }
-        if !lockLocation { selectedLocationId = nil }
+        if !lockLocation && !isComponent { selectedLocationId = nil }
+        if isComponent { selectedLocationId = parentLocationId }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { nameFocused = true }
     }
 

@@ -63,9 +63,13 @@ struct ItemDetailView: View {
         }
         .sheet(isPresented: $showAddSubItem, onDismiss: { Task { await load() } }) {
             if let item {
-                AddItemView(parentId: item.id, parentName: item.name)
-                    .environmentObject(store)
-                    .environmentObject(theme)
+                AddItemView(
+                    parentId: item.id,
+                    parentName: item.name,
+                    parentLocationId: item.location?.id
+                )
+                .environmentObject(store)
+                .environmentObject(theme)
             }
         }
         .sheet(isPresented: $showMaintenanceSheet, onDismiss: { Task { await load() } }) {
