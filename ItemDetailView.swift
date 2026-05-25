@@ -96,9 +96,7 @@ struct ItemDetailView: View {
                     if !(item.notes ?? "").isEmpty {
                         notesCard(item)
                     }
-                    if !children.isEmpty {
-                        subItemsCard(item)
-                    }
+                    subItemsCard(item)
                     maintenanceCard(item)
                 }
                 .padding(16)

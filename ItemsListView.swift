@@ -100,7 +100,6 @@ struct ItemsListView: View {
     @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
     @State private var showQRScanner = false
     @State private var qrFoundItemId: String? = nil
-    @State private var showArchivedItems = false
 
     enum ViewMode: String { case list, tile }
 
@@ -293,7 +292,7 @@ struct ItemsListView: View {
 
     // MARK: - Filter panel
 
-    private var hasActiveFilters: Bool { filterLocationId != nil || !filterTagIds.isEmpty || showArchivedItems }
+    private var hasActiveFilters: Bool { filterLocationId != nil || !filterTagIds.isEmpty }
 
     private var filterPanel: some View {
         HStack(spacing: 8) {
@@ -339,17 +338,9 @@ struct ItemsListView: View {
             .menuStyle(.button)
             .buttonStyle(.plain)
 
-            filterChip(
-                label: showArchivedItems ? "Archived" : "Active",
-                icon: "archivebox",
-                isActive: showArchivedItems,
-                onTap: { showArchivedItems.toggle(); Task { await load() } },
-                onLongPress: { showArchivedItems.toggle(); Task { await load() } }
-            )
-
             Spacer()
             if hasActiveFilters {
-                Button("Clear") { filterLocationId = nil; filterTagIds = []; showArchivedItems = false; Task { await load() } }
+                Button("Clear") { filterLocationId = nil; filterTagIds = [] }
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -516,39 +507,47 @@ struct ItemsListView: View {
     @ViewBuilder
     private func itemListRow(_ item: HBItem) -> some View {
         let isSelected = selectedIds.contains(item.id)
-        HStack(spacing: 0) {
-            if selectMode {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
-                    .font(.title3)
-                    .padding(.leading, 12)
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-            }
-            Group {
+        SwipeRevealRow(
+            buttonLabel: "Archive",
+            buttonIcon: "archivebox.fill",
+            buttonColor: .orange,
+            disabled: selectMode
+        ) {
+            Task { await archiveItem(item) }
+        } content: {
+            HStack(spacing: 0) {
                 if selectMode {
-                    ItemListRowContent(item: item, thumbStore: thumbStore)
-                        .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
-                } else {
-                    NavigationLink(value: ItemDetailRoute(id: item.id)) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
+                        .font(.title3)
+                        .padding(.leading, 12)
+                        .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+                Group {
+                    if selectMode {
                         ItemListRowContent(item: item, thumbStore: thumbStore)
-                    }.buttonStyle(.plain)
+                            .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
+                    } else {
+                        NavigationLink(value: ItemDetailRoute(id: item.id)) {
+                            ItemListRowContent(item: item, thumbStore: thumbStore)
+                        }.buttonStyle(.plain)
+                    }
                 }
             }
-        }
-        .opacity(item.archived == true ? 0.55 : 1)
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14)
-            .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                    lineWidth: isSelected ? 2 : 1))
-        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-            if !selectMode {
-                withAnimation { selectMode = true; selectedIds.insert(item.id) }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+            .background {
+                RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
             }
-        })
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                        lineWidth: isSelected ? 2 : 1))
+            .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
+                if !selectMode {
+                    withAnimation { selectMode = true; selectedIds.insert(item.id) }
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+            })
+        }
     }
 
     // MARK: - Tile
@@ -575,7 +574,6 @@ struct ItemsListView: View {
                 .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
                         lineWidth: isSelected ? 2 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 12))
-            .opacity(item.archived == true ? 0.55 : 1)
             if selectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
@@ -583,15 +581,6 @@ struct ItemsListView: View {
                     .padding(6)
                     .background(Circle().fill(.ultraThinMaterial).frame(width: 24, height: 24))
                     .padding(6)
-            }
-            if item.archived == true && !selectMode {
-                ZStack(alignment: .topTrailing) {
-                    Color.clear
-                    Image(systemName: "archivebox")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(5)
-                }
             }
         }
         .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
@@ -755,12 +744,29 @@ struct ItemsListView: View {
         isLoading = true; loadError = nil
         do {
             // Pass labelIds so server can pre-filter; client-side filter below catches cases where server ignores it
-            let resp = try await client.listItems(labelIds: Array(filterTagIds), includeArchived: showArchivedItems, pageSize: 1000)
+            let resp = try await client.listItems(labelIds: Array(filterTagIds), pageSize: 1000)
             allItems = resp.items
             store.updateCachedItemTotal(resp.total ?? resp.items.count)
             lastLoadedAt = Date()
         } catch { loadError = error.localizedDescription }
         isLoading = false
+    }
+
+    private func archiveItem(_ item: HBItem) async {
+        guard let client = store.client else { return }
+        do {
+            let detail = try await client.getItem(id: item.id)
+            var update = HBItemUpdate(from: detail)
+            update.archived = true
+            try await client.updateItem(update)
+            await MainActor.run {
+                withAnimation { allItems.removeAll { $0.id == item.id } }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Archive failed"])
+        }
     }
 
     private func lookupAsset(_ code: String) async {

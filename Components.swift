@@ -233,3 +233,85 @@ struct ItemListRowContent: View {
         return item.location?.name
     }
 }
+
+// MARK: - Swipe-to-reveal row
+
+/// Wraps content with a horizontal drag gesture that reveals a colored action button on the trailing edge.
+/// Haptic fires when the swipe passes threshold. Works inside ScrollView — only activates on left-dominant drags.
+struct SwipeRevealRow<Content: View>: View {
+    let buttonLabel: String
+    let buttonIcon: String
+    let buttonColor: Color
+    let disabled: Bool
+    let action: () -> Void
+    let content: Content
+
+    @State private var offset: CGFloat = 0
+    @State private var hapticFired = false
+
+    private let revealWidth: CGFloat = 82
+    private let threshold: CGFloat = 52
+
+    init(buttonLabel: String, buttonIcon: String, buttonColor: Color = .orange,
+         disabled: Bool = false, action: @escaping () -> Void,
+         @ViewBuilder content: () -> Content) {
+        self.buttonLabel = buttonLabel
+        self.buttonIcon = buttonIcon
+        self.buttonColor = buttonColor
+        self.disabled = disabled
+        self.action = action
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .trailing) {
+            Button {
+                withAnimation(.spring(duration: 0.2)) { offset = 0; hapticFired = false }
+                action()
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: buttonIcon).font(.system(size: 18, weight: .semibold))
+                    Text(buttonLabel).font(.caption2.weight(.medium))
+                }
+                .foregroundStyle(.white)
+                .frame(width: revealWidth)
+                .frame(maxHeight: .infinity)
+            }
+            .background(buttonColor)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+            .opacity(offset < -8 ? 1 : 0)
+
+            content
+                .offset(x: offset)
+        }
+        .clipped()
+        .gesture(
+            DragGesture(minimumDistance: 15, coordinateSpace: .local)
+                .onChanged { value in
+                    guard !disabled else { return }
+                    let dx = value.translation.width
+                    let dy = abs(value.translation.height)
+                    guard dx < 0, abs(dx) > dy else {
+                        if offset < 0 { withAnimation(.spring(duration: 0.2)) { offset = 0; hapticFired = false } }
+                        return
+                    }
+                    offset = max(-revealWidth, dx)
+                    if offset <= -threshold && !hapticFired {
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        hapticFired = true
+                    }
+                }
+                .onEnded { value in
+                    guard !disabled else { return }
+                    if value.translation.width > -(threshold / 2) {
+                        withAnimation(.spring(duration: 0.2)) { offset = 0; hapticFired = false }
+                    } else {
+                        withAnimation(.spring(duration: 0.2)) { offset = -revealWidth }
+                    }
+                }
+        )
+        .onChange(of: disabled) { _, isDisabled in
+            if isDisabled { withAnimation { offset = 0; hapticFired = false } }
+        }
+    }
+}

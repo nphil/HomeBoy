@@ -36,6 +36,16 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
+                Section("Library") {
+                    NavigationLink {
+                        ArchivedItemsView()
+                            .environmentObject(store)
+                            .environmentObject(theme)
+                    } label: {
+                        Label("Archived Items", systemImage: "archivebox")
+                    }
+                }
+
                 Section("Info") {
                     if let total = store.cachedItemTotal {
                         LabeledContent("Items") {
