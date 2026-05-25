@@ -616,20 +616,28 @@ struct AddItemView: View {
 
     private func lookupBarcode(_ code: String) async {
         guard let client = store.client else { return }
-        do {
-            let products = try await client.searchFromBarcode(data: code)
-            await MainActor.run {
-                if products.isEmpty {
-                    NotificationCenter.default.post(name: .showToast, object: nil,
-                                                    userInfo: ["message": "No product found for that barcode"])
-                } else {
-                    pendingProducts = products
-                    showProductMatch = true
-                }
+
+        // 1. Try Homebox's own product database first.
+        var products = (try? await client.searchFromBarcode(data: code)) ?? []
+
+        // 2. Fall back to Open Food Facts (food/grocery/household).
+        if products.isEmpty, let p = await HomeboxClient.lookupOpenFoodFacts(barcode: code) {
+            products = [p]
+        }
+
+        // 3. Fall back to UPC Item DB (general products, 100 lookups/day free).
+        if products.isEmpty, let p = await HomeboxClient.lookupUPCItemDB(barcode: code) {
+            products = [p]
+        }
+
+        await MainActor.run {
+            if products.isEmpty {
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "No product found for that barcode"])
+            } else {
+                pendingProducts = products
+                showProductMatch = true
             }
-        } catch {
-            NotificationCenter.default.post(name: .showToast, object: nil,
-                                            userInfo: ["message": "Barcode lookup failed"])
         }
     }
 

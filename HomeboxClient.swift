@@ -564,6 +564,71 @@ struct HomeboxClient {
         catch { throw HBError.decode(error) }
     }
 
+    // MARK: External barcode lookup
+
+    /// Open Food Facts — free, no key, best for food/grocery/household consumables.
+    static func lookupOpenFoodFacts(barcode: String) async -> HBBarcodeProduct? {
+        guard let url = URL(string: "https://world.openfoodfacts.org/api/v0/product/\(barcode).json") else { return nil }
+        var req = URLRequest(url: url)
+        req.setValue("HomeBoy-iOS/1.0 barcode-lookup", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: req) else { return nil }
+
+        struct OFFResponse: Decodable {
+            let status: Int
+            let product: OFFProduct?
+            struct OFFProduct: Decodable {
+                let product_name: String?
+                let brands: String?
+                let generic_name: String?
+            }
+        }
+
+        guard let r = try? JSONDecoder().decode(OFFResponse.self, from: data),
+              r.status == 1,
+              let p = r.product else { return nil }
+
+        let name = p.product_name.flatMap { $0.trimmingCharacters(in: .whitespaces).nilIfEmpty }
+        guard let name else { return nil }
+        let desc = p.generic_name.flatMap { $0.trimmingCharacters(in: .whitespaces).nilIfEmpty }
+        let brand = p.brands.flatMap { $0.trimmingCharacters(in: .whitespaces).nilIfEmpty }
+
+        return HBBarcodeProduct(
+            barcode: barcode, imageBase64: nil, imageURL: nil,
+            item: HBBarcodeItem(name: name, quantity: nil, description: desc),
+            manufacturer: brand, modelNumber: nil, notes: nil,
+            searchEngineName: "Open Food Facts"
+        )
+    }
+
+    /// UPC Item DB — free trial tier (100 lookups/day), good for general products.
+    static func lookupUPCItemDB(barcode: String) async -> HBBarcodeProduct? {
+        guard let url = URL(string: "https://api.upcitemdb.com/prod/trial/lookup?upc=\(barcode)") else { return nil }
+        guard let (data, _) = try? await URLSession.shared.data(for: url) else { return nil }
+
+        struct UPCResponse: Decodable {
+            let code: String?
+            let items: [UPCItem]?
+            struct UPCItem: Decodable {
+                let title: String?
+                let brand: String?
+                let description: String?
+            }
+        }
+
+        guard let r = try? JSONDecoder().decode(UPCResponse.self, from: data),
+              let first = r.items?.first,
+              let name = first.title.flatMap({ $0.trimmingCharacters(in: .whitespaces).nilIfEmpty })
+        else { return nil }
+
+        return HBBarcodeProduct(
+            barcode: barcode, imageBase64: nil, imageURL: nil,
+            item: HBBarcodeItem(name: name, quantity: nil, description: first.description.flatMap { $0.nilIfEmpty }),
+            manufacturer: first.brand.flatMap { $0.nilIfEmpty },
+            modelNumber: nil, notes: nil,
+            searchEngineName: "UPC Item DB"
+        )
+    }
+
     // MARK: Maintenance
 
     func listMaintenance(itemId: String) async throws -> [HBMaintenanceEntry] {
@@ -598,4 +663,8 @@ struct HomeboxClient {
         do { return try JSONDecoder().decode(HBItemListResponse.self, from: d).items.first }
         catch { throw HBError.decode(error) }
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
