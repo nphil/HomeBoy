@@ -11,22 +11,28 @@ struct FloatingCardContainer<Content: View>: View {
 
     var body: some View {
         let accent = theme.current.accentColor
+        // UnevenRoundedRectangle with rounded top + square bottom so the card
+        // extends completely flush to the physical screen edge with no rounded
+        // bottom corners. presentationCornerRadius(0) disables system clipping
+        // so the shape defines the visible corners. There may be small triangular
+        // regions at the top corners where the shape curves inward from the
+        // rectangular sheet container — those show through to the system dim.
+        let shape = UnevenRoundedRectangle(
+            topLeadingRadius: 28, bottomLeadingRadius: 0,
+            bottomTrailingRadius: 0, topTrailingRadius: 28
+        )
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, horizontalInset)
             .presentationDetents([.fraction(0.85)])
             .presentationDragIndicator(.hidden)
             .presentationBackground {
-                // Full-width Rectangle so there are no visible side edges.
-                // presentationCornerRadius(28) handles top rounding natively.
-                // The system sheet container extends to the physical screen bottom,
-                // so the material fill is seamless with no home-indicator gap.
                 ZStack {
-                    Rectangle().fill(.ultraThinMaterial)
-                    Rectangle().fill(accent.opacity(0.06))
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(accent.opacity(0.06))
                 }
             }
-            .presentationCornerRadius(28)
+            .presentationCornerRadius(0)
     }
 }
 
