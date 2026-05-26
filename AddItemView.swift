@@ -89,10 +89,13 @@ struct AddItemView: View {
                         .padding(.top, 14)
                         .padding(.bottom, 12)
 
-                        VStack(spacing: 0) {
+                        ScrollView(.vertical) {
                             addForm
                                 .padding(.horizontal, 20)
                         }
+                        .scrollBounceBehavior(.basedOnSize)
+                        .scrollIndicators(.hidden)
+                        .frame(maxHeight: .infinity)
 
                         actionButtons
                             .padding(.horizontal, 20)
@@ -184,7 +187,6 @@ struct AddItemView: View {
             tagSuggestionRow
             photosSection
             notesSection
-                .frame(maxHeight: .infinity)
 
             if let submitError { errorPill(submitError) }
             if let justAdded   { successPill(justAdded) }
@@ -384,7 +386,7 @@ struct AddItemView: View {
                         .allowsHitTesting(false)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
             .glassEffect(in: RoundedRectangle(cornerRadius: 14))
         }
     }
