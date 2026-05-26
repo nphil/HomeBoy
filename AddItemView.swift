@@ -38,6 +38,7 @@ struct AddItemView: View {
     @State private var showCamera = false
     @State private var showPhotoOptions = false
     @State private var showPhotoPicker = false
+    @State private var showNotes = false
     @State private var showBarcodeScanner = false
     @State private var showProductMatch = false
     @State private var pendingProducts: [HBBarcodeProduct] = []
@@ -178,13 +179,13 @@ struct AddItemView: View {
     private var addForm: some View {
         VStack(alignment: .leading, spacing: 12) {
             parentRow
-            nameField
+            nameQtyRow
             if !isComponent {
                 locationRow
             }
             tagsSelectionRow
             tagSuggestionRow
-            qtyPhotosRow
+            photosTile
             notesRow
 
             if let submitError { errorPill(submitError) }
@@ -199,24 +200,65 @@ struct AddItemView: View {
 
     // MARK: - Subviews
 
-    private var nameField: some View {
+    private var nameQtyRow: some View {
         HStack(spacing: 8) {
-            TextField("Item name", text: $name)
-                .font(.callout.weight(.semibold))
-                .textInputAutocapitalization(.sentences)
-                .focused($nameFocused)
-                .submitLabel(.done)
-
-            Button { showBarcodeScanner = true } label: {
-                Image(systemName: "barcode.viewfinder")
-                    .font(.body)
-                    .foregroundStyle(theme.current.accentColor)
+            // Name + barcode — flexible width
+            HStack(spacing: 8) {
+                TextField("Item name", text: $name)
+                    .font(.callout.weight(.semibold))
+                    .textInputAutocapitalization(.sentences)
+                    .focused($nameFocused)
+                    .submitLabel(.done)
+                Button { showBarcodeScanner = true } label: {
+                    Image(systemName: "barcode.viewfinder")
+                        .font(.body)
+                        .foregroundStyle(theme.current.accentColor)
+                }
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 14)
+            .frame(height: 44)
+            .glassEffect(in: Capsule())
+
+            // QTY stepper — fixed width
+            HStack(spacing: 8) {
+                Button {
+                    if quantity > 1 {
+                        quantity -= 1
+                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    }
+                } label: {
+                    Image(systemName: "minus")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(theme.current.accentColor)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(quantity <= 1)
+
+                Text("\(quantity)")
+                    .font(.body.monospacedDigit().weight(.semibold))
+                    .frame(minWidth: 22)
+                    .contentTransition(.numericText())
+
+                Button {
+                    quantity += 1
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                } label: {
+                    Image(systemName: "plus")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(theme.current.accentColor)
+                        .frame(width: 26, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 44)
+            .fixedSize(horizontal: true, vertical: false)
+            .glassEffect(in: Capsule())
         }
-        .padding(.horizontal, 14)
-        .frame(height: 44)
-        .glassEffect(in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func keepButton(isOn: Binding<Bool>) -> some View {
@@ -281,57 +323,39 @@ struct AddItemView: View {
         }
     }
 
-    private var qtyPhotosRow: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 12) {
-                Text("QTY")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.current.accentColor.opacity(0.85))
-                
-                Button {
-                    if quantity > 1 {
-                        quantity -= 1
-                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    }
-                } label: {
-                    Image(systemName: "minus")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(theme.current.accentColor)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(quantity <= 1)
-                
-                Text("\(quantity)")
-                    .font(.title3.monospacedDigit().weight(.semibold))
-                    .frame(minWidth: 24)
-                    .contentTransition(.numericText())
-                
-                Button {
-                    quantity += 1
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(theme.current.accentColor)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 44)
-            .glassEffect(in: RoundedRectangle(cornerRadius: 10))
-            
-            Spacer(minLength: 0)
-
-            photosTile
-        }
-    }
-
     private var notesRow: some View {
-        DescriptionField(text: $description, placeholder: "Notes (optional)", title: "Notes")
+        Button { showNotes = true } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: description.isEmpty ? "note.text" : "note.text.badge.plus")
+                    .font(.body)
+                    .foregroundStyle(theme.current.accentColor)
+                    .padding(.top, 2)
+                Group {
+                    if description.isEmpty {
+                        Text("Notes (optional)")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(description)
+                            .font(.callout)
+                            .lineLimit(5)
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 2)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
+        }
+        .buttonStyle(.glass)
+        .sheet(isPresented: $showNotes) {
+            DescriptionEditorSheet(text: $description, title: "Notes", placeholder: "Add notes…")
+                .environmentObject(theme)
+        }
     }
 
     @ViewBuilder private var photosTile: some View {
