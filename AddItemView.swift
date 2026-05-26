@@ -38,7 +38,6 @@ struct AddItemView: View {
     @State private var showCamera = false
     @State private var showPhotoOptions = false
     @State private var showPhotoPicker = false
-    @State private var showNotes = false
     @State private var showBarcodeScanner = false
     @State private var showProductMatch = false
     @State private var pendingProducts: [HBBarcodeProduct] = []
@@ -49,6 +48,7 @@ struct AddItemView: View {
     @State private var submitError: String?
 
     @FocusState private var nameFocused: Bool
+    @FocusState private var notesFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -177,21 +177,17 @@ struct AddItemView: View {
     }
 
     private var addForm: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 14) {
             parentRow
-            nameQtyRow
-            if !isComponent {
-                locationRow
-            }
-            tagsSelectionRow
+            heroNameField
+            detailsCard
             tagSuggestionRow
-            photosTile
-            notesRow
+            photosSection
+            notesSection
+                .frame(maxHeight: .infinity)
 
             if let submitError { errorPill(submitError) }
             if let justAdded   { successPill(justAdded) }
-
-            Spacer(minLength: 0)
         }
         .padding(.horizontal, 0)
         .padding(.top, 4)
@@ -200,38 +196,118 @@ struct AddItemView: View {
 
     // MARK: - Subviews
 
-    private var nameQtyRow: some View {
-        HStack(spacing: 8) {
-            // Name + barcode — flexible width
-            HStack(spacing: 8) {
-                TextField("Item name", text: $name)
-                    .font(.callout.weight(.semibold))
-                    .textInputAutocapitalization(.sentences)
-                    .focused($nameFocused)
-                    .submitLabel(.done)
-                Button { showBarcodeScanner = true } label: {
-                    Image(systemName: "barcode.viewfinder")
-                        .font(.body)
-                        .foregroundStyle(theme.current.accentColor)
+    // MARK: Hero name field
+
+    private var heroNameField: some View {
+        HStack(spacing: 12) {
+            TextField("Item name", text: $name)
+                .font(.title3.weight(.semibold))
+                .textInputAutocapitalization(.sentences)
+                .focused($nameFocused)
+                .submitLabel(.done)
+            Button { showBarcodeScanner = true } label: {
+                Image(systemName: "barcode.viewfinder")
+                    .font(.title3)
+                    .foregroundStyle(theme.current.accentColor)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 18)
+        .frame(height: 56)
+        .glassEffect(in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: Grouped details card (Location, Tags, Quantity)
+
+    private var detailsCard: some View {
+        VStack(spacing: 0) {
+            if !isComponent {
+                locationDetailRow
+                rowDivider
+            }
+            tagsDetailRow
+            rowDivider
+            quantityDetailRow
+        }
+        .glassEffect(in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var rowDivider: some View {
+        Divider().padding(.leading, 50)
+    }
+
+    private var locationDetailRow: some View {
+        Button { showLocationPicker = true } label: {
+            HStack(spacing: 12) {
+                rowIcon(selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
+                Text("Location")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Group {
+                    if let id = selectedLocationId {
+                        Text(store.pathString(forLocationId: id))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Required")
+                            .foregroundStyle(theme.current.accentColor.opacity(0.85))
+                    }
                 }
-                .buttonStyle(.plain)
+                .font(.callout)
+                inlinePinButton(isOn: $lockLocation)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14)
-            .frame(height: 44)
-            .glassEffect(in: Capsule())
+            .frame(height: 50)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
 
-            // QTY stepper — fixed width
-            HStack(spacing: 8) {
+    private var tagsDetailRow: some View {
+        Button { showTagPicker = true } label: {
+            HStack(spacing: 12) {
+                rowIcon("tag.fill")
+                Text("Tags")
+                    .font(.callout)
+                    .foregroundStyle(.primary)
+                Spacer(minLength: 8)
+                Text(selectedTagIds.isEmpty ? "None" : "\(selectedTagIds.count) selected")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                inlinePinButton(isOn: $lockTags)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 50)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var quantityDetailRow: some View {
+        HStack(spacing: 12) {
+            rowIcon("number.square")
+            Text("Quantity")
+                .font(.callout)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 8)
+            HStack(spacing: 14) {
                 Button {
                     if quantity > 1 {
                         quantity -= 1
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     }
                 } label: {
-                    Image(systemName: "minus")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(theme.current.accentColor)
-                        .frame(width: 26, height: 26)
+                    Image(systemName: "minus.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(quantity > 1 ? theme.current.accentColor : .tertiary)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -246,116 +322,78 @@ struct AddItemView: View {
                     quantity += 1
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.bold))
+                    Image(systemName: "plus.circle.fill")
+                        .font(.title3)
                         .foregroundStyle(theme.current.accentColor)
-                        .frame(width: 26, height: 26)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 10)
-            .frame(height: 44)
-            .fixedSize(horizontal: true, vertical: false)
-            .glassEffect(in: Capsule())
         }
+        .padding(.horizontal, 14)
+        .frame(height: 50)
     }
 
-    private func keepButton(isOn: Binding<Bool>) -> some View {
+    private func rowIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.body)
+            .foregroundStyle(theme.current.accentColor)
+            .frame(width: 24, alignment: .center)
+    }
+
+    private func inlinePinButton(isOn: Binding<Bool>) -> some View {
         Button {
             isOn.wrappedValue.toggle()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         } label: {
             Image(systemName: isOn.wrappedValue ? "pin.fill" : "pin")
-                .font(.body)
-                .frame(width: 44, height: 44)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(isOn.wrappedValue ? theme.current.accentColor : .secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
         }
-        .modifier(KeepButtonStyleModifier(isOn: isOn.wrappedValue))
-        .shadow(color: isOn.wrappedValue ? theme.current.accentColor.opacity(0.4) : .clear, radius: 6)
+        .buttonStyle(.plain)
     }
 
-    private var locationRow: some View {
-        HStack(spacing: 8) {
-            Button { showLocationPicker = true } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: selectedLocationId == nil ? "mappin.circle" : "mappin.and.ellipse")
-                        .font(.body)
-                        .foregroundStyle(theme.current.accentColor)
-                    if let id = selectedLocationId {
-                        Text(store.pathString(forLocationId: id))
-                            .font(.callout.weight(.medium)).lineLimit(1)
-                    } else {
-                        Text("Location (required)").foregroundStyle(.secondary).font(.callout)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                }
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
-            }
-            .buttonStyle(.glass)
+    // MARK: Photos & Notes sections
 
-            keepButton(isOn: $lockLocation)
+    private var photosSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("Photos")
+            photosTile
         }
     }
 
-    private var tagsSelectionRow: some View {
-        HStack(spacing: 8) {
-            Button { showTagPicker = true } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "tag.fill")
-                        .font(.body)
-                        .foregroundStyle(theme.current.accentColor)
-                    Text(selectedTagIds.isEmpty ? "Tags" : "\(selectedTagIds.count) tag\(selectedTagIds.count == 1 ? "" : "s")")
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(selectedTagIds.isEmpty ? .secondary : .primary)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+    private var notesSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            sectionHeader("Notes")
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $description)
+                    .font(.callout)
+                    .focused($notesFocused)
+                    .scrollContentBackground(.hidden)
+                    .scrollIndicators(.hidden)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                if description.isEmpty && !notesFocused {
+                    Text("Optional details…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 15)
+                        .padding(.vertical, 14)
+                        .allowsHitTesting(false)
                 }
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity)
-                .frame(height: 44)
             }
-            .buttonStyle(.glass)
-
-            keepButton(isOn: $lockTags)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .glassEffect(in: RoundedRectangle(cornerRadius: 14))
         }
     }
 
-    private var notesRow: some View {
-        Button { showNotes = true } label: {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: description.isEmpty ? "note.text" : "note.text.badge.plus")
-                    .font(.body)
-                    .foregroundStyle(theme.current.accentColor)
-                    .padding(.top, 2)
-                Group {
-                    if description.isEmpty {
-                        Text("Notes (optional)")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(description)
-                            .font(.callout)
-                            .lineLimit(5)
-                    }
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.top, 2)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .frame(maxWidth: .infinity, minHeight: 80, alignment: .topLeading)
-        }
-        .buttonStyle(.glass)
-        .sheet(isPresented: $showNotes) {
-            DescriptionEditorSheet(text: $description, title: "Notes", placeholder: "Add notes…")
-                .environmentObject(theme)
-        }
+    private func sectionHeader(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 4)
     }
 
     @ViewBuilder private var photosTile: some View {
@@ -666,13 +704,3 @@ struct AddItemView: View {
     }
 }
 
-struct KeepButtonStyleModifier: ViewModifier {
-    let isOn: Bool
-    func body(content: Content) -> some View {
-        if isOn {
-            content.buttonStyle(.glassProminent)
-        } else {
-            content.buttonStyle(.glass)
-        }
-    }
-}
