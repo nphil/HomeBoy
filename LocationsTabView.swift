@@ -126,7 +126,7 @@ struct LocationsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
-        .floatingCardCover(isPresented: $showCreate) {
+        .floatingCardCover(isPresented: $showCreate, detentFraction: 0.5) {
             CreateLocationSheet(onDismiss: {
                 showCreate = false
             })
@@ -502,6 +502,7 @@ struct CreateLocationSheet: View {
     @State private var isSubmitting = false
     @State private var errorMsg: String?
     @FocusState private var nameFocused: Bool
+    @FocusState private var descriptionFocused: Bool
     @FocusState private var parentPickerSearchFocused: Bool
 
     var body: some View {
@@ -581,7 +582,31 @@ struct CreateLocationSheet: View {
                         }
                         .buttonStyle(.plain)
 
-                        DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("DESCRIPTION")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                            ZStack(alignment: .topLeading) {
+                                TextEditor(text: $description)
+                                    .font(.callout)
+                                    .focused($descriptionFocused)
+                                    .scrollContentBackground(.hidden)
+                                    .scrollIndicators(.hidden)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                if description.isEmpty && !descriptionFocused {
+                                    Text("Optional…")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 15)
+                                        .padding(.vertical, 14)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            .frame(minHeight: 64)
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 14))
+                        }
 
                         if let errorMsg {
                             HStack(spacing: 8) {

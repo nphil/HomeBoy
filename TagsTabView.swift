@@ -99,7 +99,7 @@ struct TagsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
-        .floatingCardCover(isPresented: $showCreate) {
+        .floatingCardCover(isPresented: $showCreate, detentFraction: 0.55) {
             TagEditSheet(mode: .create, onSave: {
                 await load()
             }, onDismiss: {
@@ -369,6 +369,7 @@ struct TagEditSheet: View {
     @State private var isSaving = false
     @State private var errorMsg: String?
     @FocusState private var nameFocused: Bool
+    @FocusState private var descriptionFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -446,7 +447,31 @@ struct TagEditSheet: View {
                             .glassEffect(in: RoundedRectangle(cornerRadius: 16))
                         }
 
-                        DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("DESCRIPTION")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 4)
+                            ZStack(alignment: .topLeading) {
+                                TextEditor(text: $description)
+                                    .font(.callout)
+                                    .focused($descriptionFocused)
+                                    .scrollContentBackground(.hidden)
+                                    .scrollIndicators(.hidden)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                if description.isEmpty && !descriptionFocused {
+                                    Text("Optional…")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 15)
+                                        .padding(.vertical, 14)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            .frame(minHeight: 60)
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 14))
+                        }
 
                         if let errorMsg {
                             HStack(spacing: 8) {

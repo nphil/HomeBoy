@@ -5,6 +5,7 @@ import SwiftUI
 struct FloatingCardContainer<Content: View>: View {
     @Binding var isPresented: Bool
     var horizontalInset: CGFloat = 4
+    var detentFraction: CGFloat = 0.85
     @ViewBuilder let content: () -> Content
 
     @EnvironmentObject private var theme: ThemeManager
@@ -14,7 +15,7 @@ struct FloatingCardContainer<Content: View>: View {
         content()
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, horizontalInset)
-            .presentationDetents([.fraction(0.85)])
+            .presentationDetents([.fraction(detentFraction)])
             .presentationDragIndicator(.hidden)
             .presentationBackground {
                 ZStack {
@@ -29,6 +30,7 @@ extension View {
     func floatingCardCover<Content: View>(
         isPresented: Binding<Bool>,
         horizontalInset: CGFloat = 4,
+        detentFraction: CGFloat = 0.85,
         onDismiss: (() -> Void)? = nil,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
@@ -36,6 +38,7 @@ extension View {
             FloatingCardContainer(
                 isPresented: isPresented,
                 horizontalInset: horizontalInset,
+                detentFraction: detentFraction,
                 content: content
             )
         }
