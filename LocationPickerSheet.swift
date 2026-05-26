@@ -32,6 +32,8 @@ struct LocationPickerSheet: View {
                 }
             }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
         .task {
             if store.locationsFlat.isEmpty {
                 try? await store.refreshLocations()

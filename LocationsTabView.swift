@@ -536,43 +536,48 @@ struct CreateLocationSheet: View {
                 .padding(.bottom, 12)
 
                 // Content
-                VStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 12) {
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 14) {
                         TextField("Location name", text: $name)
-                            .font(.callout.weight(.semibold))
+                            .font(.title3.weight(.semibold))
                             .focused($nameFocused)
                             .submitLabel(.done)
                             .textInputAutocapitalization(.words)
-                            .padding(.horizontal, 14)
-                            .frame(height: 44)
-                            .background {
-                                RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
-                                RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
-                            }
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
-                            )
+                            .padding(.horizontal, 18)
+                            .frame(height: 56)
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 16))
 
                         Button { showParentPicker = true } label: {
-                            HStack(spacing: 10) {
+                            HStack(spacing: 12) {
                                 Image(systemName: parentId == nil ? "house" : "folder.fill")
+                                    .font(.body)
                                     .foregroundStyle(theme.current.accentColor)
+                                    .frame(width: 24, alignment: .center)
+                                Text("Parent location")
+                                    .font(.callout)
+                                    .foregroundStyle(.primary)
+                                Spacer(minLength: 8)
                                 if let id = parentId {
                                     Text(store.pathString(forLocationId: id))
-                                        .font(.callout.weight(.medium))
-                                        .foregroundStyle(.primary).lineLimit(1)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
                                 } else {
-                                    Text("Top level (no parent)").font(.callout).foregroundStyle(.secondary)
+                                    Text("Top level")
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
                                 }
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right").foregroundStyle(.secondary).font(.caption)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
                             }
                             .padding(.horizontal, 14)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 44)
+                            .frame(height: 50)
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 16))
+                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.plain)
 
                         DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
 
@@ -587,11 +592,13 @@ struct CreateLocationSheet: View {
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
                             .foregroundStyle(.primary)
                         }
-
-                        Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 20)
+                    .padding(.vertical, 4)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.hidden)
+                .frame(maxHeight: .infinity)
 
                 // Action buttons
                 actionButtons
@@ -604,8 +611,6 @@ struct CreateLocationSheet: View {
             LocationPickerSheet(selectedId: $parentId)
                 .environmentObject(store)
                 .environmentObject(theme)
-        }
-        .onAppear {
         }
     }
 

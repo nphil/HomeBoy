@@ -404,31 +404,27 @@ struct TagEditSheet: View {
                 .padding(.bottom, 12)
 
                 // Content
-                VStack(spacing: 0) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            Circle().fill(Color(hex: colorHex)).frame(width: 20, height: 20)
+                ScrollView(.vertical) {
+                    VStack(alignment: .leading, spacing: 14) {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(Color(hex: colorHex))
+                                .frame(width: 22, height: 22)
                                 .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
                             TextField("Tag name", text: $name)
-                                .font(.callout.weight(.semibold))
+                                .font(.title3.weight(.semibold))
                                 .focused($nameFocused)
                                 .textInputAutocapitalization(.never)
                                 .submitLabel(.done)
                         }
-                        .padding(.horizontal, 14)
-                        .frame(height: 44)
-                        .background {
-                            RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial)
-                            RoundedRectangle(cornerRadius: 10).fill(theme.current.accentColor.opacity(0.04))
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(theme.current.accentColor.opacity(0.20), lineWidth: 1)
-                        )
+                        .padding(.horizontal, 18)
+                        .frame(height: 56)
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 16))
 
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Color").font(.caption.weight(.semibold))
-                                .foregroundStyle(theme.current.accentColor.opacity(0.75))
+                            Text("COLOR")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.secondary)
                                 .padding(.horizontal, 4)
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
                                 ForEach(HomeboxTagPalette, id: \.self) { hex in
@@ -446,6 +442,8 @@ struct TagEditSheet: View {
                                         }
                                 }
                             }
+                            .padding(14)
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 16))
                         }
 
                         DescriptionField(text: $description, placeholder: "Description (optional)", title: "Description")
@@ -461,11 +459,13 @@ struct TagEditSheet: View {
                             .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.red.opacity(0.5), lineWidth: 1))
                             .foregroundStyle(.primary)
                         }
-                        
-                        Spacer(minLength: 0)
                     }
                     .padding(.horizontal, 20)
+                    .padding(.vertical, 4)
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicators(.hidden)
+                .frame(maxHeight: .infinity)
 
                 // Action buttons
                 actionButtons

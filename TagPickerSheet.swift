@@ -33,6 +33,8 @@ struct TagPickerSheet: View {
             }
             .task { await load() }
         }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 
     @ViewBuilder
