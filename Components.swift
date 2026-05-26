@@ -45,6 +45,23 @@ extension View {
     }
 }
 
+// MARK: - Count Badge
+
+struct CountBadge: View {
+    @EnvironmentObject private var theme: ThemeManager
+    let count: Int
+    var font: Font = .caption2.monospacedDigit().weight(.semibold)
+
+    var body: some View {
+        Text("\(count)")
+            .font(font)
+            .foregroundStyle(theme.current.accentColor)
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(Capsule().fill(theme.current.accentColor.opacity(0.15)))
+            .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.25), lineWidth: 0.5))
+    }
+}
+
 // MARK: - Description Editor Sheet
 
 /// Full-screen editor used by Add/Create forms whose description fields
@@ -349,7 +366,7 @@ struct ItemListRowContent: View {
                 }
             }
             Spacer(minLength: 0)
-            Text("\u{00d7}\(item.quantityInt)").font(.caption.monospacedDigit().weight(.medium)).foregroundStyle(.secondary)
+            if item.quantityInt > 1 { CountBadge(count: item.quantityInt) }
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .task(id: item.id) {

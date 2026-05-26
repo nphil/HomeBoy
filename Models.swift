@@ -269,6 +269,16 @@ final class HomeboxStore: ObservableObject {
         }
         let top = tree.sorted { $0.name.lowercased() < $1.name.lowercased() }
         for n in top { walk(n, depth: 0, ancestors: [], ancestorIds: []) }
-        return out
+        // Compute recursive totals: each location counts items in itself + all descendants
+        var totals: [String: Int] = [:]
+        for loc in out {
+            totals[loc.id, default: 0] += loc.itemCount
+            for aid in loc.ancestorIds { totals[aid, default: 0] += loc.itemCount }
+        }
+        return out.map {
+            FlatLocation(id: $0.id, name: $0.name, depth: $0.depth,
+                         ancestors: $0.ancestors, ancestorIds: $0.ancestorIds,
+                         parentId: $0.parentId, itemCount: totals[$0.id] ?? $0.itemCount)
+        }
     }
 }

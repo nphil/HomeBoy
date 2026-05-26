@@ -921,11 +921,9 @@ private struct ItemTileContent: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topTrailing) {
                 thumbnailView.frame(maxWidth: .infinity).frame(height: thumbHeight).clipped()
-                Text("×\(item.quantityInt)")
-                    .font(.caption2.monospacedDigit().weight(.semibold))
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(Capsule().fill(.ultraThinMaterial))
-                    .padding(5)
+                if item.quantityInt > 1 {
+                    CountBadge(count: item.quantityInt).padding(5)
+                }
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.name).font(nameFont).lineLimit(columns <= 3 ? 2 : 1)
@@ -1007,9 +1005,7 @@ struct BulkEditSheet: View {
                                             .lineLimit(1)
                                         Spacer()
                                         if item.quantityInt > 1 {
-                                            Text("×\(item.quantityInt)")
-                                                .font(.caption.monospacedDigit())
-                                                .foregroundStyle(.secondary)
+                                            CountBadge(count: item.quantityInt)
                                         }
                                     }
                                     if item.id != items.last?.id {

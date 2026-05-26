@@ -162,8 +162,10 @@ struct ItemDetailView: View {
                             .padding(.horizontal, 8).padding(.vertical, 3)
                             .background(Capsule().fill(Color.secondary.opacity(0.15)))
                     }
-                    Text("× \(item.quantityInt)").font(.title3.monospacedDigit().weight(.medium))
-                        .foregroundStyle(.secondary)
+                    if item.quantityInt > 1 {
+                        CountBadge(count: item.quantityInt,
+                                   font: .callout.monospacedDigit().weight(.semibold))
+                    }
                 }
                 if let parent = item.parent {
                     NavigationLink(value: ItemDetailRoute(id: parent.id)) {

@@ -136,7 +136,7 @@ struct LocationDetailView: View {
                                 Image(systemName: "shippingbox.fill").foregroundStyle(theme.current.accentColor.opacity(0.85))
                                 Text(item.name)
                                 Spacer()
-                                Text("×\(item.quantityInt)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                if item.quantityInt > 1 { CountBadge(count: item.quantityInt) }
                                 Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
                             }
                             .contentShape(Rectangle())

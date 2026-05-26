@@ -347,14 +347,7 @@ private struct LocationListRow: View {
 
                     Spacer(minLength: 0)
 
-                    // Item count badge
-                    if loc.itemCount > 0 {
-                        Text("\(loc.itemCount)")
-                            .font(.caption2.monospacedDigit().weight(.semibold))
-                            .padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(Capsule().fill(theme.current.accentColor.opacity(0.15)))
-                            .foregroundStyle(theme.current.accentColor)
-                    }
+                    if loc.itemCount > 0 { CountBadge(count: loc.itemCount) }
                 }
                 .contentShape(Rectangle())
             }
@@ -420,13 +413,7 @@ private struct LocationTile: View {
                     .font(.system(size: 28))
                     .foregroundStyle(theme.current.accentColor.opacity(0.85))
                 Spacer()
-                if loc.itemCount > 0 {
-                    Text("\(loc.itemCount)")
-                        .font(.caption.monospacedDigit().weight(.semibold))
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .background(Capsule().fill(theme.current.accentColor.opacity(0.15)))
-                        .foregroundStyle(theme.current.accentColor)
-                }
+                if loc.itemCount > 0 { CountBadge(count: loc.itemCount) }
                 NavigationLink(value: LocationDetailRoute(id: loc.id)) {
                     Image(systemName: "info.circle.fill")
                         .font(.title2)

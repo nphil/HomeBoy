@@ -203,12 +203,8 @@ private struct TagRow: View {
                 }
             }
             Spacer(minLength: 8)
-            if let count = tag.itemCount {
-                Text("\(Int(count))")
-                    .font(.caption.weight(.medium).monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .padding(.trailing, 4)
-                    .layoutPriority(1)
+            if let count = tag.itemCount, Int(count) > 0 {
+                CountBadge(count: Int(count)).layoutPriority(1)
             }
             Image(systemName: "chevron.right")
                 .foregroundStyle(.tertiary)
@@ -251,8 +247,7 @@ struct TagDetailView: View {
                     Text("ITEMS").font(.caption.weight(.semibold)).tracking(0.6)
                         .foregroundStyle(theme.current.accentColor.opacity(0.75))
                     Spacer()
-                    Text("\(items.count)").font(.caption.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(.secondary)
+                    if items.count > 0 { CountBadge(count: items.count) }
                 }
                 .padding(.top, 8).padding(.horizontal, 4)
 
