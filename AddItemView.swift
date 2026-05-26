@@ -112,7 +112,8 @@ struct AddItemView: View {
             }
 
             if showLocationPicker {
-                Color.black.opacity(0.22)
+                Color.clear
+                    .contentShape(Rectangle())
                     .ignoresSafeArea()
                     .onTapGesture {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
@@ -126,7 +127,8 @@ struct AddItemView: View {
             }
 
             if showTagPicker {
-                Color.black.opacity(0.22)
+                Color.clear
+                    .contentShape(Rectangle())
                     .ignoresSafeArea()
                     .onTapGesture {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {

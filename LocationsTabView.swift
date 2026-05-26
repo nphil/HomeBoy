@@ -612,7 +612,8 @@ struct CreateLocationSheet: View {
         .overlay(alignment: .center) {
             if showParentPicker {
                 ZStack {
-                    Color.black.opacity(0.22)
+                    Color.clear
+                        .contentShape(Rectangle())
                         .onTapGesture {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 showParentPicker = false; parentPickerQuery = ""
