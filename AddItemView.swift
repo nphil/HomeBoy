@@ -307,7 +307,7 @@ struct AddItemView: View {
                 } label: {
                     Image(systemName: "minus.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(quantity > 1 ? theme.current.accentColor : .tertiary)
+                        .foregroundStyle(theme.current.accentColor.opacity(quantity > 1 ? 1.0 : 0.3))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -348,7 +348,7 @@ struct AddItemView: View {
         } label: {
             Image(systemName: isOn.wrappedValue ? "pin.fill" : "pin")
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(isOn.wrappedValue ? theme.current.accentColor : .secondary)
+                .foregroundStyle(isOn.wrappedValue ? theme.current.accentColor : Color.secondary)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
