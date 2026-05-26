@@ -41,6 +41,12 @@ struct AddItemView: View {
     @State private var showBarcodeScanner = false
     @State private var showProductMatch = false
     @State private var pendingProducts: [HBBarcodeProduct] = []
+    @State private var locationPickerQuery = ""
+    @State private var tagPickerQuery = ""
+    @State private var newTagName = ""
+    @State private var isCreatingTag = false
+    @FocusState private var locationSearchFocused: Bool
+    @FocusState private var tagSearchFocused: Bool
 
     // Submission
     @State private var isSubmitting = false
@@ -104,15 +110,37 @@ struct AddItemView: View {
                     }
                 }
             }
+
+            if showLocationPicker {
+                Color.black.opacity(0.22)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showLocationPicker = false
+                            locationPickerQuery = ""
+                        }
+                    }
+                locationPickerCard
+                    .padding(.horizontal, 16)
+                    .transition(.scale(scale: 0.92, anchor: .init(x: 0.5, y: 0.2)).combined(with: .opacity))
+            }
+
+            if showTagPicker {
+                Color.black.opacity(0.22)
+                    .ignoresSafeArea()
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            showTagPicker = false
+                            tagPickerQuery = ""
+                        }
+                    }
+                tagPickerCard
+                    .padding(.horizontal, 16)
+                    .transition(.scale(scale: 0.92, anchor: .init(x: 0.5, y: 0.3)).combined(with: .opacity))
+            }
         }
-        .sheet(isPresented: $showLocationPicker) {
-            LocationPickerSheet(selectedId: $selectedLocationId)
-                .environmentObject(store).environmentObject(theme)
-        }
-        .sheet(isPresented: $showTagPicker) {
-            TagPickerSheet(selectedIds: $selectedTagIds)
-                .environmentObject(store).environmentObject(theme)
-        }
+        .animation(.spring(response: 0.38, dampingFraction: 0.68), value: showLocationPicker)
+        .animation(.spring(response: 0.38, dampingFraction: 0.68), value: showTagPicker)
         .sheet(isPresented: $showCamera) {
             CameraSheet { img in photos.append(downscale(img)) }.ignoresSafeArea()
         }
@@ -703,6 +731,226 @@ struct AddItemView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
             withAnimation(.easeIn(duration: 0.3)) { if justAdded == text { justAdded = nil } }
         }
+    }
+
+    // MARK: - Inline location picker
+
+    private var locationPickerCard: some View {
+        let accentColor = theme.current.accentColor
+        return VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.body).foregroundStyle(.secondary)
+                TextField("Search locations…", text: $locationPickerQuery)
+                    .focused($locationSearchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                if !locationPickerQuery.isEmpty {
+                    Button { locationPickerQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            Divider().opacity(0.4)
+            ScrollView {
+                LazyVStack(spacing: 3) {
+                    if selectedLocationId != nil {
+                        Button {
+                            selectedLocationId = nil
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showLocationPicker = false; locationPickerQuery = ""
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "xmark.circle").foregroundStyle(.red).font(.callout)
+                                Text("Clear selection").font(.callout).foregroundStyle(.red)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider().opacity(0.35).padding(.horizontal, 12)
+                    }
+                    ForEach(filteredPickerLocations, id: \.id) { loc in
+                        Button {
+                            selectedLocationId = loc.id
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showLocationPicker = false; locationPickerQuery = ""
+                            }
+                        } label: {
+                            locationPickerRow(loc, accentColor: accentColor)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if filteredPickerLocations.isEmpty {
+                        Text("No locations found")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity).padding(.vertical, 16)
+                    }
+                }
+                .padding(8)
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: 260)
+        }
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 6)
+    }
+
+    private func locationPickerRow(_ loc: FlatLocation, accentColor: Color) -> some View {
+        let isSelected = selectedLocationId == loc.id
+        return HStack(spacing: 10) {
+            Image(systemName: loc.depth == 0 ? "house.fill" : "folder.fill")
+                .font(.callout)
+                .foregroundStyle(accentColor.opacity(0.85))
+                .frame(width: 20, alignment: .center)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(loc.name)
+                    .font(.callout.weight(isSelected ? .semibold : .regular))
+                if !loc.ancestors.isEmpty {
+                    Text(loc.ancestors.joined(separator: " › "))
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
+            }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(isSelected ? RoundedRectangle(cornerRadius: 10).fill(accentColor.opacity(0.10)) : nil)
+        .contentShape(Rectangle())
+    }
+
+    private var filteredPickerLocations: [FlatLocation] {
+        let q = locationPickerQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return store.locationsFlat }
+        return store.locationsFlat.filter { $0.pathString.lowercased().contains(q) }
+    }
+
+    // MARK: - Inline tag picker
+
+    private var tagPickerCard: some View {
+        let accentColor = theme.current.accentColor
+        return VStack(spacing: 0) {
+            HStack {
+                Text("Tags").font(.headline.weight(.semibold))
+                Spacer()
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        showTagPicker = false; tagPickerQuery = ""
+                    }
+                } label: {
+                    Text("Done").font(.body.weight(.semibold)).foregroundStyle(accentColor)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+            HStack(spacing: 8) {
+                Image(systemName: "tag").font(.callout).foregroundStyle(accentColor)
+                TextField("New tag…", text: $newTagName)
+                    .font(.callout)
+                    .textInputAutocapitalization(.words)
+                    .submitLabel(.done)
+                    .onSubmit { Task { await createTag() } }
+                if isCreatingTag { ProgressView().controlSize(.small) }
+                Button { Task { await createTag() } } label: {
+                    Image(systemName: "plus.circle.fill").font(.body)
+                        .foregroundStyle(isCreatingTag || newTagName.trimmingCharacters(in: .whitespaces).isEmpty
+                            ? Color.secondary.opacity(0.35) : accentColor)
+                }
+                .buttonStyle(.plain)
+                .disabled(newTagName.trimmingCharacters(in: .whitespaces).isEmpty || isCreatingTag)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
+            .padding(.horizontal, 12)
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.body).foregroundStyle(.secondary)
+                TextField("Search tags…", text: $tagPickerQuery)
+                    .focused($tagSearchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                if !tagPickerQuery.isEmpty {
+                    Button { tagPickerQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            Divider().opacity(0.4)
+            ScrollView {
+                LazyVStack(spacing: 3) {
+                    ForEach(filteredPickerTags) { tag in
+                        Button { togglePickerTag(tag.id) } label: {
+                            tagPickerRow(tag, accentColor: accentColor)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if filteredPickerTags.isEmpty {
+                        Text(tagPickerQuery.isEmpty ? "No tags yet" : "No tags found")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity).padding(.vertical, 16)
+                    }
+                }
+                .padding(8)
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: 220)
+        }
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 6)
+    }
+
+    private func tagPickerRow(_ tag: HBTag, accentColor: Color) -> some View {
+        let selected = selectedTagIds.contains(tag.id)
+        let color: Color = {
+            if let c = tag.color, !c.isEmpty { return Color(hex: c) }
+            return accentColor
+        }()
+        return HStack(spacing: 10) {
+            Circle().fill(color).frame(width: 14, height: 14)
+            Text(tag.name).font(.callout.weight(selected ? .semibold : .regular))
+            Spacer(minLength: 0)
+            Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(selected ? Color.green : Color.secondary.opacity(0.5))
+                .font(.callout)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(selected ? RoundedRectangle(cornerRadius: 10).fill(accentColor.opacity(0.10)) : nil)
+        .contentShape(Rectangle())
+    }
+
+    private var filteredPickerTags: [HBTag] {
+        let q = tagPickerQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        let sorted = availableTags.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        guard !q.isEmpty else { return sorted }
+        return sorted.filter { $0.name.lowercased().contains(q) }
+    }
+
+    private func togglePickerTag(_ id: String) {
+        if selectedTagIds.contains(id) { selectedTagIds.remove(id) }
+        else { selectedTagIds.insert(id) }
+    }
+
+    private func createTag() async {
+        let trimmed = newTagName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let client = store.client else { return }
+        await MainActor.run { isCreatingTag = true }
+        do {
+            let tag = try await client.createTag(name: trimmed)
+            await MainActor.run {
+                availableTags.append(tag)
+                selectedTagIds.insert(tag.id)
+                newTagName = ""
+            }
+        } catch {}
+        await MainActor.run { isCreatingTag = false }
     }
 }
 

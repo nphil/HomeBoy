@@ -498,9 +498,11 @@ struct CreateLocationSheet: View {
     @State private var description: String = ""
     @State private var parentId: String?
     @State private var showParentPicker = false
+    @State private var parentPickerQuery = ""
     @State private var isSubmitting = false
     @State private var errorMsg: String?
     @FocusState private var nameFocused: Bool
+    @FocusState private var parentPickerSearchFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -607,11 +609,22 @@ struct CreateLocationSheet: View {
                     .padding(.bottom, 16)
             }
         }
-        .sheet(isPresented: $showParentPicker) {
-            LocationPickerSheet(selectedId: $parentId)
-                .environmentObject(store)
-                .environmentObject(theme)
+        .overlay(alignment: .center) {
+            if showParentPicker {
+                ZStack {
+                    Color.black.opacity(0.22)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showParentPicker = false; parentPickerQuery = ""
+                            }
+                        }
+                    createLocationParentPickerCard
+                        .padding(.horizontal, 16)
+                }
+                .transition(.scale(scale: 0.92, anchor: .init(x: 0.5, y: 0.35)).combined(with: .opacity))
+            }
         }
+        .animation(.spring(response: 0.38, dampingFraction: 0.68), value: showParentPicker)
     }
 
     private var actionButtons: some View {
@@ -656,5 +669,94 @@ struct CreateLocationSheet: View {
             }
             await MainActor.run { isSubmitting = false }
         }
+    }
+
+    private var createLocationParentPickerCard: some View {
+        let accentColor = theme.current.accentColor
+        return VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").font(.body).foregroundStyle(.secondary)
+                TextField("Search locations…", text: $parentPickerQuery)
+                    .focused($parentPickerSearchFocused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                if !parentPickerQuery.isEmpty {
+                    Button { parentPickerQuery = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 11)
+            Divider().opacity(0.4)
+            ScrollView {
+                LazyVStack(spacing: 3) {
+                    if parentId != nil {
+                        Button {
+                            parentId = nil
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showParentPicker = false; parentPickerQuery = ""
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "house").foregroundStyle(accentColor).font(.callout)
+                                Text("Top level (no parent)").font(.callout).foregroundStyle(.primary)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        Divider().opacity(0.35).padding(.horizontal, 12)
+                    }
+                    ForEach(filteredParentLocations, id: \.id) { loc in
+                        Button {
+                            parentId = loc.id
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                showParentPicker = false; parentPickerQuery = ""
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: loc.depth == 0 ? "house.fill" : "folder.fill")
+                                    .font(.callout).foregroundStyle(accentColor.opacity(0.85))
+                                    .frame(width: 20, alignment: .center)
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(loc.name).font(.callout.weight(parentId == loc.id ? .semibold : .regular))
+                                    if !loc.ancestors.isEmpty {
+                                        Text(loc.ancestors.joined(separator: " › "))
+                                            .font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                                if parentId == loc.id {
+                                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
+                                }
+                            }
+                            .padding(.horizontal, 12).padding(.vertical, 9)
+                            .background(parentId == loc.id ? RoundedRectangle(cornerRadius: 10).fill(accentColor.opacity(0.10)) : nil)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if filteredParentLocations.isEmpty {
+                        Text("No locations found")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity).padding(.vertical, 16)
+                    }
+                }
+                .padding(8)
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: 260)
+        }
+        .background(.regularMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 6)
+    }
+
+    private var filteredParentLocations: [FlatLocation] {
+        let q = parentPickerQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return store.locationsFlat }
+        return store.locationsFlat.filter { $0.pathString.lowercased().contains(q) }
     }
 }
