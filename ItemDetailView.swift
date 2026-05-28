@@ -1189,6 +1189,7 @@ struct MaintenanceEntrySheet: View {
     private var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func save() async {
+        guard !store.isOffline else { errorMsg = "No connection to Homebox"; return }
         guard let client = store.client else { return }
         isSaving = true; errorMsg = nil
 

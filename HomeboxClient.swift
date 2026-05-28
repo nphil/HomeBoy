@@ -668,7 +668,7 @@ struct HomeboxClient {
     // MARK: Maintenance
 
     func listMaintenance(itemId: String) async throws -> [HBMaintenanceEntry] {
-        let data = try await request("v1/items/\(itemId)/maintenance", method: "GET")
+        let data = try await request("v1/entities/\(itemId)/maintenance", method: "GET")
         do { return try JSONDecoder().decode([HBMaintenanceEntry].self, from: data) }
         catch { throw HBError.decode(error) }
     }
@@ -676,7 +676,7 @@ struct HomeboxClient {
     @discardableResult
     func createMaintenance(itemId: String, entry: HBMaintenanceCreate) async throws -> HBMaintenanceEntry {
         let body = try JSONEncoder().encode(entry)
-        let data = try await request("v1/items/\(itemId)/maintenance", method: "POST", body: body)
+        let data = try await request("v1/entities/\(itemId)/maintenance", method: "POST", body: body)
         do { return try JSONDecoder().decode(HBMaintenanceEntry.self, from: data) }
         catch { throw HBError.decode(error) }
     }
