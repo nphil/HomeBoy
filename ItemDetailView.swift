@@ -1002,7 +1002,7 @@ struct MaintenanceEntrySheet: View {
             return f.date(from: s)
         }
         let sd = parseDate(existing?.scheduledDate)
-        _scheduledDate = State(initialValue: sd ?? Calendar.current.date(byAdding: .month, to: Date()) ?? Date())
+        _scheduledDate = State(initialValue: sd ?? Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
         _cadence = State(initialValue: existing.map { NotificationManager.shared.cadence(for: $0.id) } ?? .never)
     }
 
