@@ -1091,17 +1091,56 @@ struct MaintenanceEntrySheet: View {
                             .glassEffect(in: RoundedRectangle(cornerRadius: 16))
                     }
 
-                    // Cadence chips
+                    // Repeating schedule
                     fieldSection(label: "REPEATS") {
-                        ScrollView(.horizontal) {
-                            HStack(spacing: 8) {
-                                ForEach(MaintenanceCadence.presets) { c in
-                                    cadenceChip(c)
-                                }
+                        VStack(spacing: 10) {
+                            HStack {
+                                Text("Repeating schedule").font(.callout)
+                                Spacer()
+                                Toggle("", isOn: Binding(
+                                    get: { !cadence.isOneTime },
+                                    set: { on in
+                                        withAnimation(.spring(response: 0.3)) {
+                                            cadence = on ? MaintenanceCadence(value: cadence.isOneTime ? 1 : cadence.value, unit: cadence.isOneTime ? .month : cadence.unit) : .oneTime
+                                        }
+                                    }
+                                ))
+                                .labelsHidden()
+                                .tint(theme.current.accentColor)
                             }
-                            .padding(.horizontal, 2)
+                            .padding(.horizontal, 14).padding(.vertical, 10)
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 14))
+
+                            if !cadence.isOneTime {
+                                HStack(spacing: 0) {
+                                    Text("Every")
+                                        .font(.callout)
+                                        .padding(.leading, 16)
+                                    Spacer()
+                                    Picker("", selection: $cadence.value) {
+                                        ForEach(1...99, id: \.self) { n in
+                                            Text("\(n)").tag(n)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.wheel)
+                                    .frame(width: 70, height: 100)
+                                    .clipped()
+                                    Picker("", selection: $cadence.unit) {
+                                        ForEach(CadenceUnit.allCases) { unit in
+                                            Text(unit.label(count: cadence.value)).tag(unit)
+                                        }
+                                    }
+                                    .labelsHidden()
+                                    .pickerStyle(.wheel)
+                                    .frame(width: 120, height: 100)
+                                    .clipped()
+                                    Spacer().frame(width: 16)
+                                }
+                                .glassEffect(in: RoundedRectangle(cornerRadius: 14))
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                            }
                         }
-                        .scrollIndicators(.hidden)
                     }
 
                     if let errorMsg {
@@ -1146,20 +1185,6 @@ struct MaintenanceEntrySheet: View {
         }
     }
 
-    @ViewBuilder
-    private func cadenceChip(_ c: MaintenanceCadence) -> some View {
-        let isSelected = cadence == c
-        let accent = theme.current.accentColor
-        Text(c.displayLabel)
-            .font(.callout.weight(isSelected ? .semibold : .regular))
-            .foregroundStyle(isSelected ? accent : Color.secondary)
-            .padding(.horizontal, 14).padding(.vertical, 8)
-            .background(Capsule().fill(isSelected ? accent.opacity(0.15) : Color.secondary.opacity(0.1)))
-            .overlay(Capsule().stroke(isSelected ? accent.opacity(0.4) : Color.clear, lineWidth: 1))
-            .contentShape(Capsule())
-            .onTapGesture { withAnimation(.spring(response: 0.2)) { cadence = c } }
-    }
-
     private var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func save() async {
@@ -1171,7 +1196,10 @@ struct MaintenanceEntrySheet: View {
         let entry = HBMaintenanceCreate(
             name: trimmedName,
             description: trimmedDesc,
-            date: existing?.date ?? "",
+            date: existing.map { e -> String in
+                let d = e.date ?? ""
+                return (d.isEmpty || d.hasPrefix("0001-01-01")) ? "0001-01-01T00:00:00.000Z" : d
+            } ?? "0001-01-01T00:00:00.000Z",
             scheduledDate: Self.isoFull.string(from: scheduledDate),
             cost: existing?.cost ?? 0
         )
