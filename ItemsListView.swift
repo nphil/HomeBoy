@@ -745,17 +745,30 @@ struct ItemsListView: View {
     }
 
     private func load(force: Bool = false) async {
-        guard let client = store.client else { return }
         let stale = lastLoadedAt.map { Date().timeIntervalSince($0) > 60 } ?? true
         if !force && !allItems.isEmpty && !stale { return }
         isLoading = true; loadError = nil
+
+        if store.isOffline {
+            allItems = store.localDB.items
+            isLoading = false
+            return
+        }
+
+        guard let client = store.client else { isLoading = false; return }
         do {
-            // Pass labelIds so server can pre-filter; client-side filter below catches cases where server ignores it
             let resp = try await client.listItems(labelIds: Array(filterTagIds), pageSize: 1000)
             allItems = resp.items
+            store.localDB.cacheItems(resp.items)
             store.updateCachedItemTotal(resp.total ?? resp.items.count)
             lastLoadedAt = Date()
-        } catch { loadError = error.localizedDescription }
+        } catch {
+            if !store.localDB.items.isEmpty {
+                allItems = store.localDB.items
+            } else {
+                loadError = error.localizedDescription
+            }
+        }
         isLoading = false
     }
 

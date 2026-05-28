@@ -77,6 +77,23 @@ struct OnboardingView: View {
                     .buttonStyle(.glassProminent)
                     .disabled(isLoggingIn || !canSubmit)
                 }
+
+                Section {
+                    Button {
+                        store.loginOffline()
+                    } label: {
+                        HStack {
+                            Image(systemName: "wifi.slash")
+                            Text("Continue Offline")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.glass)
+                    Text("Use the app without a server. Your data is stored locally. You can connect to a Homebox server later in Settings.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
             }
             .scrollContentBackground(.hidden)
             .scrollIndicators(.hidden)

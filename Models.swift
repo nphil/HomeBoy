@@ -48,6 +48,27 @@ struct GroupStats: Equatable {
 @MainActor
 final class HomeboxStore: ObservableObject {
 
+    // MARK: Offline support
+
+    let localDB = LocalDatabase()
+    let syncEngine = SyncEngine()
+
+    @Published var isOfflineModeEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(isOfflineModeEnabled, forKey: Keys.offlineMode)
+            if !isOfflineModeEnabled && isConnectedToNetwork && localDB.pendingOps.count > 0 {
+                Task { await syncPendingOps() }
+            }
+        }
+    }
+    @Published private(set) var isAuthenticatedOffline: Bool {
+        didSet { UserDefaults.standard.set(isAuthenticatedOffline, forKey: Keys.offlineAuth) }
+    }
+    @Published private(set) var isConnectedToNetwork: Bool = true
+    @Published private(set) var pendingOpsCount: Int = 0
+
+    var isOffline: Bool { isOfflineModeEnabled || !isConnectedToNetwork }
+
     // MARK: Auth + config (persisted)
 
     @Published var serverURLString: String {
@@ -85,7 +106,7 @@ final class HomeboxStore: ObservableObject {
     /// Per-group cached counts shown on each card in the SiteMenuPopover.
     @Published private(set) var cachedGroupStats: [String: GroupStats] = [:]
 
-    var isAuthenticated: Bool { token != nil && serverURL != nil }
+    var isAuthenticated: Bool { (token != nil && serverURL != nil) || isAuthenticatedOffline }
 
     var serverURL: URL? {
         let trimmed = serverURLString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -107,21 +128,37 @@ final class HomeboxStore: ObservableObject {
         static let username      = "homebox.username"
         static let token         = "homebox.token"
         static let activeGroupId = "homebox.activeGroupId"
+        static let offlineMode   = "homebox.offlineMode"
+        static let offlineAuth   = "homebox.offlineAuth"
     }
 
     // MARK: - Init
 
     init() {
         let savedURL = UserDefaults.standard.string(forKey: Keys.serverURL) ?? ""
-        serverURLString = savedURL
-        savedUsername   = UserDefaults.standard.string(forKey: Keys.username) ?? ""
-        activeGroupId   = UserDefaults.standard.string(forKey: Keys.activeGroupId)
+        serverURLString       = savedURL
+        savedUsername         = UserDefaults.standard.string(forKey: Keys.username) ?? ""
+        activeGroupId         = UserDefaults.standard.string(forKey: Keys.activeGroupId)
+        isOfflineModeEnabled  = UserDefaults.standard.bool(forKey: Keys.offlineMode)
+        isAuthenticatedOffline = UserDefaults.standard.bool(forKey: Keys.offlineAuth)
 
         if savedURL.isEmpty {
             token = nil
-            Keychain.delete(Keys.token) // Clean up dangling token from previous installs
+            Keychain.delete(Keys.token)
         } else {
             token = Keychain.get(Keys.token)
+        }
+
+        pendingOpsCount = localDB.pendingOps.count
+
+        syncEngine.onConnectionChange = { [weak self] connected in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isConnectedToNetwork = connected
+                if connected && !self.isOfflineModeEnabled && self.localDB.pendingOps.count > 0 {
+                    await self.syncPendingOps()
+                }
+            }
         }
     }
 
@@ -141,13 +178,56 @@ final class HomeboxStore: ObservableObject {
     }
 
     func logout() {
-        token         = nil
-        activeGroupId = nil
-        groups        = []
-        locationsFlat = []
-        cachedItemTotal = nil
-        groupName     = nil
-        cachedGroupStats = [:]
+        token                  = nil
+        activeGroupId          = nil
+        groups                 = []
+        locationsFlat          = []
+        cachedItemTotal        = nil
+        groupName              = nil
+        cachedGroupStats       = [:]
+        isAuthenticatedOffline = false
+    }
+
+    func loginOffline() {
+        isAuthenticatedOffline = true
+    }
+
+    /// Submit all queued offline creates to the server and remove local placeholders.
+    func syncPendingOps() async {
+        guard let client else { return }
+        let ops = localDB.pendingOps
+        var syncedCount = 0
+        for op in ops {
+            do {
+                switch op.kind {
+                case .createItem:
+                    let payload = try JSONDecoder().decode(HBItemCreate.self, from: op.payload)
+                    _ = try await client.createItem(payload)
+                    if let localId = op.localId { localDB.removeItem(id: localId) }
+                case .updateItem, .deleteItem:
+                    break
+                }
+                localDB.dequeue(id: op.id)
+                syncedCount += 1
+            } catch {}
+        }
+        pendingOpsCount = localDB.pendingOps.count
+        if syncedCount > 0 {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Synced \(syncedCount) offline item(s)"])
+        }
+    }
+
+    /// Save an offline create: queue a pending op and insert into the local cache.
+    func enqueueOfflineCreate(payload: HBItemCreate, item: HBItem) {
+        if let data = try? JSONEncoder().encode(payload) {
+            localDB.enqueue(PendingOperation(
+                id: UUID().uuidString, kind: .createItem,
+                payload: data, localId: item.id, createdAt: Date()
+            ))
+            pendingOpsCount = localDB.pendingOps.count
+        }
+        localDB.addItem(item)
     }
 
     // MARK: - Group switching (the X-Tenant story)

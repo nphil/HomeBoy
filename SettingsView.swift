@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @EnvironmentObject var store: HomeboxStore
@@ -8,6 +9,8 @@ struct SettingsView: View {
     @State private var isLoggingIn = false
     @State private var loginError: String?
     @State private var confirmLogout = false
+    @State private var shareItems: [Any] = []
+    @State private var showShareSheet = false
     @FocusState private var focused: Field?
     @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
 
@@ -16,7 +19,39 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                signedInSection
+                if store.token != nil {
+                    signedInSection
+                } else {
+                    offlineSignInSection
+                }
+
+                Section("Network") {
+                    Toggle(isOn: $store.isOfflineModeEnabled) {
+                        Label("Offline Mode", systemImage: "wifi.slash")
+                    }
+                    .tint(theme.current.accentColor)
+                    Text("When on, the app reads and writes to the local database only. Turn off to sync with the server when connected.")
+                        .font(.caption).foregroundStyle(.secondary)
+
+                    if !store.isConnectedToNetwork {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
+                            Text("No network connection").foregroundStyle(.secondary)
+                        }
+                        .font(.callout)
+                    }
+
+                    if store.pendingOpsCount > 0 {
+                        HStack {
+                            Image(systemName: "clock.arrow.circlepath").foregroundStyle(.orange)
+                            Text("\(store.pendingOpsCount) item(s) pending sync")
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button("Sync now") { Task { await store.syncPendingOps() } }
+                                .buttonStyle(.bordered)
+                        }
+                    }
+                }
 
                 Section("Theme") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
@@ -44,6 +79,22 @@ struct SettingsView: View {
                     } label: {
                         Label("Archived Items", systemImage: "archivebox")
                     }
+                }
+
+                Section("Data") {
+                    Button {
+                        let csv = store.localDB.exportCSV()
+                        let url = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("homebox_items.csv")
+                        if (try? csv.write(to: url, atomically: true, encoding: .utf8)) != nil {
+                            shareItems = [url]
+                            showShareSheet = true
+                        }
+                    } label: {
+                        Label("Export to CSV", systemImage: "square.and.arrow.up")
+                    }
+                    Text("Exports all locally cached items in Homebox import format. Open Items tab while connected to refresh the cache first.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("Info") {
@@ -77,6 +128,9 @@ struct SettingsView: View {
             .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Settings")
+            .sheet(isPresented: $showShareSheet) {
+                ActivityView(items: shareItems).presentationDetents([.medium, .large])
+            }
             .alert("Sign out?", isPresented: $confirmLogout) {
                 Button("Cancel", role: .cancel) {}
                 Button("Sign out", role: .destructive) {
@@ -124,6 +178,60 @@ struct SettingsView: View {
         }
     }
 
+    private var offlineSignInSection: some View {
+        Section("Connect to server") {
+            TextField("homebox.example.com", text: $store.serverURLString)
+                .focused($focused, equals: .server)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+                .keyboardType(.URL)
+            TextField("Email or username", text: $store.savedUsername)
+                .focused($focused, equals: .username)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled(true)
+            SecureField("Password", text: $password)
+                .focused($focused, equals: .password)
+                .onSubmit { performLogin() }
+
+            if let loginError {
+                Label(loginError, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(.red)
+            }
+
+            Button {
+                performLogin()
+            } label: {
+                HStack {
+                    if isLoggingIn { ProgressView().controlSize(.small) }
+                    Text(isLoggingIn ? "Signing in…" : "Sign in to server")
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glassProminent)
+            .disabled(isLoggingIn || !canSignIn)
+        }
+    }
+
+    private var canSignIn: Bool {
+        store.serverURL != nil &&
+        !store.savedUsername.trimmingCharacters(in: .whitespaces).isEmpty &&
+        !password.isEmpty
+    }
+
+    private func performLogin() {
+        guard canSignIn else { return }
+        loginError = nil; isLoggingIn = true
+        Task {
+            do {
+                try await store.login(username: store.savedUsername, password: password)
+                password = ""
+            } catch {
+                loginError = error.localizedDescription
+            }
+            isLoggingIn = false
+        }
+    }
+
     private var displayServer: String {
         store.serverURL?.host ?? store.serverURLString
     }
@@ -133,4 +241,12 @@ struct SettingsView: View {
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "11"
         return "\(version) (\(build))"
     }
+}
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let items: [Any]
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+    func updateUIViewController(_ uvc: UIActivityViewController, context: Context) {}
 }

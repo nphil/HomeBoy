@@ -567,7 +567,14 @@ struct AddItemView: View {
 
     private func submit(andDismiss: Bool) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty, selectedLocationId != nil, let client = store.client else { return }
+        guard !trimmedName.isEmpty else { return }
+
+        if store.isOffline {
+            submitOffline(trimmedName: trimmedName, andDismiss: andDismiss)
+            return
+        }
+
+        guard selectedLocationId != nil, let client = store.client else { return }
         submitError = nil; isSubmitting = true
         let payload = HBItemCreate(
             name: trimmedName, quantity: Double(quantity), description: description,
@@ -605,6 +612,26 @@ struct AddItemView: View {
             }
             await MainActor.run { isSubmitting = false }
         }
+    }
+
+    private func submitOffline(trimmedName: String, andDismiss: Bool) {
+        submitError = nil; isSubmitting = true
+        let payload = HBItemCreate(
+            name: trimmedName, quantity: Double(quantity), description: description,
+            locationId: selectedLocationId, parentId: parentId, tagIds: Array(selectedTagIds)
+        )
+        let locationSummary: HBLocationSummary? = selectedLocationId.flatMap { locId in
+            store.locationsFlat.first(where: { $0.id == locId }).map {
+                HBLocationSummary(id: $0.id, name: $0.name, description: nil)
+            }
+        }
+        let offlineItem = store.localDB.makeOfflineItem(from: payload, location: locationSummary)
+        store.enqueueOfflineCreate(payload: payload, item: offlineItem)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        showSuccessPill("\"\(trimmedName)\" saved offline")
+        resetForm()
+        if andDismiss { onDismiss() }
+        isSubmitting = false
     }
 
     // MARK: - Tag suggestions
