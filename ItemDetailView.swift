@@ -1145,8 +1145,13 @@ struct MaintenanceEntrySheet: View {
                     }
 
                     if let errorMsg {
-                        Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
-                            .font(.callout).foregroundStyle(.red)
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                            Text(errorMsg)
+                                .font(.callout).foregroundStyle(.red)
+                                .textSelection(.enabled)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
 
                     // Save button

@@ -283,8 +283,11 @@ struct HBMaintenanceCreate: Encodable {
         try c.encode(description, forKey: .description)
         try c.encodeIfPresent(completedDate, forKey: .completedDate)
         try c.encode(scheduledDate, forKey: .scheduledDate)
-        // server uses json:"cost,string" — must send as JSON string
-        try c.encode(String(format: "%g", cost), forKey: .cost)
+        // server uses json:"cost,string" — must send as JSON string; use locale-independent formatting
+        let costStr = cost.truncatingRemainder(dividingBy: 1) == 0
+            ? "\(Int(cost))"
+            : "\(cost)"
+        try c.encode(costStr, forKey: .cost)
     }
 
     enum CodingKeys: String, CodingKey {
