@@ -99,7 +99,7 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 - **`listTags()` dual-shape** — Homebox returns tags as either `[HBTag]` or `{ items: [HBTag] }`. Client tries both shapes.
 - **`HBItemDetail` fields are mostly optional** except `id` and `name`. Always nil-check.
 - **`archived: Bool`** on `HBItemUpdate` is a real v0.25.x field — not an unreleased entities API.
-- **`/v1/entities` for item CRUD is unreleased** (main branch only) — use `/v1/items` + `/v1/locations` for items/locations. **Exception: maintenance endpoints are at `/v1/entities/{id}/maintenance`** (confirmed v0.25.x); `/v1/items/{id}/maintenance` does NOT exist.
+- **`/v1/entities` endpoints are unreleased** (main branch only) — do NOT use. v0.25.x uses `/v1/items` + `/v1/locations`. Maintenance is at `/v1/items/{id}/maintenance` (v0.25.x confirmed).
 - **AI tag suggestions** — check `SystemLanguageModel.default.isAvailable` before use; silently skip if unavailable.
 - **`DescriptionEditorSheet` draft pattern** — `@State private var draft` buffers edits; "Done" commits, "Cancel" discards. Never bind `TextEditor` directly to a parent binding.
 - **`showSiteMenu` flows via `ShowSiteMenuKey` EnvironmentKey** as `Binding<Bool>`. Toggle with `showSiteMenu.wrappedValue.toggle()` inside `withAnimation`.
