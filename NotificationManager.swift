@@ -237,7 +237,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         Task {
             let doneEntry = HBMaintenanceCreate(
                 name: entryName, description: desc,
-                date: iso.string(from: Date()), scheduledDate: schedStr, cost: 0
+                date: dateOnly(Date()), scheduledDate: schedStr, cost: 0
             )
             try? await client.updateMaintenance(id: entryId, entry: doneEntry)
 
@@ -249,7 +249,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             {
                 let nextEntry = HBMaintenanceCreate(
                     name: entryName, description: desc,
-                    date: "0001-01-01T00:00:00.000Z", scheduledDate: iso.string(from: nextDate), cost: 0
+                    date: nil, scheduledDate: dateOnly(nextDate), cost: 0
                 )
                 if let created = try? await client.createMaintenance(itemId: itemId, entry: nextEntry) {
                     self.schedule(
@@ -276,5 +276,10 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let f2 = ISO8601DateFormatter()
         f2.formatOptions = [.withInternetDateTime]
         return f2.date(from: s)
+    }
+
+    private func dateOnly(_ date: Date) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
     }
 }

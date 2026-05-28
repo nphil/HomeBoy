@@ -953,7 +953,12 @@ private struct MaintenanceRow: View {
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let d = f.date(from: s) { return d }
         f.formatOptions = [.withInternetDateTime]
-        return f.date(from: s)
+        if let d = f.date(from: s) { return d }
+        // date-only "YYYY-MM-DD" format
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone(identifier: "UTC")
+        return df.date(from: s)
     }
 
     private func formatDate(_ s: String?) -> String? {
@@ -982,9 +987,10 @@ struct MaintenanceEntrySheet: View {
     @FocusState private var nameFocused: Bool
     @FocusState private var descFocused: Bool
 
-    private static let isoFull: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
-    }()
+    private static func dateOnly(_ date: Date) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
+    }
 
     init(itemId: String, itemName: String, existing: HBMaintenanceEntry?) {
         self.itemId   = itemId
@@ -1193,14 +1199,16 @@ struct MaintenanceEntrySheet: View {
 
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let schedStr = Self.dateOnly(scheduledDate)
+        let completedStr: String? = existing.flatMap { e -> String? in
+            let d = e.date ?? ""
+            return (d.isEmpty || d.hasPrefix("0001-01-01")) ? nil : d
+        }
         let entry = HBMaintenanceCreate(
             name: trimmedName,
             description: trimmedDesc,
-            date: existing.map { e -> String in
-                let d = e.date ?? ""
-                return (d.isEmpty || d.hasPrefix("0001-01-01")) ? "0001-01-01T00:00:00.000Z" : d
-            } ?? "0001-01-01T00:00:00.000Z",
-            scheduledDate: Self.isoFull.string(from: scheduledDate),
+            date: completedStr,
+            scheduledDate: schedStr,
             cost: existing?.cost ?? 0
         )
 

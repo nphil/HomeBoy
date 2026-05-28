@@ -249,12 +249,25 @@ struct HBMaintenanceEntry: Codable, Identifiable {
     var updatedAt: String?
 }
 
-struct HBMaintenanceCreate: Codable {
+struct HBMaintenanceCreate: Encodable {
     var name: String
     var description: String
-    var date: String
+    var date: String?        // omitted when nil (entry not yet completed)
     var scheduledDate: String
     var cost: Double
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(name, forKey: .name)
+        try c.encode(description, forKey: .description)
+        try c.encodeIfPresent(date, forKey: .date)
+        try c.encode(scheduledDate, forKey: .scheduledDate)
+        try c.encode(cost, forKey: .cost)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name, description, date, scheduledDate, cost
+    }
 }
 
 struct HBBarcodeItem: Codable {
