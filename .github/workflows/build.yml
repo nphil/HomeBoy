@@ -82,6 +82,7 @@ jobs:
 
       - name: Archive (unsigned)
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project      "$PROJECT" \
             -scheme       "$SCHEME" \
@@ -93,7 +94,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             SKIP_INSTALL=NO \
             INSTALL_PATH="/Applications" \
-            | xcpretty || exit ${PIPESTATUS[0]}
+            | xcpretty
 
       - name: Package into IPA
         run: |
