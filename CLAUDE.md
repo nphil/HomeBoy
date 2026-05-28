@@ -36,7 +36,8 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 | `ItemsListView.swift` | Items tab: list/tile, hybrid semantic search, filter panel, sort, bulk actions, archive chip. |
 | `LocationsTabView.swift` | Locations tree tab. Expand/collapse chevrons pinned left with 36px touch target. |
 | `LocationDetailView.swift` | Location detail + edit/delete. Defines `ItemDetailRoute`, `LocationDetailRoute`. |
-| `ItemDetailView.swift` | Item detail: archive/unarchive (••• menu), sub-items "Components" card, "Maintenance" card, full-screen image. Contains `MaintenanceRow`, `MaintenanceEntrySheet`. |
+| `ItemDetailView.swift` | Item detail: archive/unarchive (••• menu), sub-items "Components" card, "Maintenance" card, full-screen image. Contains `MaintenanceRow`, `MaintenanceEntrySheet` (floatingCardCover). |
+| `NotificationManager.swift` | `NotificationManager` singleton (UNUserNotificationCenterDelegate). `MaintenanceCadence` enum. Schedules/cancels local notifications for maintenance; handles "Mark as Done" notification action by calling API + scheduling next occurrence. Set as delegate in `HomeboxCatalogApp.init()`. |
 | `ArchivedItemsView.swift` | Settings → Library → Archived Items. **Only place `SwipeRevealRow` is allowed.** Bulk unarchive. |
 | `Components.swift` | `FloatingCardContainer`/`.floatingCardCover`, `DescriptionField`/`DescriptionEditorSheet`, `QuantityControl`, `ThumbnailStore`, `ItemListRowContent`, `SwipeRevealRow`, `GlassCard`, `AlphabetIndexBar`. |
 | `project.yml` | xcodegen spec. Any `.swift` in root is auto-included. |
@@ -48,7 +49,7 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 
 1. **Push to main only** — always `git push origin HEAD:main`. Never push to any other branch.
 
-2. **Add/Create Modals** — use `.floatingCardCover(isPresented:onDismiss:)` from `Components.swift`, **NOT `.sheet`**. SwiftUI sheets anchor to the screen bottom and get clipped by device rounded corners. `FloatingCardContainer` wraps content in `.fullScreenCover` + `.presentationBackground(.clear)`, rendering a rounded card inset on all four sides over a dimmed backdrop. Exception: `MaintenanceEntrySheet` uses `.sheet` (it's a sub-sheet inside an already-floating detail view).
+2. **Add/Create Modals** — use `.floatingCardCover(isPresented:onDismiss:)` from `Components.swift`, **NOT `.sheet`**. SwiftUI sheets anchor to the screen bottom and get clipped by device rounded corners. `FloatingCardContainer` wraps content in `.fullScreenCover` + `.presentationBackground(.clear)`, rendering a rounded card inset on all four sides over a dimmed backdrop. This applies to all add/edit sheets including `MaintenanceEntrySheet`.
 
 3. **`HBItemUpdate.parentId` must be `String?`** — sending `""` fails Go UUID parsing → HTTP 500. Send `nil` (encodes as JSON `null` → `uuid.Nil`) to clear the parent.
 

@@ -76,10 +76,17 @@ struct ItemDetailView: View {
                 .environmentObject(theme)
             }
         }
-        .sheet(isPresented: $showMaintenanceSheet, onDismiss: { Task { await load() } }) {
-            MaintenanceEntrySheet(itemId: itemId, existing: editingEntry)
-                .environmentObject(store)
-                .environmentObject(theme)
+        .floatingCardCover(
+            isPresented: $showMaintenanceSheet,
+            onDismiss: { Task { await load() } }
+        ) {
+            MaintenanceEntrySheet(
+                itemId: itemId,
+                itemName: item?.name ?? "",
+                existing: editingEntry
+            )
+            .environmentObject(store)
+            .environmentObject(theme)
         }
         .alert("Delete item?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
@@ -261,7 +268,7 @@ struct ItemDetailView: View {
                 let sorted = maintenance.sorted {
                     let a = $0.scheduledDate ?? $0.date ?? $0.createdAt ?? ""
                     let b = $1.scheduledDate ?? $1.date ?? $1.createdAt ?? ""
-                    return a > b
+                    return a < b
                 }
                 ForEach(sorted) { entry in
                     MaintenanceRow(entry: entry)
@@ -270,6 +277,12 @@ struct ItemDetailView: View {
                             editingEntry = entry
                             showMaintenanceSheet = true
                         }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            Button {
+                                Task { await markDone(entry) }
+                            } label: { Label("Done", systemImage: "checkmark.circle.fill") }
+                            .tint(.green)
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                             Button(role: .destructive) {
                                 Task { await deleteMaintEntry(entry) }
@@ -277,14 +290,14 @@ struct ItemDetailView: View {
                         }
                 }
                 if maintenance.isEmpty {
-                    Text("No maintenance records")
+                    Text("Nothing scheduled yet")
                         .font(.callout).foregroundStyle(.secondary)
                 }
                 Button {
                     editingEntry = nil
                     showMaintenanceSheet = true
                 } label: {
-                    Label("Add entry", systemImage: "plus.circle")
+                    Label("Schedule maintenance", systemImage: "calendar.badge.plus")
                         .font(.callout)
                         .foregroundStyle(theme.current.accentColor)
                 }
@@ -356,9 +369,35 @@ struct ItemDetailView: View {
         guard let client = store.client else { return }
         do {
             try await client.deleteMaintenance(id: entry.id)
+            NotificationManager.shared.cancel(entryId: entry.id)
             maintenance.removeAll { $0.id == entry.id }
         } catch {
             NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Delete failed"])
+        }
+    }
+
+    private func markDone(_ entry: HBMaintenanceEntry) async {
+        guard let client = store.client else { return }
+        do {
+            let isoFmt: ISO8601DateFormatter = {
+                let f = ISO8601DateFormatter()
+                f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                return f
+            }()
+            let update = HBMaintenanceCreate(
+                name: entry.name,
+                description: entry.description ?? "",
+                date: isoFmt.string(from: Date()),
+                scheduledDate: entry.scheduledDate ?? "",
+                cost: entry.cost ?? 0
+            )
+            try await client.updateMaintenance(id: entry.id, entry: update)
+            NotificationManager.shared.cancel(entryId: entry.id)
+            await load()
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Marked as done"])
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Failed: \(error.localizedDescription)"])
         }
     }
 
@@ -849,35 +888,59 @@ private struct MaintenanceRow: View {
     let entry: HBMaintenanceEntry
 
     private var isCompleted: Bool { !(entry.date ?? "").isEmpty && !isEpoch(entry.date) }
+    private var isOverdue: Bool {
+        guard !isCompleted,
+              let s = entry.scheduledDate, !s.isEmpty, !isEpoch(s),
+              let d = parseDate(s) else { return false }
+        return d < Date()
+    }
     private var isScheduled: Bool { !isCompleted && !(entry.scheduledDate ?? "").isEmpty && !isEpoch(entry.scheduledDate) }
+
+    private var dotColor: Color {
+        if isCompleted { return .green }
+        if isOverdue   { return .red }
+        if isScheduled { return .orange }
+        return Color.secondary.opacity(0.4)
+    }
 
     var body: some View {
         HStack(spacing: 10) {
-            Circle()
-                .fill(isCompleted ? Color.green : isScheduled ? Color.orange : Color.secondary.opacity(0.4))
-                .frame(width: 8, height: 8)
+            Circle().fill(dotColor).frame(width: 9, height: 9)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(entry.name).font(.body.weight(.medium)).foregroundStyle(.primary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(entry.name).font(.body.weight(.medium)).foregroundStyle(.primary)
+                    let cadence = NotificationManager.shared.cadence(for: entry.id)
+                    if cadence != .never {
+                        Text(cadence.label)
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                    }
+                }
                 if let d = entry.description, !d.isEmpty {
                     Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if isCompleted, let date = formatDate(entry.date) {
-                    Text(date).font(.caption2).foregroundStyle(.secondary)
-                } else if isScheduled, let date = formatDate(entry.scheduledDate) {
+                if isCompleted, let ds = formatDate(entry.date) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.green)
+                        Text("Done \(ds)").font(.caption2).foregroundStyle(.secondary)
+                    }
+                } else if isOverdue, let ds = formatDate(entry.scheduledDate) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "exclamationmark.circle.fill").font(.caption2).foregroundStyle(.red)
+                        Text("Overdue · \(ds)").font(.caption2).foregroundStyle(.red)
+                    }
+                } else if isScheduled, let ds = formatDate(entry.scheduledDate) {
                     HStack(spacing: 3) {
                         Image(systemName: "calendar").font(.caption2)
-                        Text(date).font(.caption2)
+                        Text(ds).font(.caption2)
                     }
                     .foregroundStyle(.orange)
                 }
             }
             Spacer()
-            if let cost = entry.cost, cost > 0 {
-                Text(String(format: "%.2f", cost))
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
             Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
         }
         .padding(.vertical, 4)
@@ -885,14 +948,17 @@ private struct MaintenanceRow: View {
 
     private func isEpoch(_ s: String?) -> Bool { (s ?? "").hasPrefix("0001-01-01") }
 
-    private func formatDate(_ s: String?) -> String? {
-        guard let s, !s.isEmpty, !isEpoch(s) else { return nil }
+    private func parseDate(_ s: String) -> Date? {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f.date(from: s) { return d.formatted(date: .abbreviated, time: .omitted) }
+        if let d = f.date(from: s) { return d }
         f.formatOptions = [.withInternetDateTime]
-        if let d = f.date(from: s) { return d.formatted(date: .abbreviated, time: .omitted) }
-        return nil
+        return f.date(from: s)
+    }
+
+    private func formatDate(_ s: String?) -> String? {
+        guard let s, !s.isEmpty, !isEpoch(s), let d = parseDate(s) else { return nil }
+        return d.formatted(date: .abbreviated, time: .omitted)
     }
 }
 
@@ -904,130 +970,241 @@ struct MaintenanceEntrySheet: View {
     @Environment(\.dismiss) var dismiss
 
     let itemId: String
+    let itemName: String
     let existing: HBMaintenanceEntry?
 
     @State private var name: String
     @State private var description: String
-    @State private var cost: String
-    @State private var hasDate: Bool
-    @State private var date: Date
-    @State private var hasScheduledDate: Bool
     @State private var scheduledDate: Date
+    @State private var cadence: MaintenanceCadence
     @State private var isSaving = false
     @State private var errorMsg: String?
+    @FocusState private var nameFocused: Bool
+    @FocusState private var descFocused: Bool
 
     private static let isoFull: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
-    private static let isoBasic: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime]
-        return f
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
     }()
 
-    init(itemId: String, existing: HBMaintenanceEntry?) {
-        self.itemId = itemId
+    init(itemId: String, itemName: String, existing: HBMaintenanceEntry?) {
+        self.itemId   = itemId
+        self.itemName = itemName
         self.existing = existing
-        _name = State(initialValue: existing?.name ?? "")
+        _name        = State(initialValue: existing?.name ?? "")
         _description = State(initialValue: existing?.description ?? "")
-        _cost = State(initialValue: existing?.cost.map { $0 > 0 ? String(format: "%.2f", $0) : "" } ?? "")
 
         let parseDate: (String?) -> Date? = { s in
             guard let s, !s.isEmpty, !s.hasPrefix("0001-01-01") else { return nil }
-            if let d = Self.isoFull.date(from: s) { return d }
-            return Self.isoBasic.date(from: s)
+            let f = ISO8601DateFormatter()
+            f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let d = f.date(from: s) { return d }
+            f.formatOptions = [.withInternetDateTime]
+            return f.date(from: s)
         }
-
-        let d = parseDate(existing?.date)
-        _hasDate = State(initialValue: d != nil)
-        _date = State(initialValue: d ?? Date())
-
         let sd = parseDate(existing?.scheduledDate)
-        _hasScheduledDate = State(initialValue: sd != nil)
-        _scheduledDate = State(initialValue: sd ?? Date())
+        _scheduledDate = State(initialValue: sd ?? Calendar.current.date(byAdding: .month, to: Date()) ?? Date())
+        _cadence = State(initialValue: existing.map { NotificationManager.shared.cadence(for: $0.id) } ?? .never)
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section("Entry") {
-                    TextField("Name", text: $name)
-                        .textInputAutocapitalization(.sentences)
-                    TextField("Description (optional)", text: $description, axis: .vertical)
-                        .lineLimit(1...3)
-                    HStack {
-                        Text("Cost")
-                        Spacer()
-                        TextField("0.00", text: $cost)
-                            .keyboardType(.decimalPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 100)
+        VStack(spacing: 0) {
+            // Grabber
+            Capsule()
+                .fill(Color.secondary.opacity(0.5))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8).padding(.bottom, 4)
+
+            // Header
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.title3).foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text(existing == nil ? "Schedule Maintenance" : "Edit Maintenance")
+                    .font(.headline)
+                Spacer()
+                Button { Task { await save() } } label: {
+                    if isSaving { ProgressView().controlSize(.small) }
+                    else {
+                        Text("Save").fontWeight(.semibold)
+                            .foregroundStyle(canSave ? theme.current.accentColor : Color.secondary)
                     }
                 }
+                .buttonStyle(.plain)
+                .disabled(!canSave || isSaving)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
 
-                Section("Date performed") {
-                    Toggle("Mark as completed", isOn: $hasDate)
-                        .tint(theme.current.accentColor)
-                    if hasDate {
-                        DatePicker("Date", selection: $date, displayedComponents: .date)
+            Divider().opacity(0.3)
+
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 20) {
+
+                    // Name
+                    fieldSection(label: "NAME") {
+                        HStack(spacing: 12) {
+                            Image(systemName: "wrench.and.screwdriver")
+                                .foregroundStyle(theme.current.accentColor)
+                                .frame(width: 22)
+                            TextField("e.g. Oil change, Filter check", text: $name)
+                                .focused($nameFocused)
+                                .textInputAutocapitalization(.sentences)
+                        }
+                        .padding(.horizontal, 14).frame(height: 50)
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
-                }
 
-                Section("Scheduled date") {
-                    Toggle("Schedule maintenance", isOn: $hasScheduledDate)
-                        .tint(theme.current.accentColor)
-                    if hasScheduledDate {
-                        DatePicker("Date", selection: $scheduledDate, displayedComponents: .date)
+                    // Description
+                    fieldSection(label: "DESCRIPTION (OPTIONAL)") {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "text.alignleft")
+                                .foregroundStyle(theme.current.accentColor)
+                                .frame(width: 22).padding(.top, 3)
+                            ZStack(alignment: .topLeading) {
+                                TextEditor(text: $description)
+                                    .focused($descFocused)
+                                    .font(.callout)
+                                    .scrollContentBackground(.hidden)
+                                    .scrollIndicators(.hidden)
+                                if description.isEmpty && !descFocused {
+                                    Text("Additional notes…")
+                                        .font(.callout).foregroundStyle(.tertiary)
+                                        .allowsHitTesting(false).padding(.top, 4)
+                                }
+                            }
+                            .frame(minHeight: 60)
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
-                }
 
-                if let errorMsg {
-                    Section {
+                    // Date picker (graphical calendar)
+                    fieldSection(label: "SCHEDULED DATE") {
+                        DatePicker("", selection: $scheduledDate, displayedComponents: .date)
+                            .datePickerStyle(.graphical)
+                            .tint(theme.current.accentColor)
+                            .labelsHidden()
+                            .padding(.horizontal, 4).padding(.vertical, 4)
+                            .glassEffect(in: RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    // Cadence chips
+                    fieldSection(label: "REPEATS") {
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 8) {
+                                ForEach(MaintenanceCadence.allCases) { c in
+                                    cadenceChip(c)
+                                }
+                            }
+                            .padding(.horizontal, 2)
+                        }
+                        .scrollIndicators(.hidden)
+                    }
+
+                    if let errorMsg {
                         Label(errorMsg, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.red).font(.callout)
+                            .font(.callout).foregroundStyle(.red)
                     }
+
+                    // Save button
+                    Button { Task { await save() } } label: {
+                        HStack(spacing: 8) {
+                            if isSaving { ProgressView().controlSize(.small) }
+                            else {
+                                Image(systemName: "calendar.badge.checkmark")
+                                Text(existing == nil ? "Schedule" : "Update")
+                            }
+                        }
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity).frame(height: 50)
+                    }
+                    .buttonStyle(.glassProminent)
+                    .disabled(!canSave || isSaving)
+                    .padding(.bottom, 8)
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 24)
             }
-            .scrollContentBackground(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
-            .background(theme.current.backgroundColor.ignoresSafeArea())
-            .navigationTitle(existing == nil ? "Add maintenance" : "Edit maintenance")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await save() }
-                    } label: {
-                        if isSaving { ProgressView().controlSize(.small) }
-                        else { Text("Save").bold() }
-                    }
-                    .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
-                }
-            }
+        }
+        .background(theme.current.backgroundColor.ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private func fieldSection<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .tracking(0.5)
+            content()
         }
     }
 
-    private func toISO(_ d: Date) -> String { Self.isoFull.string(from: d) }
+    @ViewBuilder
+    private func cadenceChip(_ c: MaintenanceCadence) -> some View {
+        let isSelected = cadence == c
+        let accent = theme.current.accentColor
+        Text(c.label)
+            .font(.callout.weight(isSelected ? .semibold : .regular))
+            .foregroundStyle(isSelected ? accent : Color.secondary)
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            .background(Capsule().fill(isSelected ? accent.opacity(0.15) : Color.secondary.opacity(0.1)))
+            .overlay(Capsule().stroke(isSelected ? accent.opacity(0.4) : Color.clear, lineWidth: 1))
+            .contentShape(Capsule())
+            .onTapGesture { withAnimation(.spring(response: 0.2)) { cadence = c } }
+    }
+
+    private var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func save() async {
         guard let client = store.client else { return }
         isSaving = true; errorMsg = nil
+
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
         let entry = HBMaintenanceCreate(
-            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
-            description: description,
-            date: hasDate ? toISO(date) : "",
-            scheduledDate: hasScheduledDate ? toISO(scheduledDate) : "",
-            cost: Double(cost.replacingOccurrences(of: ",", with: ".")) ?? 0
+            name: trimmedName,
+            description: trimmedDesc,
+            date: existing?.date ?? "",
+            scheduledDate: Self.isoFull.string(from: scheduledDate),
+            cost: existing?.cost ?? 0
         )
+
         do {
+            let savedEntry: HBMaintenanceEntry
             if let existing {
                 try await client.updateMaintenance(id: existing.id, entry: entry)
+                // Cancel old notification before rescheduling
+                NotificationManager.shared.cancel(entryId: existing.id)
+                savedEntry = existing
             } else {
-                try await client.createMaintenance(itemId: itemId, entry: entry)
+                savedEntry = try await client.createMaintenance(itemId: itemId, entry: entry)
             }
+
+            // Schedule notification if date is in the future
+            if scheduledDate > Date() {
+                let granted = await NotificationManager.shared.requestPermission()
+                if granted {
+                    NotificationManager.shared.schedule(
+                        entryId: savedEntry.id,
+                        entryName: trimmedName,
+                        entryDescription: trimmedDesc,
+                        itemId: itemId,
+                        itemName: itemName,
+                        date: scheduledDate,
+                        cadence: cadence
+                    )
+                }
+            } else {
+                NotificationManager.shared.saveCadence(cadence, for: savedEntry.id)
+            }
+
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             dismiss()
         } catch {

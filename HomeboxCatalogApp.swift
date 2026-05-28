@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @main
 struct HomeboxCatalogApp: App {
@@ -7,6 +8,9 @@ struct HomeboxCatalogApp: App {
     @StateObject private var theme = ThemeManager()
 
     init() {
+        UNUserNotificationCenter.current().delegate = NotificationManager.shared
+        NotificationManager.shared.registerCategories()
+
         let nav = UINavigationBarAppearance()
         nav.configureWithTransparentBackground()
         UINavigationBar.appearance().standardAppearance = nav
