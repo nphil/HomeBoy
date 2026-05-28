@@ -238,35 +238,57 @@ struct HBItemSummary: Codable, Identifiable, Hashable {
     let name: String
 }
 
-struct HBMaintenanceEntry: Codable, Identifiable {
+struct HBMaintenanceEntry: Decodable, Identifiable {
     let id: String
     let name: String
     var description: String?
-    var date: String?
+    var completedDate: String?
     var scheduledDate: String?
     var cost: Double?
     var createdAt: String?
     var updatedAt: String?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id            = try c.decode(String.self, forKey: .id)
+        name          = try c.decode(String.self, forKey: .name)
+        description   = try? c.decodeIfPresent(String.self, forKey: .description)
+        completedDate = try? c.decodeIfPresent(String.self, forKey: .completedDate)
+        scheduledDate = try? c.decodeIfPresent(String.self, forKey: .scheduledDate)
+        createdAt     = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+        updatedAt     = try? c.decodeIfPresent(String.self, forKey: .updatedAt)
+        // cost is encoded as a JSON string by the server ("cost,string" tag)
+        if let s = try? c.decodeIfPresent(String.self, forKey: .cost) {
+            cost = Double(s)
+        } else {
+            cost = try? c.decodeIfPresent(Double.self, forKey: .cost)
+        }
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, completedDate, scheduledDate, cost, createdAt, updatedAt
+    }
 }
 
 struct HBMaintenanceCreate: Encodable {
     var name: String
     var description: String
-    var date: String?        // omitted when nil (entry not yet completed)
-    var scheduledDate: String
+    var completedDate: String?    // omitted when nil (entry not yet completed); YYYY-MM-DD
+    var scheduledDate: String     // YYYY-MM-DD
     var cost: Double
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(name, forKey: .name)
         try c.encode(description, forKey: .description)
-        try c.encodeIfPresent(date, forKey: .date)
+        try c.encodeIfPresent(completedDate, forKey: .completedDate)
         try c.encode(scheduledDate, forKey: .scheduledDate)
-        try c.encode(cost, forKey: .cost)
+        // server uses json:"cost,string" — must send as JSON string
+        try c.encode(String(format: "%g", cost), forKey: .cost)
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, description, date, scheduledDate, cost
+        case name, description, completedDate, scheduledDate, cost
     }
 }
 

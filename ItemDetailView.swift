@@ -266,8 +266,8 @@ struct ItemDetailView: View {
         GlassCard(title: "Maintenance") {
             VStack(alignment: .leading, spacing: 8) {
                 let sorted = maintenance.sorted {
-                    let a = $0.scheduledDate ?? $0.date ?? $0.createdAt ?? ""
-                    let b = $1.scheduledDate ?? $1.date ?? $1.createdAt ?? ""
+                    let a = $0.scheduledDate ?? $0.completedDate ?? $0.createdAt ?? ""
+                    let b = $1.scheduledDate ?? $1.completedDate ?? $1.createdAt ?? ""
                     return a < b
                 }
                 ForEach(sorted) { entry in
@@ -887,7 +887,7 @@ struct FullScreenImageView: View {
 private struct MaintenanceRow: View {
     let entry: HBMaintenanceEntry
 
-    private var isCompleted: Bool { !(entry.date ?? "").isEmpty && !isEpoch(entry.date) }
+    private var isCompleted: Bool { !(entry.completedDate ?? "").isEmpty && !isEpoch(entry.completedDate) }
     private var isOverdue: Bool {
         guard !isCompleted,
               let s = entry.scheduledDate, !s.isEmpty, !isEpoch(s),
@@ -922,7 +922,7 @@ private struct MaintenanceRow: View {
                 if let d = entry.description, !d.isEmpty {
                     Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if isCompleted, let ds = formatDate(entry.date) {
+                if isCompleted, let ds = formatDate(entry.completedDate) {
                     HStack(spacing: 3) {
                         Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.green)
                         Text("Done \(ds)").font(.caption2).foregroundStyle(.secondary)
@@ -1201,13 +1201,13 @@ struct MaintenanceEntrySheet: View {
         let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
         let schedStr = Self.dateOnly(scheduledDate)
         let completedStr: String? = existing.flatMap { e -> String? in
-            let d = e.date ?? ""
+            let d = e.completedDate ?? ""
             return (d.isEmpty || d.hasPrefix("0001-01-01")) ? nil : d
         }
         let entry = HBMaintenanceCreate(
             name: trimmedName,
             description: trimmedDesc,
-            date: completedStr,
+            completedDate: completedStr,
             scheduledDate: schedStr,
             cost: existing?.cost ?? 0
         )

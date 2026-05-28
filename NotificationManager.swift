@@ -237,7 +237,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         Task {
             let doneEntry = HBMaintenanceCreate(
                 name: entryName, description: desc,
-                date: dateOnly(Date()), scheduledDate: schedStr, cost: 0
+                completedDate: dateOnly(Date()), scheduledDate: schedStr, cost: 0
             )
             try? await client.updateMaintenance(id: entryId, entry: doneEntry)
 
@@ -249,7 +249,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             {
                 let nextEntry = HBMaintenanceCreate(
                     name: entryName, description: desc,
-                    date: nil, scheduledDate: dateOnly(nextDate), cost: 0
+                    completedDate: nil, scheduledDate: dateOnly(nextDate), cost: 0
                 )
                 if let created = try? await client.createMaintenance(itemId: itemId, entry: nextEntry) {
                     self.schedule(
