@@ -212,6 +212,26 @@ final class HomeboxStore: ObservableObject {
             } catch {}
         }
         pendingOpsCount = localDB.pendingOps.count
+
+        // Sync pending maintenance operations
+        let maintOps = localDB.pendingMaintenance
+        for op in maintOps {
+            guard let client else { break }
+            do {
+                let entry = HBMaintenanceCreate(
+                    name: op.name, description: op.description,
+                    completedDate: op.completedDate, scheduledDate: op.scheduledDate, cost: op.cost
+                )
+                if let entryId = op.entryId {
+                    try await client.updateMaintenance(id: entryId, entry: entry)
+                } else {
+                    _ = try await client.createMaintenance(itemId: op.itemId, entry: entry)
+                }
+                localDB.dequeueMaintenance(id: op.id)
+                syncedCount += 1
+            } catch {}
+        }
+
         if syncedCount > 0 {
             NotificationCenter.default.post(name: .showToast, object: nil,
                                             userInfo: ["message": "Synced \(syncedCount) offline item(s)"])

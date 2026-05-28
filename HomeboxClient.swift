@@ -268,6 +268,13 @@ struct HBMaintenanceEntry: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey {
         case id, name, description, completedDate, scheduledDate, cost, createdAt, updatedAt
     }
+
+    init(id: String, name: String, description: String? = nil, completedDate: String? = nil,
+         scheduledDate: String? = nil, cost: Double? = nil, createdAt: String? = nil, updatedAt: String? = nil) {
+        self.id = id; self.name = name; self.description = description
+        self.completedDate = completedDate; self.scheduledDate = scheduledDate
+        self.cost = cost; self.createdAt = createdAt; self.updatedAt = updatedAt
+    }
 }
 
 struct HBMaintenanceCreate: Encodable {

@@ -335,15 +335,26 @@ struct ItemDetailView: View {
     }
 
     private func load() async {
-        guard let client = store.client else { return }
         isLoading = true; loadError = nil
+        let pending = store.localDB.pendingMaintenanceOps(for: itemId).map { $0.asDisplayEntry() }
+        if store.isOffline {
+            maintenance = pending
+            isLoading = false
+            return
+        }
+        guard let client = store.client else { isLoading = false; return }
         do {
             async let itemTask  = client.getItem(id: itemId)
             async let childTask = client.listItems(parentIds: [itemId], pageSize: 500)
             async let maintTask = client.listMaintenance(itemId: itemId)
-            item        = try await itemTask
-            children    = (try? await childTask)?.items ?? []
-            maintenance = (try? await maintTask) ?? []
+            item     = try await itemTask
+            children = (try? await childTask)?.items ?? []
+            let fetched = (try? await maintTask) ?? []
+            maintenance = (fetched + pending).sorted {
+                let a = $0.scheduledDate ?? $0.completedDate ?? $0.createdAt ?? ""
+                let b = $1.scheduledDate ?? $1.completedDate ?? $1.createdAt ?? ""
+                return a > b
+            }
         } catch {
             loadError = error.localizedDescription
         }
@@ -366,6 +377,12 @@ struct ItemDetailView: View {
     }
 
     private func deleteMaintEntry(_ entry: HBMaintenanceEntry) async {
+        if entry.id.hasPrefix("pending-") {
+            let localId = String(entry.id.dropFirst("pending-".count))
+            store.localDB.dequeueMaintenance(id: localId)
+            maintenance.removeAll { $0.id == entry.id }
+            return
+        }
         guard let client = store.client else { return }
         do {
             try await client.deleteMaintenance(id: entry.id)
@@ -936,6 +953,11 @@ private struct MaintenanceRow: View {
                 }
             }
             Spacer()
+            if entry.id.hasPrefix("pending-") {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
             Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
         }
         .padding(.vertical, 4)
@@ -978,6 +1000,7 @@ struct MaintenanceEntrySheet: View {
     @State private var scheduledDate: Date
     @State private var cadence: MaintenanceCadence
     @State private var isSaving = false
+    @State private var costStr: String
     @State private var errorMsg: String?
     @FocusState private var nameFocused: Bool
     @FocusState private var descFocused: Bool
@@ -1005,6 +1028,11 @@ struct MaintenanceEntrySheet: View {
         let sd = parseDate(existing?.scheduledDate)
         _scheduledDate = State(initialValue: sd ?? Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
         _cadence = State(initialValue: existing.map { NotificationManager.shared.cadence(for: $0.id) } ?? .oneTime)
+        let existingCost = existing?.cost ?? 0
+        _costStr = State(initialValue: existingCost > 0 ? {
+            let v = existingCost.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(existingCost))" : "\(existingCost)"
+            return v
+        }() : "")
     }
 
     var body: some View {
@@ -1079,6 +1107,20 @@ struct MaintenanceEntrySheet: View {
                             .frame(minHeight: 60)
                         }
                         .padding(.horizontal, 14).padding(.vertical, 10)
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    // Cost
+                    fieldSection(label: "COST (OPTIONAL)") {
+                        HStack(spacing: 12) {
+                            Image(systemName: "dollarsign")
+                                .foregroundStyle(theme.current.accentColor)
+                                .frame(width: 22)
+                            TextField("0", text: $costStr)
+                                .keyboardType(.decimalPad)
+                                .font(.body)
+                        }
+                        .padding(.horizontal, 14).frame(height: 50)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
@@ -1177,7 +1219,7 @@ struct MaintenanceEntrySheet: View {
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
         }
-        .background(theme.current.backgroundColor.ignoresSafeArea())
+        .background(.regularMaterial)
     }
 
     @ViewBuilder
@@ -1194,7 +1236,29 @@ struct MaintenanceEntrySheet: View {
     private var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func save() async {
-        guard !store.isOffline else { errorMsg = "No connection to Homebox"; return }
+        guard !store.isOffline else {
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
+            let cost = Double(costStr.replacingOccurrences(of: ",", with: ".")) ?? 0
+            let op = PendingMaintenanceOp(
+                id: UUID().uuidString,
+                itemId: itemId,
+                entryId: existing?.id,
+                name: trimmedName,
+                description: trimmedDesc,
+                completedDate: existing.flatMap { e -> String? in
+                    let d = e.completedDate ?? ""
+                    return (d.isEmpty || d.hasPrefix("0001-01-01")) ? nil : d
+                },
+                scheduledDate: Self.dateOnly(scheduledDate),
+                cost: cost,
+                localCreatedAt: Date()
+            )
+            store.localDB.enqueueMaintenance(op)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            dismiss()
+            return
+        }
         guard let client = store.client else { return }
         isSaving = true; errorMsg = nil
 
@@ -1210,7 +1274,7 @@ struct MaintenanceEntrySheet: View {
             description: trimmedDesc,
             completedDate: completedStr,
             scheduledDate: schedStr,
-            cost: existing?.cost ?? 0
+            cost: Double(costStr.replacingOccurrences(of: ",", with: ".")) ?? 0
         )
 
         do {
