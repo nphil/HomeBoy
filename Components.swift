@@ -285,7 +285,8 @@ struct QuantityControl: View {
             }
             Text("\(value)")
                 .font(.title3.monospacedDigit().weight(.semibold))
-                .frame(minWidth: 40)
+                .frame(width: 40, alignment: .center)
+                .multilineTextAlignment(.center)
                 .contentTransition(.numericText())
             stepperButton(systemImage: "plus") {
                 if value < range.upperBound { value += 1 }

@@ -1165,6 +1165,7 @@ struct MaintenanceEntrySheet: View {
                                     .labelsHidden()
                                     .pickerStyle(.menu)
                                     .tint(theme.current.accentColor)
+                                    .fixedSize()
                                 }
                                 .padding(.horizontal, 14).padding(.vertical, 10)
                                 .glassEffect(in: RoundedRectangle(cornerRadius: 14))
