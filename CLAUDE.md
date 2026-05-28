@@ -12,9 +12,9 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 ## 2. Build & CI
 - **Never run Xcode locally** — use GitHub Actions (`.github/workflows/build.yml`).
 - Unsigned IPA (`CODE_SIGNING_ALLOWED=NO`). Runner: `macos-15`, Xcode 26 / iOS 26 SDK.
-- **Always push to BOTH branches**: `git push origin HEAD:main && git push origin claude/ipad-release-visibility-LWSdB`
-- **CI conflict recovery** (CI auto-bumps version after each push): `git fetch origin main && git rebase origin/main && git push origin HEAD:main && git push origin claude/ipad-release-visibility-LWSdB --force-with-lease`
-- **Release**: Tag `v*` → builds IPA, creates GitHub release, patches `apps.json`. Never edit `apps.json` by hand.
+- **Push to main only**: `git push origin HEAD:main` — do NOT push to any feature branch.
+- **CI conflict recovery** (CI auto-bumps version after each push): `git fetch origin main && git rebase origin/main && git push origin HEAD:main`
+- **Release**: Every push to `main` automatically builds an IPA, creates a GitHub release, and patches `apps.json`. No manual steps needed.
 - Pushing `.github/workflows/*` needs `workflow` scope: `gh auth refresh -h github.com -s workflow`.
 - **Versioning**: patch increment for bug fixes (`1.0.1`), minor/major for feature drops (`1.1`, `2.0`).
 
@@ -46,7 +46,7 @@ Rapid-input iPhone app for cataloguing items into a self-hosted [Homebox](https:
 
 ## 4. Critical Architecture Rules
 
-1. **Push to BOTH branches** — always `git push origin HEAD:main && git push origin claude/ipad-release-visibility-LWSdB`.
+1. **Push to main only** — always `git push origin HEAD:main`. Never push to any other branch.
 
 2. **Add/Create Modals** — use `.floatingCardCover(isPresented:onDismiss:)` from `Components.swift`, **NOT `.sheet`**. SwiftUI sheets anchor to the screen bottom and get clipped by device rounded corners. `FloatingCardContainer` wraps content in `.fullScreenCover` + `.presentationBackground(.clear)`, rendering a rounded card inset on all four sides over a dimmed backdrop. Exception: `MaintenanceEntrySheet` uses `.sheet` (it's a sub-sheet inside an already-floating detail view).
 
