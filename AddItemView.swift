@@ -390,10 +390,7 @@ struct AddItemView: View {
     // MARK: Photos & Notes sections
 
     private var photosSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            sectionHeader("Photos")
-            photosTile
-        }
+        photosTile
     }
 
     private var notesSection: some View {
@@ -434,9 +431,9 @@ struct AddItemView: View {
             // Always-visible add button — shows camera/library action sheet
             Button { showPhotoOptions = true } label: {
                 Image(systemName: "camera.fill")
-                    .font(.body)
+                    .font(.title2)
                     .foregroundStyle(accentColor)
-                    .frame(width: 44, height: 44)
+                    .frame(width: 80, height: 80)
             }
             .buttonStyle(.glass)
             .confirmationDialog("", isPresented: $showPhotoOptions, titleVisibility: .hidden) {
@@ -454,21 +451,21 @@ struct AddItemView: View {
                         ForEach(Array(photos.enumerated()), id: \.offset) { idx, photo in
                             ZStack(alignment: .topTrailing) {
                                 Image(uiImage: photo).resizable().scaledToFill()
-                                    .frame(width: 44, height: 44)
-                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                                    .frame(width: 80, height: 80)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
                                 Button {
                                     photos.remove(at: idx)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
-                                        .font(.caption2).foregroundStyle(.white)
+                                        .font(.caption).foregroundStyle(.white)
                                         .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
                                 }
                                 .buttonStyle(.plain)
-                                .offset(x: 4, y: -4)
+                                .offset(x: 6, y: -6)
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 6)
                 }
                 .scrollIndicators(.hidden)
             }

@@ -1088,25 +1088,16 @@ struct MaintenanceEntrySheet: View {
 
                     // Description
                     fieldSection(label: "DESCRIPTION (OPTIONAL)") {
-                        HStack(alignment: .top, spacing: 12) {
+                        HStack(spacing: 12) {
                             Image(systemName: "text.alignleft")
                                 .foregroundStyle(theme.current.accentColor)
-                                .frame(width: 22).padding(.top, 3)
-                            ZStack(alignment: .topLeading) {
-                                TextEditor(text: $description)
-                                    .focused($descFocused)
-                                    .font(.callout)
-                                    .scrollContentBackground(.hidden)
-                                    .scrollIndicators(.hidden)
-                                if description.isEmpty && !descFocused {
-                                    Text("Additional notes…")
-                                        .font(.callout).foregroundStyle(.tertiary)
-                                        .allowsHitTesting(false).padding(.top, 4)
-                                }
-                            }
-                            .frame(minHeight: 60)
+                                .frame(width: 22)
+                            TextField("Additional notes…", text: $description)
+                                .focused($descFocused)
+                                .textInputAutocapitalization(.sentences)
+                                .font(.callout)
                         }
-                        .padding(.horizontal, 14).padding(.vertical, 10)
+                        .padding(.horizontal, 14).frame(height: 50)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
@@ -1124,14 +1115,20 @@ struct MaintenanceEntrySheet: View {
                         .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
-                    // Date picker (graphical calendar)
+                    // Date picker (compact row, no scroll needed)
                     fieldSection(label: "SCHEDULED DATE") {
-                        DatePicker("", selection: $scheduledDate, displayedComponents: .date)
-                            .datePickerStyle(.graphical)
-                            .tint(theme.current.accentColor)
-                            .labelsHidden()
-                            .padding(.horizontal, 4).padding(.vertical, 4)
-                            .glassEffect(in: RoundedRectangle(cornerRadius: 16))
+                        HStack(spacing: 12) {
+                            Image(systemName: "calendar")
+                                .foregroundStyle(theme.current.accentColor)
+                                .frame(width: 22)
+                            DatePicker("", selection: $scheduledDate, displayedComponents: .date)
+                                .labelsHidden()
+                                .datePickerStyle(.compact)
+                                .tint(theme.current.accentColor)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 14).frame(height: 50)
+                        .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
                     // Repeating schedule
@@ -1155,31 +1152,21 @@ struct MaintenanceEntrySheet: View {
                             .glassEffect(in: RoundedRectangle(cornerRadius: 14))
 
                             if !cadence.isOneTime {
-                                HStack(spacing: 0) {
-                                    Text("Every")
-                                        .font(.callout)
-                                        .padding(.leading, 16)
+                                HStack(spacing: 12) {
+                                    Text("Every").font(.callout)
                                     Spacer()
-                                    Picker("", selection: $cadence.value) {
-                                        ForEach(1...99, id: \.self) { n in
-                                            Text("\(n)").tag(n)
-                                        }
-                                    }
-                                    .labelsHidden()
-                                    .pickerStyle(.wheel)
-                                    .frame(width: 70, height: 100)
-                                    .clipped()
+                                    QuantityControl(value: $cadence.value, range: 1...99)
+                                        .environmentObject(theme)
                                     Picker("", selection: $cadence.unit) {
                                         ForEach(CadenceUnit.allCases) { unit in
                                             Text(unit.label(count: cadence.value)).tag(unit)
                                         }
                                     }
                                     .labelsHidden()
-                                    .pickerStyle(.wheel)
-                                    .frame(width: 120, height: 100)
-                                    .clipped()
-                                    Spacer().frame(width: 16)
+                                    .pickerStyle(.menu)
+                                    .tint(theme.current.accentColor)
                                 }
+                                .padding(.horizontal, 14).padding(.vertical, 10)
                                 .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                                 .transition(.move(edge: .top).combined(with: .opacity))
                             }
@@ -1219,7 +1206,6 @@ struct MaintenanceEntrySheet: View {
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.hidden)
         }
-        .background(.regularMaterial)
     }
 
     @ViewBuilder
