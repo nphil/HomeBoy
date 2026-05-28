@@ -56,7 +56,7 @@ final class HomeboxStore: ObservableObject {
     @Published var isOfflineModeEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isOfflineModeEnabled, forKey: Keys.offlineMode)
-            if !isOfflineModeEnabled && isConnectedToNetwork && localDB.pendingOps.count > 0 {
+            if !isOfflineModeEnabled && isConnectedToNetwork && (localDB.pendingOps.count > 0 || localDB.pendingMaintenance.count > 0) {
                 Task { await syncPendingOps() }
             }
         }
@@ -155,7 +155,7 @@ final class HomeboxStore: ObservableObject {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isConnectedToNetwork = connected
-                if connected && !self.isOfflineModeEnabled && self.localDB.pendingOps.count > 0 {
+                if connected && !self.isOfflineModeEnabled && (self.localDB.pendingOps.count > 0 || self.localDB.pendingMaintenance.count > 0) {
                     await self.syncPendingOps()
                 }
             }
@@ -216,7 +216,6 @@ final class HomeboxStore: ObservableObject {
         // Sync pending maintenance operations
         let maintOps = localDB.pendingMaintenance
         for op in maintOps {
-            guard let client else { break }
             do {
                 let entry = HBMaintenanceCreate(
                     name: op.name, description: op.description,
