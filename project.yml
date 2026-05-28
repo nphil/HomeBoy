@@ -33,8 +33,8 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: HomeBoy
-        CFBundleShortVersionString: "1.0.83"
-        CFBundleVersion: "84"
+        CFBundleShortVersionString: "1.0.84"
+        CFBundleVersion: "85"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
