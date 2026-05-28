@@ -911,8 +911,8 @@ private struct MaintenanceRow: View {
                 HStack(spacing: 6) {
                     Text(entry.name).font(.body.weight(.medium)).foregroundStyle(.primary)
                     let cadence = NotificationManager.shared.cadence(for: entry.id)
-                    if cadence != .never {
-                        Text(cadence.label)
+                    if !cadence.isOneTime {
+                        Text(cadence.displayLabel)
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                             .padding(.horizontal, 6).padding(.vertical, 2)
@@ -1003,7 +1003,7 @@ struct MaintenanceEntrySheet: View {
         }
         let sd = parseDate(existing?.scheduledDate)
         _scheduledDate = State(initialValue: sd ?? Calendar.current.date(byAdding: .month, value: 1, to: Date()) ?? Date())
-        _cadence = State(initialValue: existing.map { NotificationManager.shared.cadence(for: $0.id) } ?? .never)
+        _cadence = State(initialValue: existing.map { NotificationManager.shared.cadence(for: $0.id) } ?? .oneTime)
     }
 
     var body: some View {
@@ -1095,7 +1095,7 @@ struct MaintenanceEntrySheet: View {
                     fieldSection(label: "REPEATS") {
                         ScrollView(.horizontal) {
                             HStack(spacing: 8) {
-                                ForEach(MaintenanceCadence.allCases) { c in
+                                ForEach(MaintenanceCadence.presets) { c in
                                     cadenceChip(c)
                                 }
                             }
@@ -1150,7 +1150,7 @@ struct MaintenanceEntrySheet: View {
     private func cadenceChip(_ c: MaintenanceCadence) -> some View {
         let isSelected = cadence == c
         let accent = theme.current.accentColor
-        Text(c.label)
+        Text(c.displayLabel)
             .font(.callout.weight(isSelected ? .semibold : .regular))
             .foregroundStyle(isSelected ? accent : Color.secondary)
             .padding(.horizontal, 14).padding(.vertical, 8)

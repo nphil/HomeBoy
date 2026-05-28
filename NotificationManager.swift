@@ -1,44 +1,93 @@
 import Foundation
 import UserNotifications
 
-// MARK: - Maintenance cadence
+// MARK: - Cadence unit
 
-enum MaintenanceCadence: String, CaseIterable, Identifiable {
-    case never       = "never"
-    case weekly      = "weekly"
-    case biweekly    = "biweekly"
-    case monthly     = "monthly"
-    case quarterly   = "quarterly"
-    case biannually  = "biannually"
-    case yearly      = "yearly"
+enum CadenceUnit: String, CaseIterable, Identifiable {
+    case hour  = "hour"
+    case day   = "day"
+    case week  = "week"
+    case month = "month"
+    case year  = "year"
 
     var id: String { rawValue }
 
-    var label: String {
+    func label(count: Int) -> String {
+        let s: String
         switch self {
-        case .never:      return "One-time"
-        case .weekly:     return "Weekly"
-        case .biweekly:   return "Every 2 Weeks"
-        case .monthly:    return "Monthly"
-        case .quarterly:  return "Every 3 Months"
-        case .biannually: return "Every 6 Months"
-        case .yearly:     return "Yearly"
+        case .hour:  s = "hour"
+        case .day:   s = "day"
+        case .week:  s = "week"
+        case .month: s = "month"
+        case .year:  s = "year"
+        }
+        return count == 1 ? s : s + "s"
+    }
+}
+
+// MARK: - Maintenance cadence
+
+struct MaintenanceCadence: Equatable, Identifiable {
+    var value: Int         // 0 = one-time (no recurrence)
+    var unit: CadenceUnit
+
+    var id: String { rawValue }
+
+    static let oneTime = MaintenanceCadence(value: 0, unit: .month)
+
+    static let presets: [MaintenanceCadence] = [
+        .oneTime,
+        MaintenanceCadence(value: 1, unit: .week),
+        MaintenanceCadence(value: 2, unit: .week),
+        MaintenanceCadence(value: 1, unit: .month),
+        MaintenanceCadence(value: 3, unit: .month),
+        MaintenanceCadence(value: 6, unit: .month),
+        MaintenanceCadence(value: 1, unit: .year),
+    ]
+
+    var isOneTime: Bool { value == 0 }
+
+    var rawValue: String { isOneTime ? "0" : "\(value):\(unit.rawValue)" }
+
+    init(value: Int = 0, unit: CadenceUnit = .month) {
+        self.value = value; self.unit = unit
+    }
+
+    init?(rawValue: String) {
+        // Legacy enum format (before the "every X Y" redesign)
+        switch rawValue {
+        case "0", "never":  self.value = 0; self.unit = .month
+        case "weekly":      self.value = 1; self.unit = .week
+        case "biweekly":    self.value = 2; self.unit = .week
+        case "monthly":     self.value = 1; self.unit = .month
+        case "quarterly":   self.value = 3; self.unit = .month
+        case "biannually":  self.value = 6; self.unit = .month
+        case "yearly":      self.value = 1; self.unit = .year
+        default:
+            let parts = rawValue.split(separator: ":").map(String.init)
+            guard parts.count == 2,
+                  let v = Int(parts[0]),
+                  let u = CadenceUnit(rawValue: parts[1]) else { return nil }
+            self.value = v; self.unit = u
         }
     }
 
-    /// Returns the date of the next occurrence, or nil for one-time.
     func nextDate(from date: Date) -> Date? {
+        guard value > 0 else { return nil }
         var comps = DateComponents()
-        switch self {
-        case .never:      return nil
-        case .weekly:     comps.weekOfYear = 1
-        case .biweekly:   comps.weekOfYear = 2
-        case .monthly:    comps.month = 1
-        case .quarterly:  comps.month = 3
-        case .biannually: comps.month = 6
-        case .yearly:     comps.year = 1
+        switch unit {
+        case .hour:  comps.hour       = value
+        case .day:   comps.day        = value
+        case .week:  comps.weekOfYear = value
+        case .month: comps.month      = value
+        case .year:  comps.year       = value
         }
         return Calendar.current.date(byAdding: comps, to: date)
+    }
+
+    var displayLabel: String {
+        guard value > 0 else { return "One-time" }
+        return "Every \(value) \(unit.label(count: value))"
     }
 }
 
@@ -124,13 +173,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     func saveCadence(_ cadence: MaintenanceCadence, for entryId: String) {
         var dict = cadenceDict()
-        if cadence == .never { dict.removeValue(forKey: entryId) }
+        if cadence.isOneTime { dict.removeValue(forKey: entryId) }
         else                 { dict[entryId] = cadence.rawValue }
         UserDefaults.standard.set(dict, forKey: cadenceKey)
     }
 
     func cadence(for entryId: String) -> MaintenanceCadence {
-        MaintenanceCadence(rawValue: cadenceDict()[entryId] ?? "") ?? .never
+        guard let raw = cadenceDict()[entryId] else { return .oneTime }
+        return MaintenanceCadence(rawValue: raw) ?? .oneTime
     }
 
     private func removeCadence(for entryId: String) {
@@ -165,7 +215,6 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         if response.actionIdentifier == "MARK_DONE" {
             handleMarkDone(info: info, completionHandler: completionHandler)
         } else {
-            // Tap on banner body — open the app; nothing special to navigate yet
             completionHandler()
         }
     }
@@ -183,7 +232,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         let client   = HomeboxClient(serverURL: serverURL, token: token, tenantId: groupId)
         let desc     = info["entryDescription"] as? String ?? ""
         let schedStr = info["scheduledDate"]    as? String ?? ""
-        let cadence  = MaintenanceCadence(rawValue: info["cadence"] as? String ?? "") ?? .never
+        let cadence  = MaintenanceCadence(rawValue: info["cadence"] as? String ?? "") ?? .oneTime
 
         Task {
             let doneEntry = HBMaintenanceCreate(
@@ -192,8 +241,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             )
             try? await client.updateMaintenance(id: entryId, entry: doneEntry)
 
-            // Schedule next occurrence for repeating entries
-            if cadence != .never,
+            if !cadence.isOneTime,
                let scheduledDate = parseISO(schedStr),
                let nextDate      = cadence.nextDate(from: scheduledDate),
                let itemId        = info["itemId"]   as? String,
@@ -201,7 +249,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
             {
                 let nextEntry = HBMaintenanceCreate(
                     name: entryName, description: desc,
-                    date: "", scheduledDate: iso.string(from: nextDate), cost: 0
+                    date: "0001-01-01T00:00:00.000Z", scheduledDate: iso.string(from: nextDate), cost: 0
                 )
                 if let created = try? await client.createMaintenance(itemId: itemId, entry: nextEntry) {
                     self.schedule(

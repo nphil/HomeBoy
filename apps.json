@@ -15,6 +15,7 @@
       "iconURL": "https://raw.githubusercontent.com/nphil/HomeBoy/main/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
       "tintColor": "#06b6d4",
       "category": "utilities",
+      "deviceFamilies": [1, 2],
       "versions": [
         {
           "version": "1.0.79",
