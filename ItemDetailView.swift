@@ -379,15 +379,10 @@ struct ItemDetailView: View {
     private func markDone(_ entry: HBMaintenanceEntry) async {
         guard let client = store.client else { return }
         do {
-            let isoFmt: ISO8601DateFormatter = {
-                let f = ISO8601DateFormatter()
-                f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                return f
-            }()
             let update = HBMaintenanceCreate(
                 name: entry.name,
                 description: entry.description ?? "",
-                date: isoFmt.string(from: Date()),
+                completedDate: MaintenanceEntrySheet.dateOnly(Date()),
                 scheduledDate: entry.scheduledDate ?? "",
                 cost: entry.cost ?? 0
             )
