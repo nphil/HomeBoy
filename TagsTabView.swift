@@ -16,17 +16,39 @@ struct TagsTabView: View {
 
     @Binding var globalSearchQuery: String
 
+    enum TagViewMode: String { case list, tile }
+    @AppStorage("tagsViewMode") private var viewMode: TagViewMode = .list
+
     @State private var tags: [HBTag] = []
     @State private var isLoading = false
     @State private var showCreate = false
+    @State private var showFilters = false
     @State private var isSearchActive = false
 
     var body: some View {
         NavigationStack {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                ZStack(alignment: .top) {
+                    content
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if showFilters {
+                        tagsFilterPanel
+                            .padding(.horizontal, 16)
+                            .padding(.top, 8)
+                            .padding(.bottom, 8)
+                            .background(
+                                LinearGradient(
+                                    colors: [theme.current.backgroundColor, theme.current.backgroundColor.opacity(0.95), theme.current.backgroundColor.opacity(0)],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            )
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -57,11 +79,18 @@ struct TagsTabView: View {
                         .environmentObject(store)
                         .environmentObject(theme)
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         isSearchActive = true
                     } label: {
                         Image(systemName: "magnifyingglass")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                    } label: {
+                        Image(systemName: showFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
                     }
                 }
             }
@@ -96,6 +125,34 @@ struct TagsTabView: View {
         }
     }
 
+    // MARK: - Filter panel
+
+    private var tagsFilterPanel: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 4) {
+                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                    .foregroundStyle(theme.current.accentColor)
+                    .font(.caption)
+                Text(viewMode == .list ? "List" : "Tiles")
+                    .font(.caption.weight(.medium))
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.15))
+            .foregroundStyle(.primary)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewMode = viewMode == .list ? .tile : .list
+                }
+            }
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Content
+
     @ViewBuilder
     private var content: some View {
         if !store.isAuthenticated {
@@ -114,24 +171,55 @@ struct TagsTabView: View {
                 Text("Tap + to create your first tag.").font(.callout).foregroundStyle(.secondary)
             }
         } else {
-            ScrollView {
-                LazyVStack(spacing: 6) {
-                    ForEach(filteredTags) { tag in
-                        NavigationLink(value: TagDetailRoute(id: tag.id, name: tag.name, color: tag.color)) {
-                            TagRow(tag: tag)
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal, 16)
-                    }
-                }
-                .padding(.vertical, 8)
-                .padding(.bottom, 80)
+            switch viewMode {
+            case .list: listContent
+            case .tile: tileContent
             }
-            .coordinateSpace(name: "pullToSearch")
-            .scrollDismissesKeyboard(.interactively)
-            .scrollIndicators(.hidden)
-            .refreshable { await load() }
         }
+    }
+
+    private var listContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 6) {
+                ForEach(filteredTags) { tag in
+                    NavigationLink(value: TagDetailRoute(id: tag.id, name: tag.name, color: tag.color)) {
+                        TagRow(tag: tag)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 16)
+                }
+            }
+            .padding(.vertical, 8)
+            .padding(.bottom, 80)
+        }
+        .coordinateSpace(name: "pullToSearch")
+        .scrollDismissesKeyboard(.interactively)
+        .scrollIndicators(.hidden)
+        .refreshable { await load() }
+        .safeAreaPadding(.top, showFilters ? 50 : 0)
+    }
+
+    private var tileContent: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 155, maximum: 195), spacing: 12, alignment: .top)],
+                spacing: 12
+            ) {
+                ForEach(filteredTags) { tag in
+                    NavigationLink(value: TagDetailRoute(id: tag.id, name: tag.name, color: tag.color)) {
+                        TagTileCell(tag: tag)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 80)
+        }
+        .coordinateSpace(name: "pullToSearch")
+        .scrollDismissesKeyboard(.interactively)
+        .scrollIndicators(.hidden)
+        .refreshable { await load() }
+        .safeAreaPadding(.top, showFilters ? 50 : 0)
     }
 
     private var filteredTags: [HBTag] {
@@ -166,6 +254,46 @@ struct TagsTabView: View {
             if let fetched = try? await client.listTags() { tags = fetched }
         }
         isLoading = false
+    }
+}
+
+// MARK: - Tile cell
+
+private struct TagTileCell: View {
+    @EnvironmentObject var theme: ThemeManager
+    let tag: HBTag
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                Circle()
+                    .fill(Color(hex: tag.color ?? ""))
+                    .frame(width: 20, height: 20)
+                    .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
+                Spacer()
+                if let count = tag.itemCount, Int(count) > 0 {
+                    CountBadge(count: Int(count))
+                }
+            }
+            Text(tag.name)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+            if let d = tag.description, !d.isEmpty {
+                Text(d)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.06))
+        }
+        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
     }
 }
 
