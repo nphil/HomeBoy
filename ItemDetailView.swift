@@ -25,6 +25,45 @@ struct ItemDetailView: View {
     @State private var editingEntry: HBMaintenanceEntry? = nil
 
     var body: some View {
+        baseContent
+            .floatingCardCover(
+                isPresented: $showAddSubItem,
+                onDismiss: { Task { await load() } }
+            ) {
+                if let item = item {
+                    AddItemView(
+                        parentId: item.id,
+                        parentName: item.name,
+                        parentLocationId: item.location?.id,
+                        onDismiss: { showAddSubItem = false }
+                    )
+                    .environmentObject(store)
+                    .environmentObject(theme)
+                }
+            }
+            .floatingCardCover(
+                isPresented: $showMaintenanceSheet,
+                onDismiss: { Task { await load() } }
+            ) {
+                MaintenanceEntrySheet(
+                    itemId: itemId,
+                    itemName: item?.name ?? "",
+                    existing: editingEntry,
+                    onDelete: maintDeleteAction
+                )
+                .environmentObject(store)
+                .environmentObject(theme)
+            }
+            .alert("Delete item?", isPresented: $confirmDelete) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) { Task { await performDelete() } }
+            } message: {
+                Text("This removes the item from Homebox permanently.")
+            }
+            .toolbar(showAddSubItem ? .hidden : .visible, for: .tabBar)
+    }
+
+    private var baseContent: some View {
         ZStack {
             theme.current.backgroundColor.ignoresSafeArea()
             content
@@ -61,41 +100,6 @@ struct ItemDetailView: View {
                 .environmentObject(theme)
             }
         }
-        .floatingCardCover(
-            isPresented: $showAddSubItem,
-            onDismiss: { Task { await load() } }
-        ) {
-            if let item = item {
-                AddItemView(
-                    parentId: item.id,
-                    parentName: item.name,
-                    parentLocationId: item.location?.id,
-                    onDismiss: { showAddSubItem = false }
-                )
-                .environmentObject(store)
-                .environmentObject(theme)
-            }
-        }
-        .floatingCardCover(
-            isPresented: $showMaintenanceSheet,
-            onDismiss: { Task { await load() } }
-        ) {
-            MaintenanceEntrySheet(
-                itemId: itemId,
-                itemName: item?.name ?? "",
-                existing: editingEntry,
-                onDelete: maintDeleteAction
-            )
-            .environmentObject(store)
-            .environmentObject(theme)
-        }
-        .alert("Delete item?", isPresented: $confirmDelete) {
-            Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) { Task { await performDelete() } }
-        } message: {
-            Text("This removes the item from Homebox permanently.")
-        }
-        .toolbar(showAddSubItem ? .hidden : .visible, for: .tabBar)
     }
 
     @ViewBuilder
