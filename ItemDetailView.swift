@@ -84,7 +84,7 @@ struct ItemDetailView: View {
                 itemId: itemId,
                 itemName: item?.name ?? "",
                 existing: editingEntry,
-                onDelete: editingEntry.map { entry in { Task { await deleteMaintEntry(entry) } } }
+                onDelete: maintDeleteAction
             )
             .environmentObject(store)
             .environmentObject(theme)
@@ -382,6 +382,11 @@ struct ItemDetailView: View {
         } catch {
             NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Failed: \(error.localizedDescription)"])
         }
+    }
+
+    private var maintDeleteAction: (() -> Void)? {
+        guard let entry = editingEntry else { return nil }
+        return { Task { await self.deleteMaintEntry(entry) } }
     }
 
     private func deleteMaintEntry(_ entry: HBMaintenanceEntry) async {
