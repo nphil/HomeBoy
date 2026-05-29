@@ -207,15 +207,6 @@ struct ItemsListView: View {
                                       : "line.3.horizontal.decrease.circle")
                             }
                         }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    viewMode = viewMode == .list ? .tile : .list
-                                }
-                            } label: {
-                                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                            }
-                        }
                     }
                 }
             }
@@ -340,6 +331,24 @@ struct ItemsListView: View {
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
+
+            HStack(spacing: 4) {
+                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                    .foregroundStyle(theme.current.accentColor)
+                    .font(.caption)
+                Text(viewMode == .list ? "List" : "Tiles")
+                    .font(.caption.weight(.medium))
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(Color.secondary.opacity(0.15))
+            .foregroundStyle(.primary)
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewMode = viewMode == .list ? .tile : .list
+                }
+            }
 
             Spacer()
             if hasActiveFilters {

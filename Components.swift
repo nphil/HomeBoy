@@ -32,8 +32,8 @@ struct GroupMenuButton: View {
                     }
                     Button { } label: {
                         Label(
-                            "\(locCount) room\(locCount == 1 ? "" : "s")  ·  \(itemCount) item\(itemCount == 1 ? "" : "s")",
-                            systemImage: "mappin.and.ellipse"
+                            "\(locCount) rooms, \(itemCount) items",
+                            systemImage: "info.circle"
                         )
                     }
                     .disabled(true)
