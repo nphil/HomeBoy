@@ -1,8 +1,12 @@
-# Homebox Catalog (iOS)
+<p align="center">
+  <img src="Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="120" alt="HomeBoy app icon" />
+</p>
 
-Rapid-input iPhone app for cataloguing items directly into a self-hosted [Homebox](https://homebox.software/) v0.25.x instance. 
+# HomeBoy
 
-Display name: **HomeBoy**. Target: iOS 26 · Liquid Glass UI · sideloaded via AltStore (no App Store).
+Rapid-input iPhone app for cataloguing items directly into a self-hosted [Homebox](https://homebox.software/) v0.25.x instance.
+
+Target: iOS 26 · Liquid Glass UI · sideloaded via AltStore / Feather (no App Store).
 
 ## Features
 

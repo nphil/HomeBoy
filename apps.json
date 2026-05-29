@@ -4,7 +4,7 @@
   "description": "An unofficial AltStore/Feather compatible source for the HomeBoy (homebox-catalog) iOS application.",
   "iconURL": "https://raw.githubusercontent.com/nphil/HomeBoy/main/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
   "website": "https://github.com/nphil/HomeBoy",
-  "tintColor": "#06b6d4",
+  "tintColor": "#4338CA",
   "apps": [
     {
       "name": "HomeBoy",
@@ -13,7 +13,7 @@
       "subtitle": "Homebox Catalog iOS App",
       "localizedDescription": "Rapid-input iPhone app for cataloguing items into a self-hosted Homebox instance. Designed with a clean Liquid Glass UI, offering smooth data entry, photo uploads, Tag management, and Location navigation.",
       "iconURL": "https://raw.githubusercontent.com/nphil/HomeBoy/main/Assets.xcassets/AppIcon.appiconset/AppIcon.png",
-      "tintColor": "#06b6d4",
+      "tintColor": "#4338CA",
       "category": "utilities",
       "deviceFamilies": [
         1,
