@@ -207,6 +207,15 @@ struct ItemsListView: View {
                                       : "line.3.horizontal.decrease.circle")
                             }
                         }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    viewMode = viewMode == .list ? .tile : .list
+                                }
+                            } label: {
+                                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                            }
+                        }
                     }
                 }
             }
@@ -333,19 +342,6 @@ struct ItemsListView: View {
             .buttonStyle(.plain)
 
             Spacer()
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewMode = viewMode == .list ? .tile : .list
-                }
-            } label: {
-                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                    .font(.caption)
-                    .foregroundStyle(theme.current.accentColor)
-                    .padding(.horizontal, 10).padding(.vertical, 6)
-                    .background(Color.secondary.opacity(0.15))
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
             if hasActiveFilters {
                 Button("Clear") { filterLocationId = nil; filterTagIds = [] }
                     .font(.caption).foregroundStyle(.secondary)

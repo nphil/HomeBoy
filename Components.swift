@@ -31,11 +31,10 @@ struct GroupMenuButton: View {
                         Label(group.name, systemImage: isActive ? "checkmark.circle.fill" : "cube")
                     }
                     Button { } label: {
-                        Label("\(locCount) room\(locCount == 1 ? "" : "s")", systemImage: "mappin.and.ellipse")
-                    }
-                    .disabled(true)
-                    Button { } label: {
-                        Label("\(itemCount) item\(itemCount == 1 ? "" : "s")", systemImage: "shippingbox")
+                        Label(
+                            "\(locCount) room\(locCount == 1 ? "" : "s")  ·  \(itemCount) item\(itemCount == 1 ? "" : "s")",
+                            systemImage: "mappin.and.ellipse"
+                        )
                     }
                     .disabled(true)
                 }
