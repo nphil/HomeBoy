@@ -19,6 +19,25 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 10) {
+                            Image(systemName: "shippingbox.fill")
+                                .font(.system(size: 48, weight: .semibold))
+                                .foregroundStyle(theme.current.accentColor)
+                            Text("HomeBoy")
+                                .font(.title.weight(.bold))
+                            Text("Homebox iOS Client")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+                    .padding(.vertical, 16)
+                }
+                .listRowBackground(Color.clear)
+
                 if store.token != nil {
                     signedInSection
                 } else {

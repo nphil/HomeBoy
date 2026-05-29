@@ -12,8 +12,13 @@ struct GroupMenuButton: View {
         let accentColor = theme.current.accentColor
         Menu {
             ForEach(store.groups) { group in
+                let isActive = group.id == store.activeGroupId
+                let locCount = isActive ? store.locationsFlat.count
+                    : (store.cachedGroupStats[group.id]?.locationCount ?? 0)
+                let itemCount = isActive ? (store.cachedItemTotal ?? 0)
+                    : (store.cachedGroupStats[group.id]?.itemTotal ?? 0)
                 Button {
-                    guard group.id != store.activeGroupId else { return }
+                    guard !isActive else { return }
                     Task {
                         await store.setActiveGroup(group)
                         NotificationCenter.default.post(
@@ -22,10 +27,19 @@ struct GroupMenuButton: View {
                         )
                     }
                 } label: {
-                    if group.id == store.activeGroupId {
-                        Label(group.name, systemImage: "checkmark.circle.fill")
-                    } else {
-                        Label(group.name, systemImage: "cube")
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.name)
+                            HStack(spacing: 6) {
+                                Label("\(locCount)", systemImage: "mappin.and.ellipse")
+                                Label("\(itemCount)", systemImage: "shippingbox")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: isActive ? "checkmark.circle.fill" : "cube")
+                            .foregroundStyle(accentColor)
                     }
                 }
             }
@@ -226,11 +240,8 @@ struct ConditionalSearchable: ViewModifier {
     let prompt: String
 
     func body(content: Content) -> some View {
-        if isPresented || !text.isEmpty {
-            content.searchable(text: $text, isPresented: $isPresented, prompt: prompt)
-        } else {
-            content
-        }
+        // Always apply so the view tree never rebuilds on activation (prevents nav bar flash)
+        content.searchable(text: $text, isPresented: $isPresented, prompt: prompt)
     }
 }
 

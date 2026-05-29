@@ -191,27 +191,20 @@ struct ItemsListView: View {
                             .environmentObject(theme)
                     }
                     if store.isAuthenticated {
-                        ToolbarItemGroup(placement: .topBarTrailing) {
+                        ToolbarItem(placement: .topBarTrailing) {
                             Button {
                                 isSearchActive = true
                             } label: {
                                 Image(systemName: "magnifyingglass")
                             }
-
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
                             Button {
                                 withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
                             } label: {
-                                Image(systemName: hasActiveFilters
+                                Image(systemName: (hasActiveFilters || showFilters)
                                       ? "line.3.horizontal.decrease.circle.fill"
                                       : "line.3.horizontal.decrease.circle")
-                            }
-
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    viewMode = viewMode == .list ? .tile : .list
-                                }
-                            } label: {
-                                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
                             }
                         }
                     }
@@ -340,6 +333,19 @@ struct ItemsListView: View {
             .buttonStyle(.plain)
 
             Spacer()
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    viewMode = viewMode == .list ? .tile : .list
+                }
+            } label: {
+                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                    .font(.caption)
+                    .foregroundStyle(theme.current.accentColor)
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(Color.secondary.opacity(0.15))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
             if hasActiveFilters {
                 Button("Clear") { filterLocationId = nil; filterTagIds = [] }
                     .font(.caption).foregroundStyle(.secondary)

@@ -83,7 +83,8 @@ struct ItemDetailView: View {
             MaintenanceEntrySheet(
                 itemId: itemId,
                 itemName: item?.name ?? "",
-                existing: editingEntry
+                existing: editingEntry,
+                onDelete: editingEntry.map { entry in { Task { await deleteMaintEntry(entry) } } }
             )
             .environmentObject(store)
             .environmentObject(theme)
@@ -1014,6 +1015,7 @@ struct MaintenanceEntrySheet: View {
     let itemId: String
     let itemName: String
     let existing: HBMaintenanceEntry?
+    var onDelete: (() -> Void)? = nil
 
     @State private var name: String
     @State private var description: String
@@ -1218,7 +1220,23 @@ struct MaintenanceEntrySheet: View {
                     }
                     .buttonStyle(.glassProminent)
                     .disabled(!canSave || isSaving)
-                    .padding(.bottom, 8)
+
+                    // Delete button (edit mode only)
+                    if let onDelete {
+                        Button {
+                            onDelete()
+                            dismiss()
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity).frame(height: 50)
+                        }
+                        .buttonStyle(.glass)
+                        .padding(.bottom, 8)
+                    } else {
+                        Color.clear.frame(height: 0).padding(.bottom, 8)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
