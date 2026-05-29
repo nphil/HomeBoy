@@ -17,27 +17,35 @@ struct GroupMenuButton: View {
                     : (store.cachedGroupStats[group.id]?.locationCount ?? 0)
                 let itemCount = isActive ? (store.cachedItemTotal ?? 0)
                     : (store.cachedGroupStats[group.id]?.itemTotal ?? 0)
-                Button {
-                    guard !isActive else { return }
-                    Task {
-                        await store.setActiveGroup(group)
-                        NotificationCenter.default.post(
-                            name: .showToast, object: nil,
-                            userInfo: ["message": "Switched to \(group.name)"]
-                        )
+                Section {
+                    Button {
+                        guard !isActive else { return }
+                        Task {
+                            await store.setActiveGroup(group)
+                            NotificationCenter.default.post(
+                                name: .showToast, object: nil,
+                                userInfo: ["message": "Switched to \(group.name)"]
+                            )
+                        }
+                    } label: {
+                        Label(group.name, systemImage: isActive ? "checkmark.circle.fill" : "cube")
                     }
-                } label: {
-                    Label(
-                        "\(group.name)  ·  \(locCount) rooms  \(itemCount) items",
-                        systemImage: isActive ? "checkmark.circle.fill" : "cube"
-                    )
+                    Button { } label: {
+                        Label("\(locCount) room\(locCount == 1 ? "" : "s")", systemImage: "mappin.and.ellipse")
+                    }
+                    .disabled(true)
+                    Button { } label: {
+                        Label("\(itemCount) item\(itemCount == 1 ? "" : "s")", systemImage: "shippingbox")
+                    }
+                    .disabled(true)
                 }
             }
-            if !store.groups.isEmpty { Divider() }
-            Button {
-                NotificationCenter.default.post(name: .showSettings, object: nil)
-            } label: {
-                Label("Settings", systemImage: "gear")
+            Section {
+                Button {
+                    NotificationCenter.default.post(name: .showSettings, object: nil)
+                } label: {
+                    Label("Settings", systemImage: "gear")
+                }
             }
         } label: {
             HStack(spacing: 4) {
