@@ -1041,10 +1041,11 @@ struct MaintenanceEntrySheet: View {
         return String(format: "%04d-%02d-%02d", c.year!, c.month!, c.day!)
     }
 
-    init(itemId: String, itemName: String, existing: HBMaintenanceEntry?) {
-        self.itemId   = itemId
-        self.itemName = itemName
-        self.existing = existing
+    init(itemId: String, itemName: String, existing: HBMaintenanceEntry?, onDelete: (() -> Void)? = nil) {
+        self.itemId    = itemId
+        self.itemName  = itemName
+        self.existing  = existing
+        self.onDelete  = onDelete
         _name        = State(initialValue: existing?.name ?? "")
         _description = State(initialValue: existing?.description ?? "")
 
