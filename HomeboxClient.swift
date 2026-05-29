@@ -150,6 +150,20 @@ struct HBItemDetail: Codable, Identifiable, Hashable {
     var attachments: [HBAttachmentRef]?
 
     var quantityInt: Int { Int(quantity ?? 1) }
+
+    /// Build a minimal detail from a cached list item for offline display.
+    init(offline item: HBItem) {
+        id = item.id; name = item.name
+        description = item.description; quantity = item.quantity
+        archived = item.archived; createdAt = item.createdAt
+        location = item.location; tags = item.effectiveLabels
+        notes = nil; insured = nil; assetId = nil; serialNumber = nil
+        modelNumber = nil; manufacturer = nil; purchasePrice = nil
+        purchaseFrom = nil; purchaseTime = nil; lifetimeWarranty = nil
+        warrantyExpires = nil; warrantyDetails = nil; soldTo = nil
+        soldPrice = nil; soldTime = nil; soldNotes = nil; parent = nil
+        syncChildItemsLocations = nil; updatedAt = nil; attachments = nil
+    }
 }
 
 /// PUT /v1/items/{id} body. Build it from an HBItemDetail you already have so

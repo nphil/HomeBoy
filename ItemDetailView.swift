@@ -338,6 +338,9 @@ struct ItemDetailView: View {
         isLoading = true; loadError = nil
         let pending = store.localDB.pendingMaintenanceOps(for: itemId).map { $0.asDisplayEntry() }
         if store.isOffline {
+            if let cached = store.localDB.items.first(where: { $0.id == itemId }) {
+                item = HBItemDetail(offline: cached)
+            }
             maintenance = pending
             isLoading = false
             return
@@ -362,6 +365,10 @@ struct ItemDetailView: View {
     }
 
     private func toggleArchive() async {
+        guard !store.isOffline else {
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Not available in offline mode"])
+            return
+        }
         guard let client = store.client, let current = item else { return }
         var update = HBItemUpdate(from: current)
         update.archived = !(current.archived ?? false)
@@ -383,6 +390,10 @@ struct ItemDetailView: View {
             maintenance.removeAll { $0.id == entry.id }
             return
         }
+        guard !store.isOffline else {
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Not available in offline mode"])
+            return
+        }
         guard let client = store.client else { return }
         do {
             try await client.deleteMaintenance(id: entry.id)
@@ -394,6 +405,10 @@ struct ItemDetailView: View {
     }
 
     private func markDone(_ entry: HBMaintenanceEntry) async {
+        guard !store.isOffline else {
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Not available in offline mode"])
+            return
+        }
         guard let client = store.client else { return }
         do {
             let update = HBMaintenanceCreate(
@@ -414,6 +429,10 @@ struct ItemDetailView: View {
     }
 
     private func performDelete() async {
+        guard !store.isOffline else {
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Not available in offline mode"])
+            return
+        }
         guard let client = store.client else { return }
         isDeleting = true
         do {
@@ -688,6 +707,7 @@ struct EditItemSheet: View {
     }
 
     private func save() async {
+        guard !store.isOffline else { errorMsg = "Not available in offline mode"; return }
         guard let client = store.client, let locId = locationId else { return }
         errorMsg = nil; isSaving = true
         var update = HBItemUpdate(from: original, overrideLocationId: locId, overrideTagIds: Array(tagIds))
