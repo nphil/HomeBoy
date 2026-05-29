@@ -39,7 +39,6 @@ struct ContentView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
     @State private var selectedTab = 0
-    @State private var showSiteMenu = false
     @State private var globalSearchQuery = ""
     @State private var showSettingsSheet = false
     @State private var toastMessage: String?
@@ -58,14 +57,8 @@ struct ContentView: View {
                         .tabItem { Label("Tags", systemImage: "tag.fill") }
                         .tag(2)
                 }
-                .environment(\.showSiteMenu, $showSiteMenu)
 
-                SiteMenuPopover(isPresented: $showSiteMenu, globalSearchQuery: $globalSearchQuery)
-                    .environmentObject(store)
-                    .environmentObject(theme)
-                    .zIndex(100)
-
-                // Toast notification — floats above everything including the popover
+                // Toast notification — floats above everything
                 VStack {
                     Spacer()
                     if let msg = toastMessage {
@@ -119,18 +112,6 @@ struct ContentView: View {
             try? await Task.sleep(for: .seconds(2.5))
             toastMessage = nil
         }
-    }
-}
-
-// Environment key for passing the binding down to toolbars
-private struct ShowSiteMenuKey: EnvironmentKey {
-    static let defaultValue: Binding<Bool> = .constant(false)
-}
-
-extension EnvironmentValues {
-    var showSiteMenu: Binding<Bool> {
-        get { self[ShowSiteMenuKey.self] }
-        set { self[ShowSiteMenuKey.self] = newValue }
     }
 }
 

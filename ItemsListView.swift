@@ -63,7 +63,6 @@ enum SortOption: String, CaseIterable, Identifiable {
 struct ItemsListView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
-    @Environment(\.showSiteMenu) var showSiteMenu
     
     @Binding var globalSearchQuery: String
 
@@ -186,23 +185,10 @@ struct ItemsListView: View {
                         .disabled(selectedIds.isEmpty)
                     }
                 } else {
-                    ToolbarItemGroup(placement: .topBarLeading) {
-                        Button {
-                            withAnimation(.spring(duration: 0.25, bounce: 0.22)) {
-                                showSiteMenu.wrappedValue.toggle()
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Image(systemName: "shippingbox.fill")
-                                    .foregroundStyle(theme.current.accentColor)
-                                Text("HomeBoy")
-                                    .font(.headline)
-                                    .foregroundStyle(.primary)
-                                Image(systemName: "chevron.down")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
+                    ToolbarItem(placement: .topBarLeading) {
+                        GroupMenuButton()
+                            .environmentObject(store)
+                            .environmentObject(theme)
                     }
                     if store.isAuthenticated {
                         ToolbarItemGroup(placement: .topBarTrailing) {

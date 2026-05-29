@@ -430,10 +430,15 @@ struct AddItemView: View {
         HStack(spacing: 6) {
             // Always-visible add button — shows camera/library action sheet
             Button { showPhotoOptions = true } label: {
-                Image(systemName: "camera.fill")
-                    .font(.title2)
-                    .foregroundStyle(accentColor)
-                    .frame(width: 80, height: 80)
+                VStack(spacing: 5) {
+                    Image(systemName: "camera.fill")
+                        .font(.title2)
+                    Text("Photo")
+                        .font(.caption2.weight(.semibold))
+                }
+                .foregroundStyle(accentColor)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
             }
             .buttonStyle(.glass)
             .confirmationDialog("", isPresented: $showPhotoOptions, titleVisibility: .hidden) {

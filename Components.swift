@@ -1,5 +1,56 @@
 import SwiftUI
 
+// MARK: - Group / Collections Menu Button
+
+/// Native iOS Menu for switching between Homebox groups. Drop into any toolbar
+/// as a ToolbarItem — native animation is handled by the system.
+struct GroupMenuButton: View {
+    @EnvironmentObject var store: HomeboxStore
+    @EnvironmentObject var theme: ThemeManager
+
+    var body: some View {
+        let accentColor = theme.current.accentColor
+        Menu {
+            ForEach(store.groups) { group in
+                Button {
+                    guard group.id != store.activeGroupId else { return }
+                    Task {
+                        await store.setActiveGroup(group)
+                        NotificationCenter.default.post(
+                            name: .showToast, object: nil,
+                            userInfo: ["message": "Switched to \(group.name)"]
+                        )
+                    }
+                } label: {
+                    if group.id == store.activeGroupId {
+                        Label(group.name, systemImage: "checkmark.circle.fill")
+                    } else {
+                        Label(group.name, systemImage: "cube")
+                    }
+                }
+            }
+            if !store.groups.isEmpty { Divider() }
+            Button {
+                NotificationCenter.default.post(name: .showSettings, object: nil)
+            } label: {
+                Label("Settings", systemImage: "gear")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "shippingbox.fill")
+                    .foregroundStyle(accentColor)
+                Text(store.groupName ?? "HomeBoy")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task { await store.refreshAllGroupStats() }
+    }
+}
+
 // MARK: - Floating Card Modal
 
 struct FloatingCardContainer<Content: View>: View {
