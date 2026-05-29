@@ -27,20 +27,10 @@ struct GroupMenuButton: View {
                         )
                     }
                 } label: {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(group.name)
-                            HStack(spacing: 6) {
-                                Label("\(locCount)", systemImage: "mappin.and.ellipse")
-                                Label("\(itemCount)", systemImage: "shippingbox")
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: isActive ? "checkmark.circle.fill" : "cube")
-                            .foregroundStyle(accentColor)
-                    }
+                    Label(
+                        "\(group.name)  ·  \(locCount) rooms  \(itemCount) items",
+                        systemImage: isActive ? "checkmark.circle.fill" : "cube"
+                    )
                 }
             }
             if !store.groups.isEmpty { Divider() }

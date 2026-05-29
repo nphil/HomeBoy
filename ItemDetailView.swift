@@ -282,13 +282,11 @@ struct ItemDetailView: View {
                             editingEntry = entry
                             showMaintenanceSheet = true
                         }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        .contextMenu {
                             Button {
                                 Task { await markDone(entry) }
-                            } label: { Label("Done", systemImage: "checkmark.circle.fill") }
-                            .tint(.green)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            } label: { Label("Mark Done", systemImage: "checkmark.circle.fill") }
+                            Divider()
                             Button(role: .destructive) {
                                 Task { await deleteMaintEntry(entry) }
                             } label: { Label("Delete", systemImage: "trash") }
