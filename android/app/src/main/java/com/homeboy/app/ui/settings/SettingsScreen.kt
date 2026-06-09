@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -23,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.ui.theme.APP_THEMES
+import com.homeboy.app.ui.theme.THEME_MATERIAL_YOU
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -168,7 +170,9 @@ fun SettingsTab(onLogout: () -> Unit) {
                 ListItem(
                     leadingContent = { Icon(Icons.Default.Info, null) },
                     headlineContent = { Text("HomeBoy") },
-                    supportingContent = { Text("Homebox catalog client for Android") }
+                    supportingContent = {
+                        Text("v${com.homeboy.app.BuildConfig.VERSION_NAME} (${com.homeboy.app.BuildConfig.VERSION_CODE}) · Homebox catalog client")
+                    }
                 )
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             }
@@ -223,11 +227,25 @@ private fun ThemePickerSheet(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.clickable { onSelect(index) }.width(72.dp)
                     ) {
+                        val swatchBg = if (index == THEME_MATERIAL_YOU) {
+                            // Wallpaper-derived theme — show a multicolor swatch
+                            Modifier.background(
+                                Brush.sweepGradient(
+                                    listOf(
+                                        Color(0xFF4F46E5), Color(0xFF0D9488),
+                                        Color(0xFFD97706), Color(0xFFDB2777),
+                                        Color(0xFF4F46E5)
+                                    )
+                                )
+                            )
+                        } else {
+                            Modifier.background(theme.seed)
+                        }
                         Box(
                             modifier = Modifier
                                 .size(48.dp)
                                 .clip(CircleShape)
-                                .background(theme.seed)
+                                .then(swatchBg)
                                 .then(
                                     if (index == currentIndex) Modifier.border(
                                         3.dp, MaterialTheme.colorScheme.onBackground, CircleShape
@@ -237,6 +255,9 @@ private fun ThemePickerSheet(
                         ) {
                             if (index == currentIndex) {
                                 Icon(Icons.Default.Check, null, tint = Color.White,
+                                    modifier = Modifier.size(20.dp))
+                            } else if (index == THEME_MATERIAL_YOU) {
+                                Icon(Icons.Default.Wallpaper, null, tint = Color.White,
                                     modifier = Modifier.size(20.dp))
                             }
                         }

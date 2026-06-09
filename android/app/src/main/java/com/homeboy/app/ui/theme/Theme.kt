@@ -9,7 +9,11 @@ import androidx.compose.ui.platform.LocalContext
 
 data class AppColorScheme(val name: String, val seed: Color)
 
+/** Index 0 is Material You: dynamic color derived from the wallpaper (Android 12+). */
+const val THEME_MATERIAL_YOU = 0
+
 val APP_THEMES = listOf(
+    AppColorScheme("Material You", Color(0xFF4F46E5)),  // seed = pre-12 fallback
     AppColorScheme("Indigo",      Color(0xFF4F46E5)),
     AppColorScheme("Violet",      Color(0xFF7C3AED)),
     AppColorScheme("Purple",      Color(0xFF9333EA)),
@@ -72,16 +76,18 @@ private fun seedToScheme(seed: Color, dark: Boolean): ColorScheme {
 
 @Composable
 fun HomeBoyTheme(
-    themeIndex: Int = 0,
+    themeIndex: Int = THEME_MATERIAL_YOU,
     content: @Composable () -> Unit
 ) {
     val dark = isSystemInDarkTheme()
-    val seed = APP_THEMES.getOrNull(themeIndex)?.seed ?: APP_THEMES[0].seed
 
-    val colorScheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    // Dynamic (wallpaper-based) color only when the user picks "Material You";
+    // every other theme uses its own seed so the picker actually takes effect.
+    val colorScheme = if (themeIndex == THEME_MATERIAL_YOU && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         val ctx = LocalContext.current
         if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
     } else {
+        val seed = APP_THEMES.getOrNull(themeIndex)?.seed ?: APP_THEMES[0].seed
         seedToScheme(seed, dark)
     }
 

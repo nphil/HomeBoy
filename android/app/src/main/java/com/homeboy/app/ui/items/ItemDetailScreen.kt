@@ -145,8 +145,10 @@ fun ItemDetailScreen(
 
         val detail = item ?: return@Scaffold
 
+        // Readable column on tablets: cap content width and center it
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding),
+            modifier = Modifier.fillMaxSize().widthIn(max = 760.dp),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -359,6 +361,7 @@ fun ItemDetailScreen(
             }
 
             item { Spacer(Modifier.height(16.dp)) }
+        }
         }
     }
 }

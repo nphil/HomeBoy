@@ -162,8 +162,9 @@ fun AddEditItemScreen(
             return@Scaffold
         }
 
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
         Column(
-            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
+            Modifier.fillMaxHeight().widthIn(max = 640.dp).verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -330,6 +331,7 @@ fun AddEditItemScreen(
             }
 
             Spacer(Modifier.height(32.dp))
+        }
         }
     }
 }

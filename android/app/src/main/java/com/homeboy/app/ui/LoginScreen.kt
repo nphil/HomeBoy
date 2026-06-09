@@ -71,10 +71,14 @@ fun LoginScreen() {
     val focusManager = LocalFocusManager.current
 
     Scaffold { padding ->
+        Box(
+            Modifier.fillMaxSize().padding(padding),
+            contentAlignment = Alignment.Center
+        ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+                .fillMaxHeight()
+                .widthIn(max = 480.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -185,6 +189,7 @@ fun LoginScreen() {
             }
 
             Spacer(Modifier.height(48.dp))
+        }
         }
     }
 }

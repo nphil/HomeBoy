@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -60,6 +61,7 @@ fun ItemsTab() {
             AnimatedPane {
                 ItemsListPane(
                     vm = vm,
+                    selectedItemId = navigator.currentDestination?.content?.takeIf { it != "add" },
                     onItemSelected = { id ->
                         scope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, id) }
                     },
@@ -113,6 +115,7 @@ fun ItemsTab() {
 @Composable
 fun ItemsListPane(
     vm: ItemsViewModel,
+    selectedItemId: String? = null,
     onItemSelected: (String) -> Unit,
     onAddItem: () -> Unit
 ) {
@@ -133,6 +136,7 @@ fun ItemsListPane(
     var sortMenuOpen by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
+    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
 
     LaunchedEffect(snackbar) {
         snackbar?.let {
@@ -142,6 +146,7 @@ fun ItemsListPane(
     }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             if (showSearch) {
                 SearchBar(
@@ -171,14 +176,17 @@ fun ItemsListPane(
                                 "Filters"
                             )
                         }
-                    }
+                    },
+                    scrollBehavior = scrollBehavior
                 )
             }
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddItem) {
-                Icon(Icons.Default.Add, "Add item")
-            }
+            ExtendedFloatingActionButton(
+                onClick = onAddItem,
+                icon = { Icon(Icons.Default.Add, null) },
+                text = { Text("Add Item") }
+            )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
@@ -237,7 +245,9 @@ fun ItemsListPane(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(items, key = { it.id }, contentType = { "item" }) { item ->
-                        ItemListRow(item = item, onClick = { onItemSelected(item.id) },
+                        ItemListRow(item = item,
+                            selected = item.id == selectedItemId,
+                            onClick = { onItemSelected(item.id) },
                             onDelete = { vm.deleteItem(item.id) })
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
                     }
@@ -402,7 +412,12 @@ private fun FilterPanel(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ItemListRow(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun ItemListRow(
+    item: HBItem,
+    selected: Boolean = false,
+    onClick: () -> Unit,
+    onDelete: () -> Unit
+) {
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val dismissState = rememberSwipeToDismissBoxState(
@@ -476,11 +491,16 @@ private fun ItemListRow(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit)
             leadingContent = {
                 ItemThumbnail(item = item, size = 44.dp, corner = 8.dp, iconSize = 22.dp)
             },
+            colors = ListItemDefaults.colors(
+                containerColor = if (selected)
+                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                else
+                    MaterialTheme.colorScheme.surface
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .alpha(if (item.archived) 0.6f else 1f)
                 .clickable(onClick = onClick)
-                .background(MaterialTheme.colorScheme.surface)
         )
     }
 }

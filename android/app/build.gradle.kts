@@ -16,13 +16,27 @@ android {
         versionName = "1.0.2"
     }
 
+    // Permanent self-signed key committed to the repo so every CI build has an
+    // identical signature — required for in-place updates (Obtainium/adb) without
+    // signature-mismatch errors. Sideload-only app; key secrecy is not a goal.
+    signingConfigs {
+        create("release") {
+            storeFile = rootProject.file("keystore.jks")
+            storePassword = "homeboy-release"
+            keyAlias = "homeboy"
+            keyPassword = "homeboy-release"
+        }
+    }
+
     buildTypes {
         debug {
             isDebuggable = true
             applicationIdSuffix = ""
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -41,6 +55,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

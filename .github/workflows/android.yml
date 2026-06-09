@@ -37,7 +37,6 @@ jobs:
         run: |
           BUILD_FILE="android/app/build.gradle.kts"
 
-          # Read current values
           CODE=$(grep -oP 'versionCode = \K\d+' "$BUILD_FILE")
           NAME=$(grep -oP 'versionName = "\K[^"]+' "$BUILD_FILE")
 
@@ -54,38 +53,39 @@ jobs:
           echo "name=$NEW_NAME"   >> "$GITHUB_OUTPUT"
           echo "Bumped to $NEW_NAME ($NEW_CODE)"
 
-      - name: Build debug APK
+      # Signed release build — the keystore is committed to the repo so the
+      # signature is identical across builds (no mismatch on update).
+      - name: Build release APK
         working-directory: android
-        run: gradle :app:assembleDebug
-
-      - name: Locate APK
-        id: apk
-        run: |
-          APK=$(find android/app/build/outputs/apk/debug -name '*.apk' | head -1)
-          echo "path=$APK" >> "$GITHUB_OUTPUT"
-          echo "Found APK: $APK"
+        run: gradle :app:assembleRelease
 
       - name: Rename APK
+        id: apk
         run: |
-          cp "${{ steps.apk.outputs.path }}" "HomeBoy-android-v${{ steps.version.outputs.name }}.apk"
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          OUT="HomeBoy-android-v${{ steps.version.outputs.name }}.apk"
+          cp "$APK" "$OUT"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
 
-      - name: Create / update release
+      # Versioned release (one per build) so Obtainium can detect updates.
+      - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: android-latest
+          tag_name: android-v${{ steps.version.outputs.name }}
           name: "HomeBoy Android v${{ steps.version.outputs.name }}"
-          prerelease: true
-          files: "HomeBoy-android-v${{ steps.version.outputs.name }}.apk"
+          prerelease: false
+          make_latest: false
+          files: ${{ steps.apk.outputs.path }}
           body: |
-            Auto-built Android APK — sideload with ADB or your sideloading tool.
+            Signed release APK for sideloading.
 
             **Version:** ${{ steps.version.outputs.name }} (build ${{ steps.version.outputs.code }})
 
-            **Install:**
-            ```
-            adb install HomeBoy-android-v${{ steps.version.outputs.name }}.apk
-            ```
-            Or open the APK directly on your device (enable "Install from unknown sources").
+            **Obtainium:** add `https://github.com/nphil/HomeBoy` as a GitHub source
+            with release-title filter `Android` — see the README for a one-tap link.
+
+            **Manual install:** `adb install -r HomeBoy-android-v${{ steps.version.outputs.name }}.apk`
+            or open the APK on-device (enable "Install from unknown sources").
 
       - name: Commit version bump
         run: |

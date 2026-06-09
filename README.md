@@ -42,6 +42,29 @@ Three tabs: Items (with list/card toggle, filtering, sorting) · Locations (hier
 3. AirDrop or share-sheet it to AltStore on your iPhone.
 4. AltStore signs it with your Apple ID and installs it.
 
+## Android
+
+A native Android app (Kotlin + Jetpack Compose, Material You, tablet-optimized) lives in
+[`android/`](android/). Every push touching `android/**` builds a **signed release APK**
+and publishes it as a versioned GitHub release (`android-vX.Y.Z`). All builds are signed
+with the same committed key, so in-place updates never hit a signature mismatch.
+
+### Install / update with Obtainium
+
+One-tap add (opens Obtainium):
+
+**[➕ Add HomeBoy to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https%3A%2F%2Fgithub.com%2Fnphil%2FHomeBoy)**
+
+Or manually: Obtainium → **Add App** → source URL `https://github.com/nphil/HomeBoy`.
+
+Then in the app's source settings set **"Filter Release Titles by Regular Expression"**
+to `Android` — this repo also publishes iOS releases, and the filter makes Obtainium
+track only the Android ones. The app icon appears in Obtainium after the first install.
+
+> **One-time note:** if you installed an APK from before v1.0.2 (debug-signed), uninstall
+> it once before installing a release build — the signing key changed at that point and
+> Android blocks cross-key updates. All updates after that are seamless.
+
 ## Tech Stack
 
 - **Swift 5.10** with strict concurrency
