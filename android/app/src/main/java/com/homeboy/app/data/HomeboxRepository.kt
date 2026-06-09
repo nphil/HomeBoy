@@ -9,17 +9,26 @@ class HomeboxRepository(private val prefs: PreferencesRepository) {
     private suspend fun client(): HomeboxClient {
         val token = prefs.getToken()
         val url = prefs.getServerUrl()
+        val tenantId = prefs.getTenant()
         val existing = _client
         if (existing != null && token.isNotBlank()) {
             existing.token = token
-            existing.tenant = prefs.getTenant()
+            existing.tenant = tenantId
+            syncSession(existing)
             return existing
         }
         val c = HomeboxClient(url)
         c.token = token
-        c.tenant = prefs.getTenant()
+        c.tenant = tenantId
         _client = c
+        syncSession(c)
         return c
+    }
+
+    private fun syncSession(c: HomeboxClient) {
+        SessionHolder.apiBase = c.apiBase
+        SessionHolder.token = c.token
+        SessionHolder.tenant = c.tenant
     }
 
     fun invalidate() { _client = null }
@@ -33,7 +42,18 @@ class HomeboxRepository(private val prefs: PreferencesRepository) {
         prefs.setToken(resp.token)
         c.token = resp.token
         _client = c
+        syncSession(c)
     }
+
+    suspend fun listGroups() = client().listGroups()
+
+    suspend fun setActiveGroup(id: String?, name: String) {
+        prefs.setTenant(id, name)
+        _client?.let { it.tenant = id; syncSession(it) }
+    }
+
+    suspend fun uploadAttachment(itemId: String, bytes: ByteArray, filename: String, primary: Boolean) =
+        client().uploadAttachment(itemId, bytes, filename, primary)
 
     suspend fun logout() { prefs.logout(); invalidate() }
 

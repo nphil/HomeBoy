@@ -1,8 +1,10 @@
 package com.homeboy.app.api
 
 import com.google.gson.GsonBuilder
-import com.google.gson.reflect.TypeToken
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -12,15 +14,18 @@ class HomeboxClient(baseUrl: String) {
 
     private val gson = GsonBuilder().create()
 
+    /** Normalized base, e.g. "http://host:3100/api/". Public for image loading. */
+    val apiBase: String = normalizeBase(baseUrl)
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(60, TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
         .build()
 
     private val retrofit = Retrofit.Builder()
-        .baseUrl(normalizeBase(baseUrl))
+        .baseUrl(apiBase)
         .client(http)
         .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
@@ -33,6 +38,10 @@ class HomeboxClient(baseUrl: String) {
 
     // Raw token — no "Bearer " prefix per Homebox API spec
     private fun auth() = token
+
+    /** Full URL for an item attachment (used by Coil to load thumbnails/photos). */
+    fun attachmentUrl(itemId: String, attachmentId: String): String =
+        "${apiBase}v1/items/$itemId/attachments/$attachmentId"
 
     private companion object {
         fun normalizeBase(url: String): String {
@@ -178,5 +187,32 @@ class HomeboxClient(baseUrl: String) {
     suspend fun deleteTag(id: String) {
         val resp = api.deleteTag(auth(), tenant, id)
         if (!resp.isSuccessful) throw Exception("deleteTag failed: ${resp.code()}")
+    }
+
+    suspend fun listGroups(): List<HBGroup> {
+        val resp = api.listGroups(auth(), tenant)
+        if (!resp.isSuccessful) throw Exception("listGroups failed: ${resp.code()}")
+        val body = resp.body() ?: return emptyList()
+        val arr = when {
+            body.isJsonArray -> body.asJsonArray
+            body.isJsonObject -> body.asJsonObject.getAsJsonArray("items") ?: return emptyList()
+            else -> return emptyList()
+        }
+        return gson.fromJson(arr, Array<HBGroup>::class.java).toList()
+    }
+
+    /** Upload a photo to an item. [bytes] is the raw JPEG/PNG content. */
+    suspend fun uploadAttachment(
+        itemId: String,
+        bytes: ByteArray,
+        filename: String,
+        primary: Boolean
+    ): HBAttachment {
+        val fileBody = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
+        val filePart = MultipartBody.Part.createFormData("file", filename, fileBody)
+        val typePart = "photo".toRequestBody("text/plain".toMediaTypeOrNull())
+        val resp = api.uploadAttachment(auth(), tenant, itemId, filePart, typePart)
+        if (!resp.isSuccessful) throw Exception("uploadAttachment failed: ${resp.code()}")
+        return resp.body() ?: throw Exception("Empty attachment response")
     }
 }

@@ -28,7 +28,7 @@ interface HomeboxApiService {
         @Header("X-Tenant") tenant: String?,
         @Query("q") query: String?,
         @Query("locations") locationIds: List<String>?,
-        @Query("labels") labelIds: List<String>?,
+        @Query("tags") labelIds: List<String>?,
         @Query("parentIds") parentIds: List<String>?,
         @Query("includeArchived") includeArchived: Boolean?,
         @Query("page") page: Int,
@@ -148,21 +148,21 @@ interface HomeboxApiService {
         @Path("id") id: String
     ): Response<Unit>
 
-    // Tags (labels) — returns [HBTag] OR { items: [HBTag] }, handled in client
-    @GET("v1/labels")
+    // Tags — Homebox resource is /v1/tags. Returns [HBTag] OR { items: [HBTag] }, handled in client.
+    @GET("v1/tags")
     suspend fun listTags(
         @Header("Authorization") token: String,
         @Header("X-Tenant") tenant: String?
     ): Response<JsonElement>
 
-    @POST("v1/labels")
+    @POST("v1/tags")
     suspend fun createTag(
         @Header("Authorization") token: String,
         @Header("X-Tenant") tenant: String?,
         @Body tag: HBTagCreate
     ): Response<HBTag>
 
-    @PUT("v1/labels/{id}")
+    @PUT("v1/tags/{id}")
     suspend fun updateTag(
         @Header("Authorization") token: String,
         @Header("X-Tenant") tenant: String?,
@@ -170,10 +170,17 @@ interface HomeboxApiService {
         @Body tag: HBTagUpdate
     ): Response<HBTag>
 
-    @DELETE("v1/labels/{id}")
+    @DELETE("v1/tags/{id}")
     suspend fun deleteTag(
         @Header("Authorization") token: String,
         @Header("X-Tenant") tenant: String?,
         @Path("id") id: String
     ): Response<Unit>
+
+    // Groups / collections (for X-Tenant switching)
+    @GET("v1/groups/all")
+    suspend fun listGroups(
+        @Header("Authorization") token: String,
+        @Header("X-Tenant") tenant: String?
+    ): Response<JsonElement>
 }

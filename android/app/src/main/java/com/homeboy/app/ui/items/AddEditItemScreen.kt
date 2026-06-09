@@ -1,9 +1,18 @@
 package com.homeboy.app.ui.items
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -12,6 +21,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -21,6 +33,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -45,6 +60,13 @@ fun AddEditItemScreen(
     val saving by vm.saving.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val saved by vm.saved.collectAsStateWithLifecycle()
+    val keepLocation by vm.keepLocation.collectAsStateWithLifecycle()
+    val keepTags by vm.keepTags.collectAsStateWithLifecycle()
+    val stickyLocationId by vm.stickyLocationId.collectAsStateWithLifecycle()
+    val stickyTagIds by vm.stickyTagIds.collectAsStateWithLifecycle()
+
+    val isCreate = itemId == null
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(itemId) { itemId?.let { vm.loadExisting(it) } }
     LaunchedEffect(saved) { if (saved) onSaved() }
@@ -58,6 +80,25 @@ fun AddEditItemScreen(
     var locationMenuOpen by remember { mutableStateOf(false) }
     var tagMenuOpen by remember { mutableStateOf(false) }
 
+    // Photos picked from the gallery, kept as raw bytes for upload on save.
+    val photoBytes = remember { mutableStateListOf<ByteArray>() }
+    var stickySeeded by remember { mutableStateOf(false) }
+
+    val photoPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(8)
+    ) { uris ->
+        if (uris.isNotEmpty()) {
+            scope.launch {
+                val loaded = withContext(Dispatchers.IO) {
+                    uris.mapNotNull { uri ->
+                        runCatching { ctx.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                    }
+                }
+                photoBytes.addAll(loaded)
+            }
+        }
+    }
+
     LaunchedEffect(existingItem) {
         existingItem?.let { item ->
             if (name.isEmpty()) {
@@ -70,8 +111,17 @@ fun AddEditItemScreen(
         }
     }
 
-    LaunchedEffect(parentId) {
-        // pre-seed parent, nothing else needed
+    // Seed sticky location/tags for a fresh quick-add (not for sub-items or edits).
+    LaunchedEffect(stickyLocationId, stickyTagIds, keepLocation, keepTags) {
+        if (isCreate && !stickySeeded && parentId == null) {
+            if (keepLocation && stickyLocationId != null && selectedLocationId == null) {
+                selectedLocationId = stickyLocationId
+            }
+            if (keepTags && stickyTagIds.isNotEmpty() && selectedTagIds.isEmpty()) {
+                selectedTagIds = stickyTagIds.toSet()
+            }
+            stickySeeded = true
+        }
     }
 
     Scaffold(
@@ -92,7 +142,8 @@ fun AddEditItemScreen(
                                 locationId = selectedLocationId,
                                 tagIds = selectedTagIds.toList(),
                                 parentId = parentId?.takeIf { it.isNotBlank() },
-                                existingId = itemId
+                                existingId = itemId,
+                                photos = photoBytes.toList()
                             )
                         },
                         enabled = name.isNotBlank() && !saving
@@ -211,6 +262,66 @@ fun AddEditItemScreen(
                             )
                         }
                     }
+                }
+            }
+
+            // Photos
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Photos", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = {
+                        photoPicker.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }) {
+                        Icon(Icons.Default.AddAPhoto, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add")
+                    }
+                }
+                if (photoBytes.isNotEmpty()) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        itemsIndexed(photoBytes) { index, bytes ->
+                            val bmp = remember(bytes) {
+                                runCatching {
+                                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                }.getOrNull()
+                            }
+                            Box(Modifier.size(84.dp).clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)) {
+                                bmp?.let {
+                                    Image(it.asImageBitmap(), null,
+                                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                                }
+                                Icon(Icons.Default.Cancel, "Remove",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(20.dp)
+                                        .clickable { photoBytes.removeAt(index) })
+                                if (index == 0) {
+                                    Surface(color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.align(Alignment.BottomStart).padding(2.dp)) {
+                                        Text("Primary", style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Sticky fields (quick-add only)
+            if (isCreate) {
+                HorizontalDivider()
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Keep location for next add", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = keepLocation, onCheckedChange = { vm.setKeepLocation(it) })
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Keep tags for next add", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    Switch(checked = keepTags, onCheckedChange = { vm.setKeepTags(it) })
                 }
             }
 

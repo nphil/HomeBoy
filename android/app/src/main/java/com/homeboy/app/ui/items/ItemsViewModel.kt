@@ -10,9 +10,11 @@ import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 enum class SortMode(val label: String) {
     NAME_ASC("Name A→Z"),
@@ -88,7 +90,7 @@ class ItemsViewModel(
                     includeArchived = _showArchived.value,
                     pageSize = 1000
                 )
-                _items.value = applySortFilter(resp.items)
+                _items.value = withContext(Dispatchers.Default) { applySortFilter(resp.items) }
                 if (_locations.value.isEmpty()) _locations.value = repo.listLocations()
                 if (_tags.value.isEmpty()) _tags.value = repo.listTags()
             } catch (e: Exception) {

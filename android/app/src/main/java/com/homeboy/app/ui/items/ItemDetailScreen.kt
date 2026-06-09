@@ -4,7 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -13,14 +16,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBItem
 import com.homeboy.app.api.HBMaintenanceEntry
+import com.homeboy.app.data.SessionHolder
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -143,6 +150,28 @@ fun ItemDetailScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Photos
+            val photos = detail.attachments.orEmpty().filter {
+                (it.type ?: "photo").equals("photo", ignoreCase = true)
+            }
+            if (photos.isNotEmpty() && SessionHolder.apiBase.isNotBlank()) {
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(photos, key = { it.id }) { att ->
+                            AsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(SessionHolder.attachmentUrl(detail.id, att.id))
+                                    .crossfade(true).build(),
+                                contentDescription = att.fileName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.size(140.dp).clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                            )
+                        }
+                    }
+                }
+            }
+
             // Header card
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {

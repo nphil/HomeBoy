@@ -35,10 +35,12 @@ fun SettingsTab(onLogout: () -> Unit) {
     val tenantName by vm.tenantName.collectAsStateWithLifecycle()
     val themeIndex by vm.themeIndex.collectAsStateWithLifecycle()
     val userInfo by vm.userInfo.collectAsStateWithLifecycle()
+    val groups by vm.groups.collectAsStateWithLifecycle()
     val snackbar by vm.snackbar.collectAsStateWithLifecycle()
 
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
+    var showGroupPicker by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(snackbar) {
@@ -68,6 +70,32 @@ fun SettingsTab(onLogout: () -> Unit) {
         )
     }
 
+    if (showGroupPicker) {
+        ModalBottomSheet(onDismissRequest = { showGroupPicker = false }) {
+            Column(Modifier.padding(bottom = 32.dp)) {
+                Text("Switch Group", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(16.dp))
+                groups.forEach { group ->
+                    ListItem(
+                        leadingContent = { Icon(Icons.Default.Group, null) },
+                        headlineContent = { Text(group.name) },
+                        supportingContent = group.description?.takeIf { it.isNotBlank() }?.let {
+                            { Text(it) }
+                        },
+                        trailingContent = if (group.name == tenantName) {
+                            { Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary) }
+                        } else null,
+                        modifier = Modifier.clickable {
+                            vm.switchGroup(group)
+                            showGroupPicker = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = { TopAppBar(title = { Text("Settings", fontWeight = FontWeight.SemiBold) }) },
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -94,12 +122,19 @@ fun SettingsTab(onLogout: () -> Unit) {
                 )
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             }
-            if (tenantName.isNotBlank()) {
+            if (groups.isNotEmpty() || tenantName.isNotBlank()) {
                 item {
+                    val canSwitch = groups.size > 1
                     ListItem(
                         leadingContent = { Icon(Icons.Default.Group, null) },
                         headlineContent = { Text("Group") },
-                        supportingContent = { Text(tenantName) }
+                        supportingContent = {
+                            Text(tenantName.ifBlank { groups.firstOrNull()?.name ?: "Default" })
+                        },
+                        trailingContent = if (canSwitch) {
+                            { Icon(Icons.Default.SwapHoriz, "Switch group") }
+                        } else null,
+                        modifier = if (canSwitch) Modifier.clickable { showGroupPicker = true } else Modifier
                     )
                     HorizontalDivider(Modifier.padding(horizontal = 16.dp))
                 }

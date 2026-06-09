@@ -21,6 +21,10 @@ class PreferencesRepository(private val context: Context) {
         val KEY_ITEMS_SORT = stringPreferencesKey("items_sort")
         val KEY_ITEMS_VIEW_MODE = stringPreferencesKey("items_view_mode")
         val KEY_SHOW_ARCHIVED = booleanPreferencesKey("show_archived")
+        val KEY_KEEP_LOCATION = booleanPreferencesKey("keep_location")
+        val KEY_KEEP_TAGS = booleanPreferencesKey("keep_tags")
+        val KEY_LAST_LOCATION = stringPreferencesKey("last_location")
+        val KEY_LAST_TAGS = stringPreferencesKey("last_tags")
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
@@ -30,9 +34,25 @@ class PreferencesRepository(private val context: Context) {
     val themeIndex: Flow<Int> = context.dataStore.data.map { it[KEY_THEME_INDEX] ?: 0 }
     val itemsSort: Flow<String> = context.dataStore.data.map { it[KEY_ITEMS_SORT] ?: "name_asc" }
     val itemsViewMode: Flow<String> = context.dataStore.data.map { it[KEY_ITEMS_VIEW_MODE] ?: "list" }
+    val keepLocation: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEEP_LOCATION] ?: false }
+    val keepTags: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEEP_TAGS] ?: false }
 
     suspend fun setServerUrl(url: String) = context.dataStore.edit { it[KEY_SERVER_URL] = url }
     suspend fun setToken(t: String) = context.dataStore.edit { it[KEY_TOKEN] = t }
+
+    suspend fun setKeepLocation(v: Boolean) = context.dataStore.edit { it[KEY_KEEP_LOCATION] = v }
+    suspend fun setKeepTags(v: Boolean) = context.dataStore.edit { it[KEY_KEEP_TAGS] = v }
+    suspend fun setLastLocation(id: String?) = context.dataStore.edit {
+        if (id == null) it.remove(KEY_LAST_LOCATION) else it[KEY_LAST_LOCATION] = id
+    }
+    suspend fun setLastTags(ids: List<String>) = context.dataStore.edit {
+        it[KEY_LAST_TAGS] = ids.joinToString(",")
+    }
+    suspend fun getKeepLocation() = keepLocation.first()
+    suspend fun getKeepTags() = keepTags.first()
+    suspend fun getLastLocation() = context.dataStore.data.first()[KEY_LAST_LOCATION]
+    suspend fun getLastTags(): List<String> =
+        (context.dataStore.data.first()[KEY_LAST_TAGS] ?: "").split(",").filter { it.isNotBlank() }
 
     suspend fun setTenant(id: String?, name: String) {
         context.dataStore.edit {

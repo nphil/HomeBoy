@@ -44,7 +44,7 @@ class TagsViewModel(private val repo: HomeboxRepository) : ViewModel() {
     fun createTag(name: String, color: String) {
         viewModelScope.launch {
             try {
-                repo.createTag(HBTagCreate(name.trim(), color))
+                repo.createTag(HBTagCreate(name = name.trim(), color = color))
                 _snackbar.value = "Tag created"
                 load()
             } catch (e: Exception) {
@@ -56,7 +56,7 @@ class TagsViewModel(private val repo: HomeboxRepository) : ViewModel() {
     fun updateTag(id: String, name: String, color: String) {
         viewModelScope.launch {
             try {
-                repo.updateTag(id, HBTagUpdate(name.trim(), color))
+                repo.updateTag(id, HBTagUpdate(name = name.trim(), color = color))
                 _snackbar.value = "Tag updated"
                 load()
             } catch (e: Exception) {

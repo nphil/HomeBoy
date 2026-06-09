@@ -24,15 +24,19 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.SubcomposeAsyncImage
+import coil.request.ImageRequest
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBItem
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
+import com.homeboy.app.data.SessionHolder
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
@@ -221,7 +225,7 @@ fun ItemsListPane(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(items, key = { it.id }) { item ->
+                    items(items, key = { it.id }, contentType = { "item" }) { item ->
                         ItemGridCard(item = item, onClick = { onItemSelected(item.id) },
                             onDelete = { vm.deleteItem(item.id) })
                     }
@@ -232,7 +236,7 @@ fun ItemsListPane(
                     contentPadding = PaddingValues(bottom = 88.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
-                    items(items, key = { it.id }) { item ->
+                    items(items, key = { it.id }, contentType = { "item" }) { item ->
                         ItemListRow(item = item, onClick = { onItemSelected(item.id) },
                             onDelete = { vm.deleteItem(item.id) })
                         HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
@@ -470,15 +474,7 @@ private fun ItemListRow(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit)
                 }
             },
             leadingContent = {
-                Box(
-                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Outlined.Inventory2, null,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp))
-                }
+                ItemThumbnail(item = item, size = 44.dp, corner = 8.dp, iconSize = 22.dp)
             },
             modifier = Modifier
                 .fillMaxWidth()
@@ -513,13 +509,11 @@ private fun ItemGridCard(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit
     ) {
         Column(Modifier.padding(12.dp)) {
             Box(
-                modifier = Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(8.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Outlined.Inventory2, null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.size(36.dp))
+                ItemThumbnail(item = item, size = 96.dp, corner = 8.dp, iconSize = 36.dp,
+                    fillWidth = true)
                 if (item.archived) {
                     Icon(Icons.Default.Archive, null,
                         modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(14.dp),
@@ -538,6 +532,50 @@ private fun ItemGridCard(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit
                 Text("×${item.quantity}", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
             }
+        }
+    }
+}
+
+@Composable
+private fun ItemThumbnail(
+    item: HBItem,
+    size: androidx.compose.ui.unit.Dp,
+    corner: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
+    fillWidth: Boolean = false
+) {
+    val shape = RoundedCornerShape(corner)
+    val boxMod = (if (fillWidth) Modifier.fillMaxSize() else Modifier.size(size))
+        .clip(shape)
+        .background(MaterialTheme.colorScheme.primaryContainer)
+    val attId = item.previewAttachmentId
+
+    Box(boxMod, contentAlignment = Alignment.Center) {
+        if (attId != null && SessionHolder.apiBase.isNotBlank()) {
+            val ctx = LocalContext.current
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(ctx)
+                    .data(SessionHolder.attachmentUrl(item.id, attId))
+                    .crossfade(true)
+                    .build(),
+                contentDescription = item.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+                loading = {
+                    Icon(Icons.Outlined.Inventory2, null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f),
+                        modifier = Modifier.size(iconSize))
+                },
+                error = {
+                    Icon(Icons.Outlined.Inventory2, null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(iconSize))
+                }
+            )
+        } else {
+            Icon(Icons.Outlined.Inventory2, null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(iconSize))
         }
     }
 }

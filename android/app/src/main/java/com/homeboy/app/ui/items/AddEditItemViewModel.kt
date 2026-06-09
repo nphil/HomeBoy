@@ -6,11 +6,15 @@ import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.*
 import com.homeboy.app.data.HomeboxRepository
+import com.homeboy.app.data.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class AddEditItemViewModel(private val repo: HomeboxRepository) : ViewModel() {
+class AddEditItemViewModel(
+    private val repo: HomeboxRepository,
+    private val prefs: PreferencesRepository
+) : ViewModel() {
 
     private val _locations = MutableStateFlow<List<HBLocation>>(emptyList())
     val locations = _locations.asStateFlow()
@@ -33,7 +37,26 @@ class AddEditItemViewModel(private val repo: HomeboxRepository) : ViewModel() {
     private val _saved = MutableStateFlow(false)
     val saved = _saved.asStateFlow()
 
+    // Sticky-field state
+    private val _keepLocation = MutableStateFlow(false)
+    val keepLocation = _keepLocation.asStateFlow()
+    private val _keepTags = MutableStateFlow(false)
+    val keepTags = _keepTags.asStateFlow()
+    private val _stickyLocationId = MutableStateFlow<String?>(null)
+    val stickyLocationId = _stickyLocationId.asStateFlow()
+    private val _stickyTagIds = MutableStateFlow<List<String>>(emptyList())
+    val stickyTagIds = _stickyTagIds.asStateFlow()
+
+    fun setKeepLocation(v: Boolean) { _keepLocation.value = v; viewModelScope.launch { prefs.setKeepLocation(v) } }
+    fun setKeepTags(v: Boolean) { _keepTags.value = v; viewModelScope.launch { prefs.setKeepTags(v) } }
+
     init {
+        viewModelScope.launch {
+            _keepLocation.value = prefs.getKeepLocation()
+            _keepTags.value = prefs.getKeepTags()
+            if (_keepLocation.value) _stickyLocationId.value = prefs.getLastLocation()
+            if (_keepTags.value) _stickyTagIds.value = prefs.getLastTags()
+        }
         viewModelScope.launch {
             _loading.value = true
             try {
@@ -67,13 +90,14 @@ class AddEditItemViewModel(private val repo: HomeboxRepository) : ViewModel() {
         locationId: String?,
         tagIds: List<String>,
         parentId: String?,
-        existingId: String?
+        existingId: String?,
+        photos: List<ByteArray> = emptyList()
     ) {
         _saving.value = true
         _error.value = null
         viewModelScope.launch {
             try {
-                if (existingId != null) {
+                val itemId: String = if (existingId != null) {
                     val current = _existingItem.value
                     val update = if (current != null) {
                         HBItemUpdate.from(current).copy(
@@ -90,13 +114,25 @@ class AddEditItemViewModel(private val repo: HomeboxRepository) : ViewModel() {
                             locationId = locationId, labelIds = tagIds, parentId = parentId
                         )
                     }
-                    repo.updateItem(existingId, update)
+                    repo.updateItem(existingId, update).id
                 } else {
                     repo.createItem(HBItemCreate(
                         name = name, description = description, quantity = quantity,
                         locationId = locationId, labelIds = tagIds, parentId = parentId
-                    ))
+                    )).id
                 }
+
+                // Upload any picked photos (first becomes primary).
+                photos.forEachIndexed { i, bytes ->
+                    runCatching {
+                        repo.uploadAttachment(itemId, bytes, "photo_${System.currentTimeMillis()}_$i.jpg", primary = i == 0)
+                    }
+                }
+
+                // Persist sticky fields for the next quick-add.
+                if (_keepLocation.value) prefs.setLastLocation(locationId)
+                if (_keepTags.value) prefs.setLastTags(tagIds)
+
                 _saved.value = true
             } catch (e: Exception) {
                 _error.value = e.message
@@ -112,7 +148,7 @@ class AddEditItemViewModel(private val repo: HomeboxRepository) : ViewModel() {
         fun factory(app: HomeboxApplication) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(cls: Class<T>) =
-                AddEditItemViewModel(app.repository) as T
+                AddEditItemViewModel(app.repository, app.prefs) as T
         }
     }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.api.HBGroup
 import com.homeboy.app.api.HBUserInfo
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
@@ -22,6 +23,9 @@ class SettingsViewModel(
     private val _userInfo = MutableStateFlow<HBUserInfo?>(null)
     val userInfo = _userInfo.asStateFlow()
 
+    private val _groups = MutableStateFlow<List<HBGroup>>(emptyList())
+    val groups = _groups.asStateFlow()
+
     private val _loading = MutableStateFlow(false)
     val loading = _loading.asStateFlow()
 
@@ -33,6 +37,20 @@ class SettingsViewModel(
             try {
                 _userInfo.value = repo.getMe()
             } catch (_: Exception) {}
+        }
+        viewModelScope.launch {
+            try {
+                _groups.value = repo.listGroups()
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun switchGroup(group: HBGroup) {
+        viewModelScope.launch {
+            repo.setActiveGroup(group.id, group.name)
+            repo.invalidate()
+            _snackbar.value = "Switched to ${group.name}"
+            try { _userInfo.value = repo.getMe() } catch (_: Exception) {}
         }
     }
 

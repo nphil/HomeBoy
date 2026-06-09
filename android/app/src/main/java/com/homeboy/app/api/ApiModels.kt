@@ -43,12 +43,21 @@ data class HBItem(
     val location: HBItemLocation? = null,
     val labels: List<HBItemLabel>? = null,
     val tags: List<HBItemLabel>? = null,
-    val imageUrl: String? = null,
+    val imageId: String? = null,
+    val thumbnailId: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null
 ) {
     val effectiveLabels: List<HBItemLabel> get() = labels ?: tags ?: emptyList()
+    /** Attachment id to use for the list thumbnail, if Homebox provided one. */
+    val previewAttachmentId: String? get() = thumbnailId ?: imageId
 }
+
+data class HBGroup(
+    val id: String,
+    val name: String,
+    val description: String? = null
+)
 
 data class HBAttachment(
     val id: String,
@@ -210,11 +219,13 @@ class HBTagListDeserializer : JsonDeserializer<List<HBTag>> {
 
 data class HBTagCreate(
     val name: String,
+    val description: String = "",
     val color: String = "#6366f1"
 )
 
 data class HBTagUpdate(
     val name: String,
+    val description: String = "",
     val color: String = "#6366f1"
 )
 
