@@ -1,6 +1,7 @@
 package com.homeboy.app.ui.items
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -21,7 +22,7 @@ import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AddEditItemScreen(
     itemId: String?,        // null = create new
