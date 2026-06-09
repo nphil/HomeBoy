@@ -1,0 +1,5 @@
+-keep class com.homeboy.app.api.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
+-dontwarn okhttp3.**
+-dontwarn retrofit2.**
