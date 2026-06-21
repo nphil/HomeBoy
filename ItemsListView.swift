@@ -292,81 +292,86 @@ struct ItemsListView: View {
     private var hasActiveFilters: Bool { filterLocationId != nil || !filterTagIds.isEmpty || showArchivedItems }
 
     private var filterPanel: some View {
-        HStack(spacing: 8) {
-            filterChip(
-                label: filterLocationId.flatMap { store.pathString(forLocationId: $0) } ?? "Location",
-                icon: "mappin.circle.fill",
-                isActive: filterLocationId != nil,
-                onTap: { if filterLocationId != nil { filterLocationId = nil } else { showLocationFilterPicker = true } },
-                onLongPress: { showLocationFilterPicker = true }
-            )
-            filterChip(
-                label: filterTagIds.isEmpty ? "Tags" : "\(filterTagIds.count) tag\(filterTagIds.count == 1 ? "" : "s")",
-                icon: "tag.fill",
-                isActive: !filterTagIds.isEmpty,
-                onTap: { if !filterTagIds.isEmpty { filterTagIds = [] } else { showTagFilterPicker = true } },
-                onLongPress: { showTagFilterPicker = true }
-            )
-            filterChip(
-                label: "Archived",
-                icon: "archivebox",
-                isActive: showArchivedItems,
-                onTap: { showArchivedItems.toggle(); Task { await load(force: true) } },
-                onLongPress: { showArchivedItems.toggle(); Task { await load(force: true) } }
-            )
-            Menu {
-                Picker("Sort By", selection: $sortOption) {
-                    ForEach(SortOption.allCases) { option in
-                        Label(option.displayName, systemImage: option.iconName)
-                            .tag(option)
+        VStack(alignment: .leading, spacing: 6) {
+            // Row 1: equal-width filter chips
+            HStack(spacing: 8) {
+                filterChip(
+                    label: filterLocationId.flatMap { store.pathString(forLocationId: $0) } ?? "Location",
+                    icon: "mappin.circle.fill",
+                    isActive: filterLocationId != nil,
+                    onTap: { if filterLocationId != nil { filterLocationId = nil } else { showLocationFilterPicker = true } },
+                    onLongPress: { showLocationFilterPicker = true }
+                )
+                filterChip(
+                    label: filterTagIds.isEmpty ? "Tags" : "\(filterTagIds.count) tag\(filterTagIds.count == 1 ? "" : "s")",
+                    icon: "tag.fill",
+                    isActive: !filterTagIds.isEmpty,
+                    onTap: { if !filterTagIds.isEmpty { filterTagIds = [] } else { showTagFilterPicker = true } },
+                    onLongPress: { showTagFilterPicker = true }
+                )
+                filterChip(
+                    label: "Archived",
+                    icon: "archivebox",
+                    isActive: showArchivedItems,
+                    onTap: { showArchivedItems.toggle(); Task { await load(force: true) } },
+                    onLongPress: { showArchivedItems.toggle(); Task { await load(force: true) } }
+                )
+            }
+            // Row 2: sort + view mode controls
+            HStack(spacing: 8) {
+                Menu {
+                    Picker("Sort By", selection: $sortOption) {
+                        ForEach(SortOption.allCases) { option in
+                            Label(option.displayName, systemImage: option.iconName)
+                                .tag(option)
+                        }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: sortOption.iconName)
+                            .foregroundStyle(sortOption != .nameAZ ? .white : theme.current.accentColor)
+                            .font(.caption)
+                        Text(sortOption.shortLabel)
+                            .font(.caption.weight(.medium))
+                        Image(systemName: "chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(sortOption != .nameAZ ? .white : .secondary)
+                    }
+                    .padding(.horizontal, 10).padding(.vertical, 6)
+                    .background(sortOption != .nameAZ ? theme.current.accentColor : Color.secondary.opacity(0.15))
+                    .foregroundStyle(sortOption != .nameAZ ? .white : .primary)
+                    .clipShape(Capsule())
                 }
-            } label: {
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+
                 HStack(spacing: 4) {
-                    Image(systemName: sortOption.iconName)
-                        .foregroundStyle(sortOption != .nameAZ ? .white : theme.current.accentColor)
+                    Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
+                        .foregroundStyle(theme.current.accentColor)
                         .font(.caption)
-                    Text(sortOption.shortLabel)
+                    Text(viewMode == .list ? "List" : "Tiles")
                         .font(.caption.weight(.medium))
-                        .lineLimit(1)
-                    Image(systemName: "chevron.down")
-                        .font(.caption2)
-                        .foregroundStyle(sortOption != .nameAZ ? .white : .secondary)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(sortOption != .nameAZ ? theme.current.accentColor : Color.secondary.opacity(0.15))
-                .foregroundStyle(sortOption != .nameAZ ? .white : .primary)
+                .background(Color.secondary.opacity(0.15))
+                .foregroundStyle(.primary)
                 .clipShape(Capsule())
-            }
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-
-            HStack(spacing: 4) {
-                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                    .foregroundStyle(theme.current.accentColor)
-                    .font(.caption)
-                Text(viewMode == .list ? "List" : "Tiles")
-                    .font(.caption.weight(.medium))
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.15))
-            .foregroundStyle(.primary)
-            .clipShape(Capsule())
-            .contentShape(Capsule())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewMode = viewMode == .list ? .tile : .list
+                .contentShape(Capsule())
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewMode = viewMode == .list ? .tile : .list
+                    }
                 }
-            }
 
-            Spacer()
-            if hasActiveFilters {
-                Button("Clear") {
-                    filterLocationId = nil
-                    filterTagIds = []
-                    if showArchivedItems { showArchivedItems = false; Task { await load(force: true) } }
+                Spacer()
+                if hasActiveFilters {
+                    Button("Clear") {
+                        filterLocationId = nil
+                        filterTagIds = []
+                        if showArchivedItems { showArchivedItems = false; Task { await load(force: true) } }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
                 }
-                .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -375,9 +380,10 @@ struct ItemsListView: View {
                             onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
             Image(systemName: icon).foregroundStyle(isActive ? .white : theme.current.accentColor).font(.caption)
-            Text(label).font(.caption.weight(.medium)).lineLimit(1)
+            Text(label).font(.caption.weight(.medium)).lineLimit(2).multilineTextAlignment(.center)
             if isActive { Image(systemName: "xmark").font(.caption2) }
         }
+        .frame(maxWidth: .infinity, minHeight: 30)
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(isActive ? theme.current.accentColor : Color.secondary.opacity(0.15))
         .foregroundStyle(isActive ? .white : .primary)
@@ -483,7 +489,7 @@ struct ItemsListView: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
             .refreshable { await load(force: true) }
-            .safeAreaPadding(.top, showFilters ? 50 : 0)
+            .safeAreaPadding(.top, showFilters ? 90 : 0)
             .overlay(alignment: .trailing) {
                 if isSortedAlphabetically && !sectionLetters.isEmpty {
                     AlphabetIndexBar(letters: sectionLetters, currentLetter: $indexLetter) { letter in
@@ -524,7 +530,7 @@ struct ItemsListView: View {
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
         .refreshable { await load(force: true) }
-        .safeAreaPadding(.top, showFilters ? 50 : 0)
+        .safeAreaPadding(.top, showFilters ? 90 : 0)
     }
 
     // MARK: - Row
