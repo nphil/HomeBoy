@@ -29,6 +29,7 @@ targets:
           - ".github/**"
           - ".git/**"
           - "build/**"
+          - "android/**"
     info:
       path: Info.plist
       properties:
