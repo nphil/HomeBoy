@@ -81,6 +81,7 @@ struct ItemsListView: View {
     @State private var showFilters = false
     @State private var filterLocationId: String?
     @State private var filterTagIds: Set<String> = []
+    @State private var showArchivedItems = false
     @State private var showLocationFilterPicker = false
     @State private var showTagFilterPicker = false
 
@@ -225,6 +226,7 @@ struct ItemsListView: View {
                 selectMode = false
                 filterLocationId = nil
                 filterTagIds = []
+                showArchivedItems = false
                 Task { await load(force: true) }
             }
             .navigationDestination(for: ItemDetailRoute.self) { route in
@@ -287,7 +289,7 @@ struct ItemsListView: View {
 
     // MARK: - Filter panel
 
-    private var hasActiveFilters: Bool { filterLocationId != nil || !filterTagIds.isEmpty }
+    private var hasActiveFilters: Bool { filterLocationId != nil || !filterTagIds.isEmpty || showArchivedItems }
 
     private var filterPanel: some View {
         HStack(spacing: 8) {
@@ -304,6 +306,13 @@ struct ItemsListView: View {
                 isActive: !filterTagIds.isEmpty,
                 onTap: { if !filterTagIds.isEmpty { filterTagIds = [] } else { showTagFilterPicker = true } },
                 onLongPress: { showTagFilterPicker = true }
+            )
+            filterChip(
+                label: "Archived",
+                icon: "archivebox",
+                isActive: showArchivedItems,
+                onTap: { showArchivedItems.toggle(); Task { await load(force: true) } },
+                onLongPress: { showArchivedItems.toggle(); Task { await load(force: true) } }
             )
             Menu {
                 Picker("Sort By", selection: $sortOption) {
@@ -352,8 +361,12 @@ struct ItemsListView: View {
 
             Spacer()
             if hasActiveFilters {
-                Button("Clear") { filterLocationId = nil; filterTagIds = [] }
-                    .font(.caption).foregroundStyle(.secondary)
+                Button("Clear") {
+                    filterLocationId = nil
+                    filterTagIds = []
+                    if showArchivedItems { showArchivedItems = false; Task { await load(force: true) } }
+                }
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -538,6 +551,7 @@ struct ItemsListView: View {
                 }
             }
         }
+        .opacity(item.archived == true ? 0.55 : 1)
         .background {
             RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
             RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
@@ -569,6 +583,7 @@ struct ItemsListView: View {
                     }.buttonStyle(.plain)
                 }
             }
+            .opacity(item.archived == true ? 0.55 : 1)
             .background {
                 RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
                 RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
@@ -753,7 +768,7 @@ struct ItemsListView: View {
 
         guard let client = store.client else { isLoading = false; return }
         do {
-            let resp = try await client.listItems(labelIds: Array(filterTagIds), pageSize: 1000)
+            let resp = try await client.listItems(labelIds: Array(filterTagIds), includeArchived: showArchivedItems, pageSize: 1000)
             allItems = resp.items
             store.localDB.cacheItems(resp.items)
             store.updateCachedItemTotal(resp.total ?? resp.items.count)
