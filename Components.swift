@@ -374,25 +374,114 @@ struct QuantityControl: View {
 
 @MainActor
 class ThumbnailStore {
-    private var cache: [String: String] = [:]   // itemId → attId or "" (no thumb)
+    private var memCache: [String: String] = [:]  // itemId → attId or "" (no photo)
     private var inFlight: [String: Task<String?, Never>] = [:]
 
+    // Disk-backed id map: lets offline sessions resolve attachment ids without network
+    private static let diskURL: URL =
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("homebox_thumb_ids.json")
+    private var diskMap: [String: String] = {
+        guard let data = try? Data(contentsOf: ThumbnailStore.diskURL),
+              let map = try? JSONDecoder().decode([String: String].self, from: data)
+        else { return [:] }
+        return map
+    }()
+
     func load(itemId: String, client: HomeboxClient) async -> String? {
-        if let cached = cache[itemId] { return cached.isEmpty ? nil : cached }
+        if let v = memCache[itemId] { return v.isEmpty ? nil : v }
         if let task = inFlight[itemId] { return await task.value }
+
+        let diskFallback = diskMap[itemId]   // capture before entering non-isolated Task
         let task = Task<String?, Never> {
             if let detail = try? await client.getItem(id: itemId),
                let att = (detail.attachments ?? []).first(where: { $0.primary == true })
                        ?? (detail.attachments ?? []).first(where: { $0.type.lowercased() == "photo" }) {
                 return att.id
             }
-            return nil
+            // Network failed (offline) — fall back to persisted id
+            return diskFallback.flatMap { $0.isEmpty ? nil : $0 }
         }
         inFlight[itemId] = task
         let result = await task.value
-        cache[itemId] = result ?? ""
+
+        memCache[itemId] = result ?? ""
+        if let result {
+            diskMap[itemId] = result
+            let map = diskMap
+            Task.detached(priority: .background) {
+                guard let data = try? JSONEncoder().encode(map) else { return }
+                try? data.write(to: ThumbnailStore.diskURL, options: .atomic)
+            }
+        }
         inFlight[itemId] = nil
         return result
+    }
+}
+
+// MARK: - Image disk + memory cache
+
+/// Shared cache for attachment images.
+/// Memory layer uses NSCache (auto-eviction on pressure, ~40 MB limit).
+/// Disk layer stores raw server bytes to Caches/homebox-images/ — survives offline.
+final class ImageCache {
+    static let shared = ImageCache()
+
+    private let memory = NSCache<NSString, UIImage>()
+    private let cacheDir: URL
+
+    private init() {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        cacheDir = base.appendingPathComponent("homebox-images")
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        memory.totalCostLimit = 40 * 1024 * 1024   // 40 MB decoded pixels
+        memory.countLimit = 300
+    }
+
+    /// Synchronous memory-only lookup — call before any async work.
+    func cachedImage(for key: String) -> UIImage? {
+        memory.object(forKey: key as NSString)
+    }
+
+    /// Async: checks memory first, then disk. Returns nil on miss.
+    func image(for key: String) async -> UIImage? {
+        if let img = memory.object(forKey: key as NSString) { return img }
+        let url = cacheDir.appendingPathComponent(key)
+        let img = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return UIImage(data: data)
+        }.value
+        if let img {
+            memory.setObject(img, forKey: key as NSString,
+                             cost: Int(img.size.width * img.size.height * 4))
+        }
+        return img
+    }
+
+    /// Store image in memory and write raw bytes to disk (background).
+    func store(data: Data, image: UIImage, for key: String) {
+        memory.setObject(image, forKey: key as NSString,
+                         cost: Int(image.size.width * image.size.height * 4))
+        let url = cacheDir.appendingPathComponent(key)
+        Task.detached(priority: .background) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    func clear() {
+        memory.removeAllObjects()
+        let dir = cacheDir
+        Task.detached(priority: .background) {
+            try? FileManager.default.removeItem(at: dir)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+    }
+
+    /// Total bytes stored on disk (for Settings display).
+    var diskSizeBytes: Int {
+        let urls = (try? FileManager.default.contentsOfDirectory(
+            at: cacheDir, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        return urls.compactMap { try? $0.resourceValues(forKeys: [.fileSizeKey]).fileSize }.reduce(0, +)
     }
 }
 

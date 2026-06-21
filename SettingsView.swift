@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var confirmLogout = false
     @State private var shareItems: [Any] = []
     @State private var showShareSheet = false
+    @State private var imageCacheMB: Int = 0
     @FocusState private var focused: Field?
     @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
 
@@ -114,6 +115,19 @@ struct SettingsView: View {
                     }
                     Text("Exports all locally cached items in Homebox import format. Open Items tab while connected to refresh the cache first.")
                         .font(.caption).foregroundStyle(.secondary)
+                    Button(role: .destructive) {
+                        ImageCache.shared.clear()
+                        imageCacheMB = 0
+                    } label: {
+                        HStack {
+                            Label("Clear image cache", systemImage: "photo.stack")
+                            Spacer()
+                            if imageCacheMB > 0 {
+                                Text("\(imageCacheMB) MB")
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
 
                 Section("Info") {
@@ -147,6 +161,9 @@ struct SettingsView: View {
             .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Settings")
+            .onAppear {
+                imageCacheMB = ImageCache.shared.diskSizeBytes / (1024 * 1024)
+            }
             .sheet(isPresented: $showShareSheet) {
                 ActivityView(items: shareItems).presentationDetents([.medium, .large])
             }

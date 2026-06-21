@@ -803,16 +803,26 @@ struct AuthImage: View {
             }
         }
         .task(id: attachmentId) {
-            guard let client = store.client else { return }
+            // 1. Memory — instant, no I/O
+            if let img = ImageCache.shared.cachedImage(for: attachmentId) {
+                self.image = img; return
+            }
+            // 2. Disk — fast, works offline
+            if let img = await ImageCache.shared.image(for: attachmentId) {
+                self.image = img; return
+            }
+            // 3. Network
+            guard let client = store.client else { self.failed = true; return }
             do {
                 let data = try await client.attachmentData(itemId: itemId, attachmentId: attachmentId)
                 if let img = UIImage(data: data) {
-                    await MainActor.run { self.image = img }
+                    ImageCache.shared.store(data: data, image: img, for: attachmentId)
+                    self.image = img
                 } else {
-                    await MainActor.run { self.failed = true }
+                    self.failed = true
                 }
             } catch {
-                await MainActor.run { self.failed = true }
+                self.failed = true
             }
         }
     }
