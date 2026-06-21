@@ -50,6 +50,7 @@ struct HBItem: Codable, Identifiable, Hashable {
     let archived: Bool?
     let createdAt: String?
     let location: HBLocationSummary?
+    let parent: HBLocationSummary?
     let labels: [HBTag]?
     let tags: [HBTag]?
 
@@ -58,6 +59,7 @@ struct HBItem: Codable, Identifiable, Hashable {
     /// nil = the API didn't include labels in the summary (trust server-side ?labels= filter).
     /// [] = the API did include them and the item has none (genuinely no tags).
     var effectiveLabels: [HBTag]? { labels ?? tags }
+    var effectiveLocation: HBLocationSummary? { location ?? parent }
 }
 
 struct HBItemListResponse: Codable {
@@ -71,8 +73,6 @@ struct HBItemCreate: Codable {
     let name: String
     let quantity: Double
     let description: String
-    let locationId: String?
-    /// `parentId` is for nesting items under other items; we don't use it.
     let parentId: String?
     let tagIds: [String]
 }
@@ -133,16 +133,16 @@ struct HBItemDetail: Codable, Identifiable, Hashable {
     var manufacturer: String?
     var purchasePrice: Double?
     var purchaseFrom: String?
-    var purchaseTime: String?
+    var purchaseDate: String?
     var lifetimeWarranty: Bool?
     var warrantyExpires: String?
     var warrantyDetails: String?
     var soldTo: String?
     var soldPrice: Double?
-    var soldTime: String?
+    var soldDate: String?
     var soldNotes: String?
     var parent: HBItemSummary?
-    var syncChildItemsLocations: Bool?
+    var syncChildEntityLocations: Bool?
     var createdAt: String?
     var updatedAt: String?
     var location: HBLocationSummary?
@@ -150,6 +150,10 @@ struct HBItemDetail: Codable, Identifiable, Hashable {
     var attachments: [HBAttachmentRef]?
 
     var quantityInt: Int { Int(quantity ?? 1) }
+
+    var effectiveLocation: HBLocationSummary? {
+        location ?? parent.map { HBLocationSummary(id: $0.id, name: $0.name, description: nil) }
+    }
 
     /// Build a minimal detail from a cached list item for offline display.
     init(offline item: HBItem) {
@@ -159,10 +163,10 @@ struct HBItemDetail: Codable, Identifiable, Hashable {
         location = item.location; tags = item.effectiveLabels
         notes = nil; insured = nil; assetId = nil; serialNumber = nil
         modelNumber = nil; manufacturer = nil; purchasePrice = nil
-        purchaseFrom = nil; purchaseTime = nil; lifetimeWarranty = nil
+        purchaseFrom = nil; purchaseDate = nil; lifetimeWarranty = nil
         warrantyExpires = nil; warrantyDetails = nil; soldTo = nil
-        soldPrice = nil; soldTime = nil; soldNotes = nil; parent = nil
-        syncChildItemsLocations = nil; updatedAt = nil; attachments = nil
+        soldPrice = nil; soldDate = nil; soldNotes = nil; parent = nil
+        syncChildEntityLocations = nil; updatedAt = nil; attachments = nil
     }
 }
 
@@ -176,7 +180,7 @@ struct HBItemUpdate: Codable {
     var insured: Bool
     var archived: Bool
     var assetId: String
-    var locationId: String
+    var parentId: String?
     var tagIds: [String]
     var serialNumber: String
     var modelNumber: String
@@ -184,16 +188,15 @@ struct HBItemUpdate: Codable {
     var lifetimeWarranty: Bool
     var warrantyExpires: String
     var warrantyDetails: String
-    var purchaseTime: String
+    var purchaseDate: String
     var purchaseFrom: String
     var purchasePrice: Double
-    var soldTime: String
+    var soldDate: String
     var soldTo: String
     var soldPrice: Double
     var soldNotes: String
     var notes: String
-    var syncChildItemsLocations: Bool
-    var parentId: String?
+    var syncChildEntityLocations: Bool
 }
 
 extension HBItemUpdate {
@@ -206,7 +209,7 @@ extension HBItemUpdate {
         self.insured = d.insured ?? false
         self.archived = d.archived ?? false
         self.assetId = d.assetId ?? "0"
-        self.locationId = overrideLocationId ?? d.location?.id ?? ""
+        self.parentId = overrideLocationId ?? d.effectiveLocation?.id
         self.tagIds = overrideTagIds ?? (d.tags?.map { $0.id } ?? [])
         self.serialNumber = d.serialNumber ?? ""
         self.modelNumber = d.modelNumber ?? ""
@@ -214,16 +217,15 @@ extension HBItemUpdate {
         self.lifetimeWarranty = d.lifetimeWarranty ?? false
         self.warrantyExpires = d.warrantyExpires ?? ""
         self.warrantyDetails = d.warrantyDetails ?? ""
-        self.purchaseTime = d.purchaseTime ?? ""
+        self.purchaseDate = d.purchaseDate ?? ""
         self.purchaseFrom = d.purchaseFrom ?? ""
         self.purchasePrice = d.purchasePrice ?? 0
-        self.soldTime = d.soldTime ?? ""
+        self.soldDate = d.soldDate ?? ""
         self.soldTo = d.soldTo ?? ""
         self.soldPrice = d.soldPrice ?? 0
         self.soldNotes = d.soldNotes ?? ""
         self.notes = d.notes ?? ""
-        self.syncChildItemsLocations = d.syncChildItemsLocations ?? false
-        self.parentId = d.parent?.id
+        self.syncChildEntityLocations = d.syncChildEntityLocations ?? false
     }
 }
 
@@ -338,6 +340,12 @@ struct HBBarcodeProduct: Codable {
     }
 }
 
+struct HBEntityType: Codable, Identifiable {
+    let id: String
+    let name: String
+    let isLocation: Bool
+}
+
 // MARK: - Errors
 
 enum HBError: LocalizedError {
@@ -432,17 +440,21 @@ struct HomeboxClient {
 
     // MARK: Locations
 
-    /// `GET /v1/locations` — flat list (no parent info).
+    /// `GET /v1/entities?isLocation=true` — flat list (no parent info).
     func listLocations() async throws -> [HBLocation] {
-        let data = try await request("v1/locations", method: "GET")
-        do { return try JSONDecoder().decode([HBLocation].self, from: data) }
+        let data = try await request("v1/entities", method: "GET", query: [
+            URLQueryItem(name: "isLocation", value: "true"),
+            URLQueryItem(name: "pageSize", value: "500")
+        ])
+        struct Page: Codable { let items: [HBLocation] }
+        do { return try JSONDecoder().decode(Page.self, from: data).items }
         catch { throw HBError.decode(error) }
     }
 
-    /// `GET /v1/locations/tree?withItems=false` — nested tree for the picker.
+    /// `GET /v1/entities/tree?withItems=false` — nested tree for the picker.
     func locationTree() async throws -> [HBTreeItem] {
         let data = try await request(
-            "v1/locations/tree",
+            "v1/entities/tree",
             method: "GET",
             query: [URLQueryItem(name: "withItems", value: "false")]
         )
@@ -452,27 +464,28 @@ struct HomeboxClient {
 
     // MARK: Items
 
-    /// `GET /v1/items` — paginated list of items, optionally filtered.
+    /// `GET /v1/entities?isLocation=false` — paginated list of items, optionally filtered.
     func listItems(query: String? = nil, locationIds: [String] = [], labelIds: [String] = [], parentIds: [String] = [], includeArchived: Bool = false, page: Int = 1, pageSize: Int = 500) async throws -> HBItemListResponse {
         var items: [URLQueryItem] = [
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "isLocation", value: "false"),
         ]
         if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
-        for id in locationIds { items.append(URLQueryItem(name: "locations", value: id)) }
+        for id in locationIds { items.append(URLQueryItem(name: "parentIds", value: id)) }
         for id in labelIds { items.append(URLQueryItem(name: "tags", value: id)) }
         for id in parentIds { items.append(URLQueryItem(name: "parentIds", value: id)) }
         if includeArchived { items.append(URLQueryItem(name: "includeArchived", value: "true")) }
-        let data = try await request("v1/items", method: "GET", query: items)
+        let data = try await request("v1/entities", method: "GET", query: items)
         do { return try JSONDecoder().decode(HBItemListResponse.self, from: data) }
         catch { throw HBError.decode(error) }
     }
 
-    /// `POST /v1/items` — create an item under a location. Returns the new item's id.
+    /// `POST /v1/entities` — create an item under a location. Returns the new item's id.
     @discardableResult
     func createItem(_ payload: HBItemCreate) async throws -> String {
         let body = try JSONEncoder().encode(payload)
-        let data = try await request("v1/items", method: "POST", body: body)
+        let data = try await request("v1/entities", method: "POST", body: body)
         do { return try JSONDecoder().decode(HBItemCreateResponse.self, from: data).id }
         catch { throw HBError.decode(error) }
     }
@@ -504,19 +517,27 @@ struct HomeboxClient {
         appendString("--\(boundary)--\r\n")
 
         _ = try await request(
-            "v1/items/\(itemId)/attachments",
+            "v1/entities/\(itemId)/attachments",
             method: "POST",
             body: body,
             contentType: "multipart/form-data; boundary=\(boundary)"
         )
     }
 
-    /// `POST /v1/locations` — create a location, optionally under a parent.
+    /// `POST /v1/entities` — create a location, optionally under a parent.
     @discardableResult
     func createLocation(name: String, parentId: String?, description: String = "") async throws -> String {
-        let payload = HBLocationCreate(name: name, parentId: parentId, description: description)
+        let types = try await listEntityTypes()
+        let locTypeId = types.first(where: { $0.isLocation })?.id ?? ""
+        struct EntityCreate: Codable {
+            let name: String
+            let description: String
+            let parentId: String?
+            let entityTypeId: String
+        }
+        let payload = EntityCreate(name: name, description: description, parentId: parentId, entityTypeId: locTypeId)
         let body = try JSONEncoder().encode(payload)
-        let data = try await request("v1/locations", method: "POST", body: body)
+        let data = try await request("v1/entities", method: "POST", body: body)
         do { return try JSONDecoder().decode(HBLocationCreateResponse.self, from: data).id }
         catch { throw HBError.decode(error) }
     }
@@ -524,35 +545,35 @@ struct HomeboxClient {
     // MARK: Item detail / edit / delete
 
     func getItem(id: String) async throws -> HBItemDetail {
-        let data = try await request("v1/items/\(id)", method: "GET")
+        let data = try await request("v1/entities/\(id)", method: "GET")
         do { return try JSONDecoder().decode(HBItemDetail.self, from: data) }
         catch { throw HBError.decode(error) }
     }
 
     func updateItem(_ payload: HBItemUpdate) async throws {
         let body = try JSONEncoder().encode(payload)
-        _ = try await request("v1/items/\(payload.id)", method: "PUT", body: body)
+        _ = try await request("v1/entities/\(payload.id)", method: "PUT", body: body)
     }
 
     func deleteItem(id: String) async throws {
-        _ = try await request("v1/items/\(id)", method: "DELETE")
+        _ = try await request("v1/entities/\(id)", method: "DELETE")
     }
 
     // MARK: Location detail / edit / delete
 
     func getLocation(id: String) async throws -> HBLocationDetail {
-        let data = try await request("v1/locations/\(id)", method: "GET")
+        let data = try await request("v1/entities/\(id)", method: "GET")
         do { return try JSONDecoder().decode(HBLocationDetail.self, from: data) }
         catch { throw HBError.decode(error) }
     }
 
     func updateLocation(_ payload: HBLocationUpdate) async throws {
         let body = try JSONEncoder().encode(payload)
-        _ = try await request("v1/locations/\(payload.id)", method: "PUT", body: body)
+        _ = try await request("v1/entities/\(payload.id)", method: "PUT", body: body)
     }
 
     func deleteLocation(id: String) async throws {
-        _ = try await request("v1/locations/\(id)", method: "DELETE")
+        _ = try await request("v1/entities/\(id)", method: "DELETE")
     }
 
     // MARK: Groups
@@ -563,6 +584,12 @@ struct HomeboxClient {
     func listGroups() async throws -> [HBGroup] {
         let data = try await request("v1/groups/all", method: "GET")
         do { return try JSONDecoder().decode([HBGroup].self, from: data) }
+        catch { throw HBError.decode(error) }
+    }
+
+    func listEntityTypes() async throws -> [HBEntityType] {
+        let data = try await request("v1/entity-types", method: "GET")
+        do { return try JSONDecoder().decode([HBEntityType].self, from: data) }
         catch { throw HBError.decode(error) }
     }
 
@@ -605,12 +632,12 @@ struct HomeboxClient {
 
     /// Fetch attachment bytes for an item attachment. Uses the standard bearer token.
     func attachmentData(itemId: String, attachmentId: String) async throws -> Data {
-        return try await request("v1/items/\(itemId)/attachments/\(attachmentId)", method: "GET")
+        return try await request("v1/entities/\(itemId)/attachments/\(attachmentId)", method: "GET")
     }
 
     /// Delete an attachment from an item.
     func deleteAttachment(itemId: String, attachmentId: String) async throws {
-        _ = try await request("v1/items/\(itemId)/attachments/\(attachmentId)", method: "DELETE")
+        _ = try await request("v1/entities/\(itemId)/attachments/\(attachmentId)", method: "DELETE")
     }
 
     // MARK: Barcode / Asset
@@ -692,7 +719,7 @@ struct HomeboxClient {
     // MARK: Maintenance
 
     func listMaintenance(itemId: String) async throws -> [HBMaintenanceEntry] {
-        let data = try await request("v1/items/\(itemId)/maintenance", method: "GET")
+        let data = try await request("v1/entities/\(itemId)/maintenance", method: "GET")
         do { return try JSONDecoder().decode([HBMaintenanceEntry].self, from: data) }
         catch { throw HBError.decode(error) }
     }
@@ -700,7 +727,7 @@ struct HomeboxClient {
     @discardableResult
     func createMaintenance(itemId: String, entry: HBMaintenanceCreate) async throws -> HBMaintenanceEntry {
         let body = try JSONEncoder().encode(entry)
-        let data = try await request("v1/items/\(itemId)/maintenance", method: "POST", body: body)
+        let data = try await request("v1/entities/\(itemId)/maintenance", method: "POST", body: body)
         do { return try JSONDecoder().decode(HBMaintenanceEntry.self, from: data) }
         catch { throw HBError.decode(error) }
     }

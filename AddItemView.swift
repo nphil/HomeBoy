@@ -580,7 +580,7 @@ struct AddItemView: View {
         submitError = nil; isSubmitting = true
         let payload = HBItemCreate(
             name: trimmedName, quantity: Double(quantity), description: description,
-            locationId: selectedLocationId, parentId: parentId, tagIds: Array(selectedTagIds)
+            parentId: parentId ?? selectedLocationId, tagIds: Array(selectedTagIds)
         )
         let photosToUpload = photos
         Task {
@@ -620,7 +620,7 @@ struct AddItemView: View {
         submitError = nil; isSubmitting = true
         let payload = HBItemCreate(
             name: trimmedName, quantity: Double(quantity), description: description,
-            locationId: selectedLocationId, parentId: parentId, tagIds: Array(selectedTagIds)
+            parentId: parentId ?? selectedLocationId, tagIds: Array(selectedTagIds)
         )
         let locationSummary: HBLocationSummary? = selectedLocationId.flatMap { locId in
             store.locationsFlat.first(where: { $0.id == locId }).map {

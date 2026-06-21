@@ -34,7 +34,7 @@ struct ItemDetailView: View {
                     AddItemView(
                         parentId: item.id,
                         parentName: item.name,
-                        parentLocationId: item.location?.id,
+                        parentLocationId: item.effectiveLocation?.id,
                         onDismiss: { showAddSubItem = false }
                     )
                     .environmentObject(store)
@@ -179,7 +179,7 @@ struct ItemDetailView: View {
                                    font: .callout.monospacedDigit().weight(.semibold))
                     }
                 }
-                if let parent = item.parent {
+                if let parent = item.parent, !store.locationsFlat.contains(where: { $0.id == parent.id }) {
                     NavigationLink(value: ItemDetailRoute(id: parent.id)) {
                         HStack(spacing: 4) {
                             Image(systemName: "arrow.up.square").font(.caption)
@@ -188,7 +188,14 @@ struct ItemDetailView: View {
                         .foregroundStyle(theme.current.accentColor)
                     }
                 }
-                if let loc = item.location {
+                if let p = item.parent, store.locationsFlat.contains(where: { $0.id == p.id }) {
+                    let loc = HBLocationSummary(id: p.id, name: p.name, description: nil)
+                    HStack(spacing: 4) {
+                        Image(systemName: "mappin.and.ellipse").font(.caption)
+                        Text(locationPath(loc)).font(.callout).monospaced()
+                    }
+                    .foregroundStyle(.secondary)
+                } else if let loc = item.location {
                     HStack(spacing: 4) {
                         Image(systemName: "mappin.and.ellipse").font(.caption)
                         Text(locationPath(loc)).font(.callout).monospaced()
@@ -213,7 +220,7 @@ struct ItemDetailView: View {
                 detailRow("Model", value: item.modelNumber)
                 detailRow("Serial", value: item.serialNumber)
                 detailRow("Purchase from", value: item.purchaseFrom)
-                detailRow("Purchase date", value: item.purchaseTime, predicate: isRealDate)
+                detailRow("Purchase date", value: item.purchaseDate, predicate: isRealDate)
                 detailRow("Purchase price", value: priceString(item.purchasePrice))
                 detailRow("Warranty expires", value: item.warrantyExpires, predicate: isRealDate)
             }
@@ -320,7 +327,7 @@ struct ItemDetailView: View {
     private func hasAnyExtraField(_ item: HBItemDetail) -> Bool {
         let fields: [String?] = [
             item.manufacturer, item.modelNumber, item.serialNumber,
-            item.purchaseFrom, item.purchaseTime, item.warrantyExpires,
+            item.purchaseFrom, item.purchaseDate, item.warrantyExpires,
         ]
         if fields.contains(where: { ($0 ?? "").isEmpty == false }) { return true }
         if let p = item.purchasePrice, p > 0 { return true }
@@ -498,7 +505,7 @@ struct EditItemSheet: View {
         _serial = State(initialValue: original.serialNumber ?? "")
         _model = State(initialValue: original.modelNumber ?? "")
         _manufacturer = State(initialValue: original.manufacturer ?? "")
-        _locationId = State(initialValue: original.location?.id)
+        _locationId = State(initialValue: original.effectiveLocation?.id)
         _tagIds = State(initialValue: Set(original.tags?.map { $0.id } ?? []))
     }
 

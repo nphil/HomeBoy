@@ -456,8 +456,8 @@ struct ItemListRowContent: View {
     }
 
     private var breadcrumb: String? {
-        if let id = item.location?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
-        return item.location?.name
+        if let id = item.effectiveLocation?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
+        return item.effectiveLocation?.name
     }
 }
 

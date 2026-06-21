@@ -639,7 +639,7 @@ struct ItemsListView: View {
         let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
         var items = allItems
         if let locId = filterLocationId {
-            items = items.filter { $0.location?.id == locId }
+            items = items.filter { $0.effectiveLocation?.id == locId }
         }
         if !filterTagIds.isEmpty {
             items = items.filter { item in
@@ -861,7 +861,7 @@ struct ItemsListView: View {
         
         semanticSearchTask?.cancel()
         var baseItems = allItems
-        if let locId = filterLocationId { baseItems = baseItems.filter { $0.location?.id == locId } }
+        if let locId = filterLocationId { baseItems = baseItems.filter { $0.effectiveLocation?.id == locId } }
         if !filterTagIds.isEmpty {
             baseItems = baseItems.filter { item in
                 guard let labels = item.effectiveLabels else { return true }
@@ -968,8 +968,8 @@ private struct ItemTileContent: View {
     }
 
     private var breadcrumb: String? {
-        if let id = item.location?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
-        return item.location?.name
+        if let id = item.effectiveLocation?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
+        return item.effectiveLocation?.name
     }
 }
 
@@ -1130,7 +1130,7 @@ struct BulkEditSheet: View {
                 let detail = try await client.getItem(id: id)
                 var update = HBItemUpdate(from: detail, overrideLocationId: applyLocation ? locationId : nil,
                                          overrideTagIds: applyTags ? Array(tagIds) : nil)
-                if applyLocation, let locId = locationId { update.locationId = locId }
+                if applyLocation, let locId = locationId { update.parentId = locId }
                 try await client.updateItem(update)
                 progress += 1
             } catch {

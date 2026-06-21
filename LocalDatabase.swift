@@ -172,6 +172,7 @@ final class LocalDatabase {
             archived: false,
             createdAt: ISO8601DateFormatter().string(from: Date()),
             location: location,
+            parent: nil,
             labels: nil,
             tags: nil
         )
@@ -183,7 +184,7 @@ final class LocalDatabase {
         var lines = ["HB.import_ref,Location,Quantity,Name,Description,Archived,Labels"]
         for item in items {
             let ref  = item.id
-            let loc  = escape(item.location?.name ?? "")
+            let loc  = escape(item.effectiveLocation?.name ?? "")
             let qty  = item.quantityInt
             let name = escape(item.name)
             let desc = escape(item.description ?? "")
