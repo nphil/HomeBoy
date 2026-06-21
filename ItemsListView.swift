@@ -48,8 +48,8 @@ enum SortOption: String, CaseIterable, Identifiable {
 
     var iconName: String {
         switch self {
-        case .nameAZ: return "arrow.down.az"
-        case .nameZA: return "arrow.up.az"
+        case .nameAZ: return "a.circle"
+        case .nameZA: return "z.circle"
         case .dateNewest: return "clock.fill"
         case .dateOldest: return "clock"
         case .quantityHighToLow: return "arrow.up.circle.fill"
