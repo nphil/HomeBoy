@@ -22,6 +22,10 @@ class ItemDetailViewModel(private val repo: HomeboxRepository) : ViewModel() {
     private val _maintenance = MutableStateFlow<List<HBMaintenanceEntry>>(emptyList())
     val maintenance = _maintenance.asStateFlow()
 
+    /** IDs of known locations — used to tell whether `parent` is a location or a sub-item parent. */
+    private val _locationIds = MutableStateFlow<Set<String>>(emptySet())
+    val locationIds = _locationIds.asStateFlow()
+
     private val _loading = MutableStateFlow(false)
     val loading = _loading.asStateFlow()
 
@@ -42,10 +46,12 @@ class ItemDetailViewModel(private val repo: HomeboxRepository) : ViewModel() {
                 val itemDeferred = async { repo.getItem(itemId) }
                 val childDeferred = async { runCatching { repo.listItems(parentIds = listOf(itemId), pageSize = 500) } }
                 val maintDeferred = async { runCatching { repo.listMaintenance(itemId) } }
+                val locDeferred = async { runCatching { repo.listLocations() } }
 
                 _item.value = itemDeferred.await()
                 _children.value = childDeferred.await().getOrNull()?.items ?: emptyList()
                 _maintenance.value = maintDeferred.await().getOrNull() ?: emptyList()
+                _locationIds.value = locDeferred.await().getOrNull()?.map { it.id }?.toSet() ?: emptySet()
             } catch (e: Exception) {
                 _error.value = e.message
             } finally {

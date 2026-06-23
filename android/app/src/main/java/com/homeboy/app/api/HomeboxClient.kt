@@ -46,7 +46,7 @@ class HomeboxClient(baseUrl: String) {
 
     /** Full URL for an item attachment (used by Coil to load thumbnails/photos). */
     fun attachmentUrl(itemId: String, attachmentId: String): String =
-        "${apiBase}v1/items/$itemId/attachments/$attachmentId"
+        "${apiBase}v1/entities/$itemId/attachments/$attachmentId"
 
     private companion object {
         fun normalizeBase(url: String): String {
@@ -76,19 +76,33 @@ class HomeboxClient(baseUrl: String) {
         page: Int = 1,
         pageSize: Int = 500
     ): HBItemListResponse {
+        // Entities API merges location filter + sub-item filter into a single parentIds query.
+        val mergedParents = (locationIds + parentIds).takeIf { it.isNotEmpty() }
         val resp = api.listItems(
             token = auth(),
             tenant = tenant,
             query = query?.takeIf { it.isNotBlank() },
-            locationIds = locationIds.takeIf { it.isNotEmpty() },
+            parentIds = mergedParents,
             labelIds = labelIds.takeIf { it.isNotEmpty() },
-            parentIds = parentIds.takeIf { it.isNotEmpty() },
             includeArchived = if (includeArchived) true else null,
+            isLocation = false,
             page = page,
             pageSize = pageSize
         )
         if (!resp.isSuccessful) throw Exception("listItems failed: ${resp.code()}")
         return resp.body() ?: HBItemListResponse()
+    }
+
+    suspend fun listEntityTypes(): List<HBEntityType> {
+        val resp = api.listEntityTypes(auth(), tenant)
+        if (!resp.isSuccessful) throw Exception("listEntityTypes failed: ${resp.code()}")
+        val body = resp.body() ?: return emptyList()
+        val arr = when {
+            body.isJsonArray -> body.asJsonArray
+            body.isJsonObject -> body.asJsonObject.getAsJsonArray("items") ?: return emptyList()
+            else -> return emptyList()
+        }
+        return gson.fromJson(arr, Array<HBEntityType>::class.java).toList()
     }
 
     suspend fun getItem(id: String): HBItemDetail {
@@ -137,19 +151,24 @@ class HomeboxClient(baseUrl: String) {
     }
 
     suspend fun listLocations(): List<HBLocation> {
-        val resp = api.listLocations(auth(), tenant)
+        val resp = api.listLocations(auth(), tenant, isLocation = true, pageSize = 500)
         if (!resp.isSuccessful) throw Exception("listLocations failed: ${resp.code()}")
-        return resp.body() ?: emptyList()
+        return resp.body()?.items ?: emptyList()
     }
 
     suspend fun getLocationTree(): List<HBLocationTreeItem> {
-        val resp = api.getLocationTree(auth(), tenant)
+        val resp = api.getLocationTree(auth(), tenant, withItems = false)
         if (!resp.isSuccessful) throw Exception("getLocationTree failed: ${resp.code()}")
         return resp.body() ?: emptyList()
     }
 
     suspend fun createLocation(location: HBLocationCreate): HBLocation {
-        val resp = api.createLocation(auth(), tenant, location)
+        // Entities API requires an entityTypeId — resolve the location type once.
+        val payload = if (location.entityTypeId.isNullOrBlank()) {
+            val locTypeId = listEntityTypes().firstOrNull { it.isLocation }?.id ?: ""
+            location.copy(entityTypeId = locTypeId)
+        } else location
+        val resp = api.createLocation(auth(), tenant, payload)
         if (!resp.isSuccessful) throw Exception("createLocation failed: ${resp.code()}")
         return resp.body() ?: throw Exception("Empty location response")
     }
@@ -216,7 +235,8 @@ class HomeboxClient(baseUrl: String) {
         val fileBody = bytes.toRequestBody("image/jpeg".toMediaTypeOrNull())
         val filePart = MultipartBody.Part.createFormData("file", filename, fileBody)
         val typePart = "photo".toRequestBody("text/plain".toMediaTypeOrNull())
-        val resp = api.uploadAttachment(auth(), tenant, itemId, filePart, typePart)
+        val primaryPart = (if (primary) "true" else "false").toRequestBody("text/plain".toMediaTypeOrNull())
+        val resp = api.uploadAttachment(auth(), tenant, itemId, filePart, typePart, primaryPart)
         if (!resp.isSuccessful) throw Exception("uploadAttachment failed: ${resp.code()}")
         return resp.body() ?: throw Exception("Empty attachment response")
     }

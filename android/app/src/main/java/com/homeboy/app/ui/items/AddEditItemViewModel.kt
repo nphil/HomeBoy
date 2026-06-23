@@ -97,6 +97,8 @@ class AddEditItemViewModel(
         _error.value = null
         viewModelScope.launch {
             try {
+                // Entities API merges location + sub-item parent into one `parentId`.
+                val effectiveParent = parentId ?: locationId
                 val itemId: String = if (existingId != null) {
                     val current = _existingItem.value
                     val update = if (current != null) {
@@ -104,21 +106,20 @@ class AddEditItemViewModel(
                             name = name,
                             description = description,
                             quantity = quantity,
-                            locationId = locationId,
-                            labelIds = tagIds,
-                            parentId = parentId
+                            tagIds = tagIds,
+                            parentId = effectiveParent
                         )
                     } else {
                         HBItemUpdate(
                             name = name, description = description, quantity = quantity,
-                            locationId = locationId, labelIds = tagIds, parentId = parentId
+                            tagIds = tagIds, parentId = effectiveParent
                         )
                     }
                     repo.updateItem(existingId, update).id
                 } else {
                     repo.createItem(HBItemCreate(
                         name = name, description = description, quantity = quantity,
-                        locationId = locationId, labelIds = tagIds, parentId = parentId
+                        tagIds = tagIds, parentId = effectiveParent
                     )).id
                 }
 

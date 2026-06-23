@@ -468,8 +468,8 @@ private fun ItemListRow(
             },
             supportingContent = {
                 Column {
-                    if (item.location != null) {
-                        Text(item.location.name, style = MaterialTheme.typography.bodySmall,
+                    item.effectiveLocation?.let { loc ->
+                        Text(loc.name, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (item.effectiveLabels.isNotEmpty()) {
@@ -543,8 +543,8 @@ private fun ItemGridCard(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit
             Spacer(Modifier.height(8.dp))
             Text(item.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            if (item.location != null) {
-                Text(item.location.name, style = MaterialTheme.typography.bodySmall,
+            item.effectiveLocation?.let { loc ->
+                Text(loc.name, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
             }

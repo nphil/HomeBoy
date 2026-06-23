@@ -41,6 +41,7 @@ data class HBItem(
     val quantity: Int = 1,
     val archived: Boolean = false,
     val location: HBItemLocation? = null,
+    val parent: HBItemLocation? = null,
     val labels: List<HBItemLabel>? = null,
     val tags: List<HBItemLabel>? = null,
     val imageId: String? = null,
@@ -49,6 +50,8 @@ data class HBItem(
     val updatedAt: String? = null
 ) {
     val effectiveLabels: List<HBItemLabel> get() = labels ?: tags ?: emptyList()
+    /** Entities API returns placement under `parent`; older payloads used `location`. */
+    val effectiveLocation: HBItemLocation? get() = location ?: parent
     /** Attachment id to use for the list thumbnail, if Homebox provided one. */
     val previewAttachmentId: String? get() = thumbnailId ?: imageId
 }
@@ -88,20 +91,26 @@ data class HBItemDetail(
     val warrantyDetails: String? = null,
     val purchasePrice: Double? = null,
     val purchaseFrom: String? = null,
-    val purchaseTime: String? = null,
+    val purchaseDate: String? = null,
     val soldTo: String? = null,
     val soldPrice: Double? = null,
-    val soldTime: String? = null,
+    val soldDate: String? = null,
     val soldNotes: String? = null,
+    val lifetimeWarranty: Boolean = false,
+    val assetId: String? = null,
     val location: HBItemLocation? = null,
     val labels: List<HBItemLabel>? = null,
     val tags: List<HBItemLabel>? = null,
     val parent: HBItemSummary? = null,
+    val syncChildEntityLocations: Boolean = false,
     val attachments: List<HBAttachment>? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null
 ) {
     val effectiveLabels: List<HBItemLabel> get() = labels ?: tags ?: emptyList()
+    /** Entities API returns placement under `parent`; older payloads used `location`. */
+    val effectiveLocation: HBItemLocation? get() = location
+        ?: parent?.let { HBItemLocation(it.id, it.name) }
 }
 
 data class HBItemListResponse(
@@ -115,9 +124,8 @@ data class HBItemCreate(
     val name: String,
     val description: String = "",
     val quantity: Int = 1,
-    val locationId: String? = null,
-    val labelIds: List<String> = emptyList(),
-    val parentId: String? = null  // never send ""
+    val parentId: String? = null,  // location OR sub-item parent; never send ""
+    val tagIds: List<String> = emptyList()
 )
 
 data class HBItemUpdate(
@@ -130,18 +138,20 @@ data class HBItemUpdate(
     val serialNumber: String = "",
     val modelNumber: String = "",
     val manufacturer: String = "",
+    val assetId: String = "0",
+    val lifetimeWarranty: Boolean = false,
     val warrantyExpires: String = "",
     val warrantyDetails: String = "",
     val purchasePrice: Double = 0.0,
     val purchaseFrom: String = "",
-    val purchaseTime: String = "",
+    val purchaseDate: String = "",
     val soldTo: String = "",
     val soldPrice: Double = 0.0,
-    val soldTime: String = "",
+    val soldDate: String = "",
     val soldNotes: String = "",
-    val locationId: String? = null,
-    val labelIds: List<String> = emptyList(),
-    val parentId: String? = null  // never send ""
+    val parentId: String? = null,  // location OR sub-item parent; never send ""
+    val tagIds: List<String> = emptyList(),
+    val syncChildEntityLocations: Boolean = false
 ) {
     companion object {
         fun from(detail: HBItemDetail) = HBItemUpdate(
@@ -154,21 +164,30 @@ data class HBItemUpdate(
             serialNumber = detail.serialNumber ?: "",
             modelNumber = detail.modelNumber ?: "",
             manufacturer = detail.manufacturer ?: "",
+            assetId = detail.assetId ?: "0",
+            lifetimeWarranty = detail.lifetimeWarranty,
             warrantyExpires = detail.warrantyExpires ?: "",
             warrantyDetails = detail.warrantyDetails ?: "",
             purchasePrice = detail.purchasePrice ?: 0.0,
             purchaseFrom = detail.purchaseFrom ?: "",
-            purchaseTime = detail.purchaseTime ?: "",
+            purchaseDate = detail.purchaseDate ?: "",
             soldTo = detail.soldTo ?: "",
             soldPrice = detail.soldPrice ?: 0.0,
-            soldTime = detail.soldTime ?: "",
+            soldDate = detail.soldDate ?: "",
             soldNotes = detail.soldNotes ?: "",
-            locationId = detail.location?.id,
-            labelIds = detail.effectiveLabels.map { it.id },
-            parentId = detail.parent?.id
+            parentId = detail.effectiveLocation?.id,
+            tagIds = detail.effectiveLabels.map { it.id },
+            syncChildEntityLocations = detail.syncChildEntityLocations
         )
     }
 }
+
+/** Entity type record from `/v1/entity-types`. Locations have isLocation=true. */
+data class HBEntityType(
+    val id: String,
+    val name: String,
+    val isLocation: Boolean = false
+)
 
 data class HBLocation(
     val id: String,
@@ -178,10 +197,17 @@ data class HBLocation(
     val itemCount: Int = 0
 )
 
+/** `GET /v1/entities?isLocation=true` returns a paginated envelope. */
+data class HBLocationListResponse(
+    val items: List<HBLocation> = emptyList(),
+    val total: Int = 0
+)
+
 data class HBLocationCreate(
     val name: String,
     val description: String = "",
-    val parentId: String? = null
+    val parentId: String? = null,
+    val entityTypeId: String? = null
 )
 
 data class HBLocationUpdate(

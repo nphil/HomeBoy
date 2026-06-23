@@ -105,7 +105,7 @@ fun AddEditItemScreen(
                 name = item.name
                 description = item.description ?: ""
                 quantityText = item.quantity.toString()
-                selectedLocationId = item.location?.id
+                selectedLocationId = item.effectiveLocation?.id
                 selectedTagIds = item.effectiveLabels.map { it.id }.toSet()
             }
         }

@@ -50,6 +50,7 @@ fun ItemDetailScreen(
     val item by vm.item.collectAsStateWithLifecycle()
     val children by vm.children.collectAsStateWithLifecycle()
     val maintenance by vm.maintenance.collectAsStateWithLifecycle()
+    val locationIds by vm.locationIds.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val snackbar by vm.snackbar.collectAsStateWithLifecycle()
 
@@ -213,7 +214,9 @@ fun ItemDetailScreen(
                             }
                         }
 
-                        if (detail.parent != null) {
+                        // `parent` may be a location (placement) or another item (sub-item parent).
+                        val parentIsLocation = detail.parent != null && locationIds.contains(detail.parent.id)
+                        if (detail.parent != null && !parentIsLocation) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -226,12 +229,13 @@ fun ItemDetailScreen(
                             }
                         }
 
-                        if (detail.location != null) {
+                        val placement = detail.effectiveLocation
+                        if (placement != null && (detail.location != null || parentIsLocation)) {
                             Row(verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Icon(Icons.Default.Place, null, Modifier.size(16.dp),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(detail.location.name, style = MaterialTheme.typography.bodyMedium,
+                                Text(placement.name, style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -288,7 +292,7 @@ fun ItemDetailScreen(
                                 fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             detail.purchaseFrom?.takeIf { it.isNotBlank() }?.let { DetailRow("From", it) }
                             detail.purchasePrice?.takeIf { it > 0 }?.let { DetailRow("Price", "$${"%.2f".format(it)}") }
-                            detail.purchaseTime?.takeIf { it.isNotBlank() }?.let { DetailRow("Date", it.take(10)) }
+                            detail.purchaseDate?.takeIf { it.isNotBlank() }?.let { DetailRow("Date", it.take(10)) }
                         }
                     }
                 }
