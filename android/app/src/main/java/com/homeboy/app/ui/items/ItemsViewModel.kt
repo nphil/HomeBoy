@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBItem
 import com.homeboy.app.api.HBItemCreate
+import com.homeboy.app.api.HBItemUpdate
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
 import com.homeboy.app.data.HomeboxRepository
@@ -145,6 +146,33 @@ class ItemsViewModel(
         }
     }
 
+    fun bulkDelete(ids: Set<String>) {
+        viewModelScope.launch {
+            ids.forEach { id -> try { repo.deleteItem(id) } catch (_: Exception) {} }
+            _items.value = _items.value.filter { it.id !in ids }
+            _snackbar.value = "Deleted ${ids.size} item${if (ids.size > 1) "s" else ""}"
+        }
+    }
+
+    fun bulkArchive(ids: Set<String>) {
+        viewModelScope.launch {
+            ids.forEach { id ->
+                val item = _items.value.find { it.id == id } ?: return@forEach
+                try {
+                    repo.updateItem(id, HBItemUpdate(
+                        name = item.name,
+                        quantity = item.quantity,
+                        description = item.description ?: "",
+                        archived = true,
+                        parentId = item.effectiveLocation?.id
+                    ))
+                } catch (_: Exception) {}
+            }
+            load()
+            _snackbar.value = "Archived ${ids.size} item${if (ids.size > 1) "s" else ""}"
+        }
+    }
+
     fun clearSnackbar() { _snackbar.value = null }
     fun clearError() { _error.value = null }
     fun clearFilters() {
@@ -154,13 +182,14 @@ class ItemsViewModel(
     }
 
     private fun applySortFilter(list: List<HBItem>): List<HBItem> {
+        val filtered = if (_showArchived.value) list else list.filter { !it.archived }
         return when (_sortMode.value) {
-            SortMode.NAME_ASC  -> list.sortedBy { it.name.lowercase() }
-            SortMode.NAME_DESC -> list.sortedByDescending { it.name.lowercase() }
-            SortMode.NEWEST    -> list.sortedByDescending { it.createdAt ?: "" }
-            SortMode.OLDEST    -> list.sortedBy { it.createdAt ?: "" }
-            SortMode.QTY_HIGH  -> list.sortedByDescending { it.quantity }
-            SortMode.QTY_LOW   -> list.sortedBy { it.quantity }
+            SortMode.NAME_ASC  -> filtered.sortedBy { it.name.lowercase() }
+            SortMode.NAME_DESC -> filtered.sortedByDescending { it.name.lowercase() }
+            SortMode.NEWEST    -> filtered.sortedByDescending { it.createdAt ?: "" }
+            SortMode.OLDEST    -> filtered.sortedBy { it.createdAt ?: "" }
+            SortMode.QTY_HIGH  -> filtered.sortedByDescending { it.quantity }
+            SortMode.QTY_LOW   -> filtered.sortedBy { it.quantity }
         }
     }
 

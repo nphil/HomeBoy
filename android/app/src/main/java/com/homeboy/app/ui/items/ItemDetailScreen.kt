@@ -2,6 +2,8 @@ package com.homeboy.app.ui.items
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -15,8 +17,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -28,6 +34,9 @@ import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBItem
 import com.homeboy.app.api.HBMaintenanceEntry
 import com.homeboy.app.data.SessionHolder
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,6 +69,11 @@ fun ItemDetailScreen(
     var showAddMaintenance by remember { mutableStateOf(false) }
     var editingMaintenance by remember { mutableStateOf<HBMaintenanceEntry?>(null) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var fullscreenPhotoUrl by remember { mutableStateOf<String?>(null) }
+
+    fullscreenPhotoUrl?.let { url ->
+        FullScreenPhotoViewer(url = url, onDismiss = { fullscreenPhotoUrl = null })
+    }
 
     LaunchedEffect(snackbar) {
         snackbar?.let { snackbarHostState.showSnackbar(it); vm.clearSnackbar() }
@@ -159,17 +173,43 @@ fun ItemDetailScreen(
             }
             if (photos.isNotEmpty() && SessionHolder.apiBase.isNotBlank()) {
                 item {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(photos, key = { it.id }) { att ->
-                            AsyncImage(
-                                model = ImageRequest.Builder(LocalContext.current)
-                                    .data(SessionHolder.attachmentUrl(detail.id, att.id))
-                                    .crossfade(true).build(),
-                                contentDescription = att.fileName,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.size(140.dp).clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                            )
+                    val heroUrl = SessionHolder.attachmentUrl(detail.id, photos.first().id)
+                    Box(
+                        Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .clickable { fullscreenPhotoUrl = heroUrl }
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(heroUrl).crossfade(true).build(),
+                            contentDescription = photos.first().fileName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            Modifier.align(Alignment.BottomEnd).padding(8.dp)
+                                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                .padding(4.dp)
+                        ) {
+                            Icon(Icons.Default.ZoomIn, "View full screen",
+                                Modifier.size(16.dp), tint = Color.White)
+                        }
+                    }
+                    if (photos.size > 1) {
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            items(photos.drop(1), key = { it.id }) { att ->
+                                val url = SessionHolder.attachmentUrl(detail.id, att.id)
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(url).crossfade(true).build(),
+                                    contentDescription = att.fileName,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { fullscreenPhotoUrl = url }
+                                )
+                            }
                         }
                     }
                 }
@@ -472,23 +512,75 @@ fun MaintenanceSheet(
                 prefix = { Text("$") })
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = hasDate, onCheckedChange = { hasDate = it })
+                Switch(checked = hasDate, onCheckedChange = { hasDate = it; if (!it) dateText = "" })
                 Spacer(Modifier.width(8.dp))
                 Text("Date completed")
             }
             if (hasDate) {
-                OutlinedTextField(value = dateText, onValueChange = { dateText = it },
-                    label = { Text("Date (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                var showCompletedPicker by remember { mutableStateOf(false) }
+                val completedDpState = rememberDatePickerState(
+                    initialSelectedDateMillis = parseDateToMillis(dateText)
+                )
+                if (showCompletedPicker) {
+                    DatePickerDialog(
+                        onDismissRequest = { showCompletedPicker = false },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                completedDpState.selectedDateMillis?.let { millis ->
+                                    dateText = millisToDateString(millis)
+                                }
+                                showCompletedPicker = false
+                            }) { Text("OK") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showCompletedPicker = false }) { Text("Cancel") }
+                        }
+                    ) { DatePicker(state = completedDpState) }
+                }
+                OutlinedButton(
+                    onClick = { showCompletedPicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CalendarMonth, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(dateText.ifBlank { "Select completion date" })
+                }
             }
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = hasScheduled, onCheckedChange = { hasScheduled = it })
+                Switch(checked = hasScheduled, onCheckedChange = { hasScheduled = it; if (!it) scheduledText = "" })
                 Spacer(Modifier.width(8.dp))
                 Text("Scheduled date")
             }
             if (hasScheduled) {
-                OutlinedTextField(value = scheduledText, onValueChange = { scheduledText = it },
-                    label = { Text("Date (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                var showScheduledPicker by remember { mutableStateOf(false) }
+                val scheduledDpState = rememberDatePickerState(
+                    initialSelectedDateMillis = parseDateToMillis(scheduledText)
+                )
+                if (showScheduledPicker) {
+                    DatePickerDialog(
+                        onDismissRequest = { showScheduledPicker = false },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                scheduledDpState.selectedDateMillis?.let { millis ->
+                                    scheduledText = millisToDateString(millis)
+                                }
+                                showScheduledPicker = false
+                            }) { Text("OK") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showScheduledPicker = false }) { Text("Cancel") }
+                        }
+                    ) { DatePicker(state = scheduledDpState) }
+                }
+                OutlinedButton(
+                    onClick = { showScheduledPicker = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.CalendarMonth, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(scheduledText.ifBlank { "Select scheduled date" })
+                }
             }
 
             error?.let {
@@ -528,6 +620,58 @@ fun MaintenanceSheet(
                     if (loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     else Text("Save")
                 }
+            }
+        }
+    }
+}
+
+private fun parseDateToMillis(dateStr: String): Long? = try {
+    if (dateStr.isBlank()) null
+    else SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)?.time
+} catch (_: Exception) { null }
+
+private fun millisToDateString(millis: Long): String =
+    SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(millis))
+
+@Composable
+private fun FullScreenPhotoViewer(url: String, onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            var scale by remember { mutableFloatStateOf(1f) }
+            var offsetX by remember { mutableFloatStateOf(0f) }
+            var offsetY by remember { mutableFloatStateOf(0f) }
+            val transformState = rememberTransformableState { zoomChange, panChange, _ ->
+                scale = (scale * zoomChange).coerceIn(0.5f, 6f)
+                offsetX += panChange.x
+                offsetY += panChange.y
+            }
+            AsyncImage(
+                model = ImageRequest.Builder(LocalContext.current)
+                    .data(url).crossfade(true).build(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .transformable(state = transformState)
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offsetX,
+                        translationY = offsetY
+                    )
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(8.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(Icons.Default.Close, "Close", tint = Color.White)
             }
         }
     }

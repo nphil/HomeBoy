@@ -1,6 +1,12 @@
 package com.homeboy.app.ui
 
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -127,12 +133,14 @@ private fun SideRail(
     onToggle: () -> Unit,
     onSelect: (Int) -> Unit
 ) {
+    val railWidth by animateDpAsState(
+        targetValue = if (expanded) 220.dp else 80.dp,
+        animationSpec = tween(durationMillis = 220),
+        label = "railWidth"
+    )
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier
-            .fillMaxHeight()
-            .width(if (expanded) 220.dp else 80.dp)
-            .animateContentSize()
+        modifier = Modifier.fillMaxHeight().width(railWidth)
     ) {
         Column(
             Modifier.fillMaxHeight()
@@ -148,45 +156,50 @@ private fun SideRail(
                 IconButton(onClick = onToggle) {
                     Icon(Icons.Default.Menu, if (expanded) "Collapse" else "Expand")
                 }
-                if (expanded) {
-                    Spacer(Modifier.width(4.dp))
-                    Text("HomeBoy", style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold)
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(tween(150)),
+                    exit = fadeOut(tween(100))
+                ) {
+                    Row {
+                        Spacer(Modifier.width(4.dp))
+                        Text("HomeBoy", style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold)
+                    }
                 }
             }
             Spacer(Modifier.height(12.dp))
 
             tabs.forEachIndexed { i, tab ->
                 val isSel = i == selected
-                if (expanded) {
-                    Surface(
-                        color = if (isSel) MaterialTheme.colorScheme.secondaryContainer
-                                else androidx.compose.ui.graphics.Color.Transparent,
-                        shape = RoundedCornerShape(24.dp),
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                Surface(
+                    color = if (isSel) MaterialTheme.colorScheme.secondaryContainer
+                            else androidx.compose.ui.graphics.Color.Transparent,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = 16.dp, top = 12.dp, bottom = 12.dp)
+                            .clickableNoRipple { onSelect(i) },
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)
-                                .clickableNoRipple { onSelect(i) },
-                            verticalAlignment = Alignment.CenterVertically
+                        Icon(if (isSel) tab.activeIcon else tab.icon, null,
+                            tint = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer
+                                   else MaterialTheme.colorScheme.onSurfaceVariant)
+                        AnimatedVisibility(
+                            visible = expanded,
+                            enter = fadeIn(tween(150)) + expandHorizontally(tween(180)),
+                            exit = fadeOut(tween(80)) + shrinkHorizontally(tween(120))
                         ) {
-                            Icon(if (isSel) tab.activeIcon else tab.icon, null,
-                                tint = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer
-                                       else MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.width(16.dp))
-                            Text(tab.label,
+                            Text(
+                                tab.label,
                                 fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
                                 color = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer
-                                        else MaterialTheme.colorScheme.onSurface)
+                                        else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(start = 16.dp)
+                            )
                         }
                     }
-                } else {
-                    NavigationRailItem(
-                        selected = isSel,
-                        onClick = { onSelect(i) },
-                        icon = { Icon(if (isSel) tab.activeIcon else tab.icon, tab.label) },
-                        label = { Text(tab.label, style = MaterialTheme.typography.labelSmall) }
-                    )
                 }
             }
         }

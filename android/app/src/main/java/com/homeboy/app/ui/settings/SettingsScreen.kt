@@ -111,8 +111,11 @@ fun SettingsTab(onLogout: () -> Unit) {
             item {
                 ListItem(
                     leadingContent = { Icon(Icons.Default.Person, null) },
-                    headlineContent = { Text(userInfo?.name ?: "User") },
-                    supportingContent = { Text(userInfo?.email ?: "") }
+                    headlineContent = { Text(userInfo?.name?.takeIf { it.isNotBlank() } ?: "User") },
+                    supportingContent = {
+                        Text(userInfo?.email?.takeIf { it.isNotBlank() }
+                            ?: if (userInfo == null) "Loading…" else serverUrl.takeIf { it.isNotBlank() } ?: "")
+                    }
                 )
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             }

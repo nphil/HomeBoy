@@ -3,7 +3,9 @@ package com.homeboy.app.ui.items
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
@@ -206,15 +208,38 @@ fun ItemsListPane(
     var showFilters by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var sortMenuOpen by remember { mutableStateOf(false) }
+    var selectedItems by remember { mutableStateOf(emptySet<String>()) }
+    val isSelecting = selectedItems.isNotEmpty()
+    var showBulkDeleteConfirm by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+
+    BackHandler(isSelecting) { selectedItems = emptySet() }
 
     LaunchedEffect(snackbar) {
         snackbar?.let {
             snackbarHostState.showSnackbar(it)
             vm.clearSnackbar()
         }
+    }
+
+    if (showBulkDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showBulkDeleteConfirm = false },
+            title = { Text("Delete ${selectedItems.size} item${if (selectedItems.size > 1) "s" else ""}?") },
+            text = { Text("These items will be permanently deleted.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showBulkDeleteConfirm = false
+                    vm.bulkDelete(selectedItems)
+                    selectedItems = emptySet()
+                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBulkDeleteConfirm = false }) { Text("Cancel") }
+            }
+        )
     }
 
     Scaffold(
@@ -254,11 +279,23 @@ fun ItemsListPane(
             }
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onAddItem,
-                icon = { Icon(Icons.Default.Add, null) },
-                text = { Text("Add Item") }
-            )
+            if (!isSelecting) {
+                ExtendedFloatingActionButton(
+                    onClick = onAddItem,
+                    icon = { Icon(Icons.Default.Add, null) },
+                    text = { Text("Add Item") }
+                )
+            }
+        },
+        bottomBar = {
+            if (isSelecting) {
+                BulkActionBar(
+                    count = selectedItems.size,
+                    onArchive = { vm.bulkArchive(selectedItems); selectedItems = emptySet() },
+                    onDelete = { showBulkDeleteConfirm = true },
+                    onClear = { selectedItems = emptySet() }
+                )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
@@ -306,8 +343,18 @@ fun ItemsListPane(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(items, key = { it.id }, contentType = { "item" }) { item ->
-                        ItemGridCard(item = item, onClick = { onItemSelected(item.id) },
-                            onDelete = { vm.deleteItem(item.id) })
+                        val isItemSelected = item.id in selectedItems
+                        ItemGridCard(
+                            item = item,
+                            isSelecting = isSelecting,
+                            isSelected = isItemSelected,
+                            onClick = {
+                                if (isSelecting) {
+                                    selectedItems = if (isItemSelected) selectedItems - item.id else selectedItems + item.id
+                                } else onItemSelected(item.id)
+                            },
+                            onLongClick = { selectedItems = selectedItems + item.id }
+                        )
                     }
                     item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(80.dp)) }
                 }
@@ -317,11 +364,20 @@ fun ItemsListPane(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(items, key = { it.id }, contentType = { "item" }) { item ->
-                        ItemListRow(item = item,
+                        val isItemSelected = item.id in selectedItems
+                        ItemListRow(
+                            item = item,
                             selected = item.id == selectedItemId,
-                            onClick = { onItemSelected(item.id) },
-                            onDelete = { vm.deleteItem(item.id) })
-                        HorizontalDivider(modifier = Modifier.padding(start = 72.dp))
+                            isSelecting = isSelecting,
+                            isSelected = isItemSelected,
+                            onClick = {
+                                if (isSelecting) {
+                                    selectedItems = if (isItemSelected) selectedItems - item.id else selectedItems + item.id
+                                } else onItemSelected(item.id)
+                            },
+                            onLongClick = { selectedItems = selectedItems + item.id }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(start = if (isSelecting) 72.dp else 72.dp))
                     }
                 }
             }
@@ -482,122 +538,91 @@ private fun FilterPanel(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ItemListRow(
     item: HBItem,
     selected: Boolean = false,
+    isSelecting: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit,
-    onDelete: () -> Unit
+    onLongClick: () -> Unit = {}
 ) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) { showDeleteDialog = true }
-            false
-        }
-    )
-
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete item?") },
-            text = { Text("\"${item.name}\" will be permanently deleted.") },
-            confirmButton = {
-                TextButton(onClick = { showDeleteDialog = false; onDelete() }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
-    SwipeToDismissBox(
-        state = dismissState,
-        enableDismissFromStartToEnd = false,
-        backgroundContent = {
-            Box(
-                Modifier.fillMaxSize().background(MaterialTheme.colorScheme.errorContainer),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                Icon(Icons.Default.Delete, null, modifier = Modifier.padding(end = 20.dp),
-                    tint = MaterialTheme.colorScheme.onErrorContainer)
-            }
-        }
-    ) {
-        ListItem(
-            headlineContent = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f))
-                    if (item.archived) {
-                        Spacer(Modifier.width(4.dp))
-                        Icon(Icons.Default.Archive, null, modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+    ListItem(
+        headlineContent = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
+                if (item.archived) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.Archive, null, modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-            },
-            supportingContent = {
-                Column {
-                    item.effectiveLocation?.let { loc ->
-                        Text(loc.name, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (item.effectiveLabels.isNotEmpty()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            item.effectiveLabels.take(3).forEach { label ->
-                                TagChipSmall(label.name, label.color)
-                            }
+            }
+        },
+        supportingContent = {
+            Column {
+                item.effectiveLocation?.let { loc ->
+                    Text(loc.name, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (item.effectiveLabels.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        item.effectiveLabels.take(3).forEach { label ->
+                            TagChipSmall(label.name, label.color)
                         }
                     }
                 }
-            },
-            trailingContent = {
-                if (item.quantity > 1) {
-                    Text("×${item.quantity}", style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Medium)
-                }
-            },
-            leadingContent = {
+            }
+        },
+        trailingContent = {
+            if (item.quantity > 1) {
+                Text("×${item.quantity}", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium)
+            }
+        },
+        leadingContent = {
+            if (isSelecting) {
+                Checkbox(checked = isSelected, onCheckedChange = null,
+                    modifier = Modifier.size(44.dp))
+            } else {
                 ItemThumbnail(item = item, size = 44.dp, corner = 8.dp, iconSize = 22.dp)
-            },
-            colors = ListItemDefaults.colors(
-                containerColor = if (selected)
-                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-                else
-                    MaterialTheme.colorScheme.surface
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .alpha(if (item.archived) 0.6f else 1f)
-                .clickable(onClick = onClick)
-        )
-    }
+            }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = when {
+                isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                selected -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                else -> MaterialTheme.colorScheme.surface
+            }
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (item.archived) 0.6f else 1f)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+    )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ItemGridCard(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit) {
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
-    if (showDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteDialog = false },
-            title = { Text("Delete item?") },
-            text = { Text("\"${item.name}\" will be permanently deleted.") },
-            confirmButton = {
-                TextButton(onClick = { showDeleteDialog = false; onDelete() }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
-            }
-        )
-    }
-
+private fun ItemGridCard(
+    item: HBItem,
+    isSelecting: Boolean = false,
+    isSelected: Boolean = false,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
+) {
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().alpha(if (item.archived) 0.6f else 1f)
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (item.archived) 0.6f else 1f)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+            else MaterialTheme.colorScheme.surface
+        )
     ) {
         Column(Modifier.padding(12.dp)) {
             Box(
@@ -606,10 +631,17 @@ private fun ItemGridCard(item: HBItem, onClick: () -> Unit, onDelete: () -> Unit
             ) {
                 ItemThumbnail(item = item, size = 96.dp, corner = 8.dp, iconSize = 36.dp,
                     fillWidth = true)
-                if (item.archived) {
+                if (item.archived && !isSelecting) {
                     Icon(Icons.Default.Archive, null,
                         modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(14.dp),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                }
+                if (isSelecting) {
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = null,
+                        modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+                    )
                 }
             }
             Spacer(Modifier.height(8.dp))
@@ -726,6 +758,46 @@ private object ThumbnailResolver {
             id.ifEmpty { null }
         } catch (e: Exception) {
             null
+        }
+    }
+}
+
+@Composable
+private fun BulkActionBar(
+    count: Int,
+    onArchive: () -> Unit,
+    onDelete: () -> Unit,
+    onClear: () -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        tonalElevation = 8.dp,
+        shadowElevation = 4.dp
+    ) {
+        Row(
+            Modifier.fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 4.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onClear) {
+                Icon(Icons.Default.Close, "Clear selection",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            Text(
+                "$count selected",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                modifier = Modifier.weight(1f).padding(start = 4.dp)
+            )
+            IconButton(onClick = onArchive) {
+                Icon(Icons.Default.Archive, "Archive selected",
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, "Delete selected",
+                    tint = MaterialTheme.colorScheme.error)
+            }
         }
     }
 }
