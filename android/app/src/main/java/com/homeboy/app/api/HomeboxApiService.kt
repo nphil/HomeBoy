@@ -24,10 +24,10 @@ interface HomeboxApiService {
         @Field("password") password: String
     ): Response<HBAuthResponse>
 
-    @GET("v1/users/me")
+    @GET("v1/users/self")
     suspend fun getMe(
         @Header("Authorization") token: String
-    ): Response<HBUserInfo>
+    ): Response<HBUserSelfResponse>
 
     // Entity types (used to create locations — need the location typeId)
     @GET("v1/entity-types")

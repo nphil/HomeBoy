@@ -36,7 +36,10 @@ class SettingsViewModel(
         viewModelScope.launch {
             try {
                 _userInfo.value = repo.getMe()
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                // Surface *something* rather than a perpetual "Loading…"
+                _userInfo.value = HBUserInfo()
+            }
         }
         viewModelScope.launch {
             try {

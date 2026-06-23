@@ -64,7 +64,7 @@ class HomeboxClient(baseUrl: String) {
     suspend fun getMe(): HBUserInfo {
         val resp = api.getMe(auth())
         if (!resp.isSuccessful) throw Exception("GetMe failed: ${resp.code()}")
-        return resp.body() ?: HBUserInfo()
+        return resp.body()?.item ?: HBUserInfo()
     }
 
     suspend fun listItems(

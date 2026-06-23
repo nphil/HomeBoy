@@ -1,10 +1,8 @@
 package com.homeboy.app.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -136,6 +135,14 @@ private fun SideRail(
         animationSpec = tween(durationMillis = 220),
         label = "railWidth"
     )
+    // Labels stay permanently laid out as a single non-wrapping line (clipped by the
+    // Surface when collapsed) and only their opacity animates. This keeps every row's
+    // measured height constant during the width animation, so icons never jump.
+    val labelAlpha by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "labelAlpha"
+    )
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.fillMaxHeight().width(railWidth)
@@ -154,17 +161,15 @@ private fun SideRail(
                 IconButton(onClick = onToggle) {
                     Icon(Icons.Default.Menu, if (expanded) "Collapse" else "Expand")
                 }
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn(tween(150)),
-                    exit = fadeOut(tween(100))
-                ) {
-                    Row {
-                        Spacer(Modifier.width(4.dp))
-                        Text("HomeBoy", style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold)
-                    }
-                }
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    "HomeBoy",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.alpha(labelAlpha)
+                )
             }
             Spacer(Modifier.height(12.dp))
 
@@ -184,19 +189,15 @@ private fun SideRail(
                         Icon(if (isSel) tab.activeIcon else tab.icon, null,
                             tint = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer
                                    else MaterialTheme.colorScheme.onSurfaceVariant)
-                        AnimatedVisibility(
-                            visible = expanded,
-                            enter = fadeIn(tween(200)),
-                            exit = fadeOut(tween(150))
-                        ) {
-                            Text(
-                                tab.label,
-                                fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
-                                color = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer
-                                        else MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.padding(start = 16.dp)
-                            )
-                        }
+                        Text(
+                            tab.label,
+                            fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (isSel) MaterialTheme.colorScheme.onSecondaryContainer
+                                    else MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(start = 16.dp).alpha(labelAlpha)
+                        )
                     }
                 }
             }

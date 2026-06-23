@@ -18,6 +18,11 @@ data class HBUserInfo(
     val groupName: String = ""
 )
 
+/** Homebox wraps `GET /v1/users/self` in `{ "item": { ... } }`. */
+data class HBUserSelfResponse(
+    val item: HBUserInfo = HBUserInfo()
+)
+
 data class HBItemLabel(
     val id: String,
     val name: String,
