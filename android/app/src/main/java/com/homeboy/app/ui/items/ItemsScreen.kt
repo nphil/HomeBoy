@@ -707,7 +707,6 @@ fun parseHexColor(hex: String): Color {
     }
 }
 
-@Composable
 /**
  * Resolves a list item's primary photo attachment id by fetching its detail once.
  * Cached per session ("" = item has no photo) so each item is fetched at most once.
