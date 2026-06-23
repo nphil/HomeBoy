@@ -3,6 +3,13 @@ name: Build IPA
 on:
   push:
     branches: [main]
+    # Don't rebuild/republish the iOS IPA for Android-only or docs-only
+    # changes — otherwise every Android push also triggers an iOS release
+    # that steals the "latest" badge from the Android APK.
+    paths-ignore:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+      - '**/*.md'
   workflow_dispatch:
 
 permissions:
