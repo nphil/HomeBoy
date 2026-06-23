@@ -63,18 +63,29 @@ jobs:
         id: apk
         run: |
           APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          # Fail loudly if assembleRelease produced no APK — never publish an
+          # empty release.
+          if [ -z "$APK" ] || [ ! -s "$APK" ]; then
+            echo "::error::No APK found under android/app/build/outputs/apk/release" >&2
+            find android/app/build/outputs -type f -name '*.apk' || true
+            exit 1
+          fi
           OUT="HomeBoy-android-v${{ steps.version.outputs.name }}.apk"
           cp "$APK" "$OUT"
           echo "path=$OUT" >> "$GITHUB_OUTPUT"
+          echo "Packaged $OUT ($(stat -c%s "$OUT") bytes)"
 
       # Versioned release (one per build) so Obtainium can detect updates.
+      # make_latest=true keeps the newest APK visible as the repo's latest
+      # release; fail_on_unmatched_files guarantees the APK is actually attached.
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: android-v${{ steps.version.outputs.name }}
           name: "HomeBoy Android v${{ steps.version.outputs.name }}"
           prerelease: false
-          make_latest: false
+          make_latest: true
+          fail_on_unmatched_files: true
           files: ${{ steps.apk.outputs.path }}
           body: |
             Signed release APK for sideloading.
