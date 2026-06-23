@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +21,7 @@ import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
 import androidx.compose.material3.adaptive.layout.*
 import androidx.compose.material3.adaptive.navigation.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -25,9 +29,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,78 +43,144 @@ import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBItem
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
+import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.SessionHolder
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun ItemsTab() {
     val ctx = LocalContext.current
     val app = ctx.applicationContext as HomeboxApplication
     val vm: ItemsViewModel = viewModel(factory = ItemsViewModel.factory(app))
 
-    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
-    val scope = rememberCoroutineScope()
-
-    BackHandler(navigator.canNavigateBack()) {
-        scope.launch { navigator.navigateBack() }
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // Two panes once there's room (tablet / landscape); single pane otherwise.
+        if (maxWidth >= 720.dp) {
+            DualPaneItems(vm, totalWidth = maxWidth)
+        } else {
+            SinglePaneItems(vm)
+        }
     }
+}
 
-    ListDetailPaneScaffold(
-        directive = navigator.scaffoldDirective,
-        value = navigator.scaffoldValue,
-        listPane = {
-            AnimatedPane {
-                ItemsListPane(
-                    vm = vm,
-                    selectedItemId = navigator.currentDestination?.content?.takeIf { it != "add" },
-                    onItemSelected = { id ->
-                        scope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, id) }
-                    },
-                    onAddItem = {
-                        scope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Extra, "add") }
-                    }
-                )
-            }
-        },
-        detailPane = {
-            AnimatedPane {
-                val itemId = navigator.currentDestination?.content
-                if (itemId != null && itemId != "add") {
-                    ItemDetailScreen(
-                        itemId = itemId,
-                        onBack = { scope.launch { navigator.navigateBack() } },
-                        onItemUpdated = { vm.load() },
-                        onAddSubItem = { parentId, parentName ->
-                            scope.launch {
-                                navigator.navigateTo(ListDetailPaneScaffoldRole.Extra, "add:$parentId:$parentName")
-                            }
-                        }
+/** Right-pane content selector shared by both layouts (encoded as Strings so it survives config changes). */
+private fun parseAddSpec(spec: String): Pair<String?, String?> {
+    val parts = spec.split("|", limit = 2)
+    val pid = parts.getOrNull(0)?.takeIf { it.isNotBlank() }
+    val pname = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
+    return pid to pname
+}
+
+@Composable
+private fun DualPaneItems(vm: ItemsViewModel, totalWidth: Dp) {
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var addSpec by rememberSaveable { mutableStateOf<String?>(null) }   // null = not adding; "" = root add
+    var listFraction by rememberSaveable { mutableStateOf(0.36f) }
+
+    val density = LocalDensity.current
+    val totalPx = with(density) { totalWidth.toPx() }
+
+    Row(
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+    ) {
+        Box(Modifier.fillMaxHeight().weight(listFraction)) {
+            ItemsListPane(
+                vm = vm,
+                selectedItemId = if (addSpec == null) selectedId else null,
+                onItemSelected = { selectedId = it; addSpec = null },
+                onAddItem = { addSpec = "" }
+            )
+        }
+
+        PaneSplitter(onDelta = { dx ->
+            listFraction = (listFraction + dx / totalPx).coerceIn(0.25f, 0.6f)
+        })
+
+        Box(Modifier.fillMaxHeight().weight(1f - listFraction)) {
+            when {
+                addSpec != null -> {
+                    val (pid, pname) = parseAddSpec(addSpec!!)
+                    AddEditItemScreen(
+                        itemId = null, parentId = pid, parentName = pname,
+                        onBack = { addSpec = null },
+                        onSaved = { vm.load(); addSpec = null }
                     )
-                } else {
-                    EmptyDetailPlaceholder()
                 }
-            }
-        },
-        extraPane = {
-            AnimatedPane {
-                val content = navigator.currentDestination?.content ?: ""
-                val parts = content.split(":")
-                val parentId = if (parts.size >= 2) parts[1] else null
-                val parentName = if (parts.size >= 3) parts[2] else null
-                AddEditItemScreen(
-                    itemId = null,
-                    parentId = parentId,
-                    parentName = parentName,
-                    onBack = { scope.launch { navigator.navigateBack() } },
-                    onSaved = {
-                        vm.load()
-                        scope.launch { navigator.navigateBack() }
-                    }
+                selectedId != null -> ItemDetailScreen(
+                    itemId = selectedId!!,
+                    onBack = { selectedId = null },
+                    onItemUpdated = { vm.load() },
+                    onAddSubItem = { parentId, parentName -> addSpec = "$parentId|$parentName" }
                 )
+                else -> EmptyDetailPlaceholder()
             }
         }
-    )
+    }
+}
+
+@Composable
+private fun SinglePaneItems(vm: ItemsViewModel) {
+    var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var addSpec by rememberSaveable { mutableStateOf<String?>(null) }
+
+    BackHandler(selectedId != null || addSpec != null) {
+        if (addSpec != null) addSpec = null else selectedId = null
+    }
+
+    when {
+        addSpec != null -> {
+            val (pid, pname) = parseAddSpec(addSpec!!)
+            AddEditItemScreen(
+                itemId = null, parentId = pid, parentName = pname,
+                onBack = { addSpec = null },
+                onSaved = { vm.load(); addSpec = null }
+            )
+        }
+        selectedId != null -> ItemDetailScreen(
+            itemId = selectedId!!,
+            onBack = { selectedId = null },
+            onItemUpdated = { vm.load() },
+            onAddSubItem = { parentId, parentName -> addSpec = "$parentId|$parentName" }
+        )
+        else -> ItemsListPane(
+            vm = vm,
+            selectedItemId = null,
+            onItemSelected = { selectedId = it },
+            onAddItem = { addSpec = "" }
+        )
+    }
+}
+
+/** Thin, themed, draggable splitter with a center grab handle — Gmail / Claude style. */
+@Composable
+private fun PaneSplitter(onDelta: (Float) -> Unit) {
+    var dragging by remember { mutableStateOf(false) }
+    Box(
+        Modifier
+            .fillMaxHeight()
+            .width(16.dp)
+            .draggable(
+                orientation = Orientation.Horizontal,
+                state = rememberDraggableState { onDelta(it) },
+                onDragStarted = { dragging = true },
+                onDragStopped = { dragging = false }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        // Hairline that blends into the surface.
+        Box(
+            Modifier.fillMaxHeight().width(1.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant)
+        )
+        // Center grab handle — tints to primary while dragging.
+        Box(
+            Modifier.width(4.dp).height(40.dp).clip(CircleShape).background(
+                if (dragging) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -568,14 +640,22 @@ private fun ItemThumbnail(
     val boxMod = (if (fillWidth) Modifier.fillMaxSize() else Modifier.size(size))
         .clip(shape)
         .background(MaterialTheme.colorScheme.primaryContainer)
-    val attId = item.previewAttachmentId
+
+    val ctx = LocalContext.current
+    val app = ctx.applicationContext as HomeboxApplication
+    // The entities list response doesn't include an image id, so fall back to
+    // resolving the item's primary photo lazily (cached per session).
+    var attId by remember(item.id) { mutableStateOf(item.previewAttachmentId) }
+    LaunchedEffect(item.id) {
+        if (attId == null) attId = ThumbnailResolver.resolve(item.id, app.repository)
+    }
+    val currentAttId = attId
 
     Box(boxMod, contentAlignment = Alignment.Center) {
-        if (attId != null && SessionHolder.apiBase.isNotBlank()) {
-            val ctx = LocalContext.current
+        if (currentAttId != null && SessionHolder.apiBase.isNotBlank()) {
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(ctx)
-                    .data(SessionHolder.attachmentUrl(item.id, attId))
+                    .data(SessionHolder.attachmentUrl(item.id, currentAttId))
                     .crossfade(true)
                     .build(),
                 contentDescription = item.name,
@@ -624,6 +704,30 @@ fun parseHexColor(hex: String): Color {
         )
     } catch (_: Exception) {
         Color.Gray
+    }
+}
+
+@Composable
+/**
+ * Resolves a list item's primary photo attachment id by fetching its detail once.
+ * Cached per session ("" = item has no photo) so each item is fetched at most once.
+ */
+private object ThumbnailResolver {
+    private val cache = ConcurrentHashMap<String, String>()
+
+    suspend fun resolve(itemId: String, repo: HomeboxRepository): String? {
+        cache[itemId]?.let { return it.ifEmpty { null } }
+        return try {
+            val detail = repo.getItem(itemId)
+            val att = detail.attachments?.firstOrNull {
+                (it.type ?: "photo").equals("photo", ignoreCase = true)
+            }
+            val id = att?.id ?: ""
+            cache[itemId] = id
+            id.ifEmpty { null }
+        } catch (e: Exception) {
+            null
+        }
     }
 }
 

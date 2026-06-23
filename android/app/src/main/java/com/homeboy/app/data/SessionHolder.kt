@@ -10,5 +10,5 @@ object SessionHolder {
     @Volatile var tenant: String? = null
 
     fun attachmentUrl(itemId: String, attachmentId: String): String =
-        "${apiBase}v1/items/$itemId/attachments/$attachmentId"
+        "${apiBase}v1/entities/$itemId/attachments/$attachmentId"
 }
