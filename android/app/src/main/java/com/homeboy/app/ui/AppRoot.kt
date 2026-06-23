@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -134,7 +135,10 @@ private fun SideRail(
             .animateContentSize()
     ) {
         Column(
-            Modifier.fillMaxHeight().padding(vertical = 12.dp).verticalScroll(rememberScrollState())
+            Modifier.fillMaxHeight()
+                .statusBarsPadding()
+                .padding(vertical = 12.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             // Header: collapse/expand toggle (+ app name when expanded)
             Row(

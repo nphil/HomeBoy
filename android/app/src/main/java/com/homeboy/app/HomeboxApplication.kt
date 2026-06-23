@@ -35,12 +35,16 @@ class HomeboxApplication : Application(), ImageLoaderFactory {
 
         return ImageLoader.Builder(this)
             .okHttpClient(okHttp)
-            .crossfade(true)
-            .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.25).build() }
+            .crossfade(180)
+            // Homebox attachment responses carry no cache-control headers, so by
+            // default Coil would refuse to persist them. Ignoring those headers makes
+            // every fetched image land in the disk cache and reload instantly offline.
+            .respectCacheHeaders(false)
+            .memoryCache { MemoryCache.Builder(this).maxSizePercent(0.30).build() }
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache"))
-                    .maxSizeBytes(80L * 1024 * 1024)
+                    .maxSizeBytes(256L * 1024 * 1024)
                     .build()
             }
             .build()
