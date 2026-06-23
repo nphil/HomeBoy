@@ -185,29 +185,51 @@ fun AddEditItemScreen(
 
             OutlinedTextField(
                 value = name, onValueChange = { name = it },
-                label = { Text("Name *") },
+                label = { Text("Name") },
+                placeholder = { Text("What is it?") },
                 modifier = Modifier.fillMaxWidth(),
-                singleLine = true
+                singleLine = true,
+                supportingText = { Text("Required") },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences,
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Next
+                )
             )
 
             OutlinedTextField(
                 value = description, onValueChange = { description = it },
                 label = { Text("Description") },
-                modifier = Modifier.fillMaxWidth(), maxLines = 4
+                modifier = Modifier.fillMaxWidth(), maxLines = 4,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences
+                )
             )
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { quantityText = ((quantityText.toIntOrNull() ?: 1) - 1).coerceAtLeast(1).toString() }) {
-                    Icon(Icons.Default.Remove, null)
-                }
-                OutlinedTextField(
-                    value = quantityText, onValueChange = { quantityText = it },
-                    label = { Text("Quantity") },
-                    modifier = Modifier.weight(1f), singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                )
-                IconButton(onClick = { quantityText = ((quantityText.toIntOrNull() ?: 1) + 1).toString() }) {
-                    Icon(Icons.Default.Add, null)
+            // Quantity — Material You tonal stepper.
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Quantity", style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f))
+                    FilledTonalIconButton(
+                        onClick = { quantityText = ((quantityText.toIntOrNull() ?: 1) - 1).coerceAtLeast(1).toString() }
+                    ) { Icon(Icons.Default.Remove, "Decrease") }
+                    Text(
+                        (quantityText.toIntOrNull() ?: 1).toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.widthIn(min = 40.dp),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    FilledTonalIconButton(
+                        onClick = { quantityText = ((quantityText.toIntOrNull() ?: 1) + 1).toString() }
+                    ) { Icon(Icons.Default.Add, "Increase") }
                 }
             }
 
