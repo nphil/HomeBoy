@@ -3,10 +3,8 @@ package com.homeboy.app.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -188,8 +186,8 @@ private fun SideRail(
                                    else MaterialTheme.colorScheme.onSurfaceVariant)
                         AnimatedVisibility(
                             visible = expanded,
-                            enter = fadeIn(tween(150)) + expandHorizontally(tween(180)),
-                            exit = fadeOut(tween(80)) + shrinkHorizontally(tween(120))
+                            enter = fadeIn(tween(200)),
+                            exit = fadeOut(tween(150))
                         ) {
                             Text(
                                 tab.label,
