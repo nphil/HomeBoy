@@ -4,6 +4,13 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -153,7 +160,6 @@ private fun SideRail(
                 .padding(vertical = 12.dp)
                 .verticalScroll(rememberScrollState())
         ) {
-            // Header: collapse/expand toggle (+ app name when expanded)
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -161,15 +167,21 @@ private fun SideRail(
                 IconButton(onClick = onToggle) {
                     Icon(Icons.Default.Menu, if (expanded) "Collapse" else "Expand")
                 }
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    "HomeBoy",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false,
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.alpha(labelAlpha)
-                )
+                ) {
+                    Spacer(Modifier.width(8.dp))
+                    HomeBoyLogo(modifier = Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "HomeBoy",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
             Spacer(Modifier.height(12.dp))
 
@@ -213,4 +225,53 @@ private fun Modifier.clickableNoRipple(onClick: () -> Unit): Modifier {
         indication = null,
         onClick = onClick
     )
+}
+
+@Composable
+fun HomeBoyLogo(modifier: Modifier = Modifier) {
+    val color = MaterialTheme.colorScheme.primary
+    Canvas(modifier = modifier) {
+        val scaleX = size.width / 108f
+        val scaleY = size.height / 108f
+        val strokeWidth = 5f * scaleX
+
+        // Outer Hexagon
+        val hexPath = Path().apply {
+            moveTo(54f * scaleX, 20f * scaleY)
+            lineTo(84f * scaleX, 36f * scaleY)
+            lineTo(84f * scaleX, 70f * scaleY)
+            lineTo(54f * scaleX, 86f * scaleY)
+            lineTo(24f * scaleX, 70f * scaleY)
+            lineTo(24f * scaleX, 36f * scaleY)
+            close()
+        }
+        drawPath(
+            path = hexPath,
+            color = color,
+            style = Stroke(width = strokeWidth, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        )
+
+        // Inner Y lines
+        drawLine(
+            color = color,
+            start = Offset(54f * scaleX, 52f * scaleY),
+            end = Offset(24f * scaleX, 36f * scaleY),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(54f * scaleX, 52f * scaleY),
+            end = Offset(84f * scaleX, 36f * scaleY),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+        drawLine(
+            color = color,
+            start = Offset(54f * scaleX, 52f * scaleY),
+            end = Offset(54f * scaleX, 86f * scaleY),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+    }
 }

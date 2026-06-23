@@ -1,6 +1,7 @@
 package com.homeboy.app.ui.locations
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
@@ -9,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -27,16 +29,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBLocationTreeItem
 
-// Spring animations: expand with bounce, collapse crisp
+// Spring animations: expand smoothly without bounce, collapse crisp
 private val expandEnter =
     fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
-    expandVertically(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
+    expandVertically(spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
 private val collapseExit =
     fadeOut(spring(stiffness = Spring.StiffnessMedium)) +
     shrinkVertically(spring(stiffness = Spring.StiffnessMedium))
@@ -57,7 +62,7 @@ private fun buildFlatNodes(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LocationsTab() {
     val ctx = LocalContext.current
@@ -71,7 +76,8 @@ fun LocationsTab() {
     var showAddSheet by remember { mutableStateOf(false) }
     var editingLocation by remember { mutableStateOf<HBLocationTreeItem?>(null) }
     var addParentId by remember { mutableStateOf<String?>(null) }
-    var orgChartMode by remember { mutableStateOf(false) }
+    val viewMode by vm.viewMode.collectAsStateWithLifecycle()
+    val orgChartMode = viewMode == "grid"
     // Start fully collapsed
     var expandedNodeIds by remember { mutableStateOf(setOf<String>()) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -97,7 +103,7 @@ fun LocationsTab() {
         )
     }
 
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -105,7 +111,7 @@ fun LocationsTab() {
             TopAppBar(
                 title = { Text("Locations", fontWeight = FontWeight.SemiBold) },
                 actions = {
-                    IconButton(onClick = { orgChartMode = !orgChartMode }) {
+                    IconButton(onClick = { vm.toggleViewMode() }) {
                         Icon(
                             if (orgChartMode) Icons.Default.ViewList else Icons.Default.GridView,
                             contentDescription = if (orgChartMode) "Tree list view" else "Grid view"
@@ -140,26 +146,41 @@ fun LocationsTab() {
                 }
             }
             orgChartMode -> {
-                // Compact grid: flat list of nodes, children inserted after parent when expanded.
-                // Each card is ~160dp wide so 4-5 fit per row on a tablet.
-                val flatNodes = remember(tree, expandedNodeIds) { buildFlatNodes(tree, expandedNodeIds) }
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 158.dp),
-                    contentPadding = PaddingValues(
-                        start = 12.dp, end = 12.dp, top = 8.dp, bottom = 92.dp
-                    ),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize().padding(padding)
+                val scrollStateY = rememberScrollState()
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
                 ) {
-                    items(flatNodes, key = { it.node.id }) { flat ->
-                        GridLocationCard(
-                            flat = flat,
-                            isExpanded = flat.node.id in expandedNodeIds,
-                            onToggle = { onToggle(flat.node.id) },
-                            onEdit = { editingLocation = flat.node },
-                            onDelete = { vm.deleteLocation(flat.node.id) },
-                            onAddChild = { addParentId = flat.node.id; showAddSheet = true }
+                    val maxWidth = maxWidth
+                    val spacing = 16.dp
+                    val paddingStart = 24.dp
+                    val availableWidth = maxWidth - paddingStart - 24.dp
+                    val cols = ((availableWidth + spacing) / (140.dp + spacing)).toInt().coerceAtLeast(1)
+
+                    val initialGridItems = remember(tree) {
+                        tree.map { GridCardItem(it, isChild = false, parentId = null) }
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(scrollStateY)
+                            .padding(bottom = 92.dp)
+                            .animateContentSize()
+                    ) {
+                        RenderFlatList(
+                            itemsList = initialGridItems,
+                            expandedNodeIds = expandedNodeIds,
+                            cols = cols,
+                            paddingStart = paddingStart,
+                            cardWidth = 140.dp,
+                            spacing = spacing,
+                            availableWidth = availableWidth,
+                            onToggle = onToggle,
+                            onEdit = { editingLocation = it },
+                            onDelete = { vm.deleteLocation(it) },
+                            onAddChild = { addParentId = it; showAddSheet = true }
                         )
                     }
                 }
@@ -197,95 +218,361 @@ fun LocationsTab() {
 // ---------------------------------------------------------------------------
 
 @Composable
+private fun ConnectorLines(
+    parentCenterX: Dp,
+    childrenCenterXs: List<Dp>,
+    lineColor: Color
+) {
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(24.dp)
+    ) {
+        val parentX = parentCenterX.toPx()
+        val midY = 12.dp.toPx()
+
+        // 1. Vertical line from parent bottom down to middle
+        drawLine(
+            color = lineColor,
+            start = Offset(parentX, 0f),
+            end = Offset(parentX, midY),
+            strokeWidth = 2.dp.toPx()
+        )
+
+        if (childrenCenterXs.isNotEmpty()) {
+            val firstChildX = childrenCenterXs.first().toPx()
+            val lastChildX = childrenCenterXs.last().toPx()
+
+            // 2. Horizontal connection bar spanning all children
+            val minX = minOf(parentX, firstChildX)
+            val maxX = maxOf(parentX, lastChildX)
+            drawLine(
+                color = lineColor,
+                start = Offset(minX, midY),
+                end = Offset(maxX, midY),
+                strokeWidth = 2.dp.toPx()
+            )
+
+            // 3. Vertical line down to each child
+            childrenCenterXs.forEach { childCenterX ->
+                val childX = childCenterX.toPx()
+                drawLine(
+                    color = lineColor,
+                    start = Offset(childX, midY),
+                    end = Offset(childX, size.height),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+        }
+    }
+}
+
+private data class GridCardItem(
+    val node: HBLocationTreeItem,
+    val isChild: Boolean,
+    val parentId: String?,
+    val isShrunkBlock: Boolean = false,
+    val shrunkBlockSize: Int = 0
+)
+
+@Composable
+private fun RenderFlatList(
+    itemsList: List<GridCardItem>,
+    expandedNodeIds: Set<String>,
+    cols: Int,
+    paddingStart: Dp,
+    cardWidth: Dp,
+    spacing: Dp,
+    availableWidth: Dp,
+    onToggle: (String) -> Unit,
+    onEdit: (HBLocationTreeItem) -> Unit,
+    onDelete: (String) -> Unit,
+    onAddChild: (String) -> Unit
+) {
+    if (itemsList.isEmpty()) return
+
+    // 1. Determine the next row content and card size
+    val firstItem = itemsList.first()
+    val (rowItems, remainingItems, currentRowCardWidth) = if (firstItem.isShrunkBlock) {
+        val count = firstItem.shrunkBlockSize
+        val shrunkSize = minOf(
+            cardWidth,
+            (availableWidth - spacing * (count - 1)) / count
+        )
+        Triple(itemsList.take(count), itemsList.drop(count), shrunkSize)
+    } else {
+        Triple(itemsList.take(cols), itemsList.drop(cols), cardWidth)
+    }
+
+    // 2. Render the row of cards
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = paddingStart, end = 24.dp, top = 8.dp, bottom = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(spacing)
+    ) {
+        rowItems.forEach { item ->
+            GridLocationCard(
+                node = item.node,
+                isExpanded = item.node.id in expandedNodeIds,
+                cardSize = currentRowCardWidth,
+                onToggle = { onToggle(item.node.id) },
+                onEdit = { onEdit(item.node) },
+                onDelete = { onDelete(item.node.id) },
+                onAddChild = { onAddChild(item.node.id) }
+            )
+        }
+    }
+
+    // 3. Find if any item in the current row is expanded
+    val expandedItems = rowItems.filter { it.node.id in expandedNodeIds && it.node.children.isNotEmpty() }
+
+    if (expandedItems.isNotEmpty()) {
+        val parentItem = expandedItems.first()
+        val parentIndex = rowItems.indexOf(parentItem)
+        val parentCenterX = paddingStart + (currentRowCardWidth + spacing) * parentIndex + (currentRowCardWidth / 2)
+
+        val children = parentItem.node.children
+        val childrenCount = children.size
+
+        // Determine if children should be a shrunk block
+        val shouldShrink = childrenCount > cols
+        val childCardWidth = if (shouldShrink) {
+            minOf(cardWidth, (availableWidth - spacing * (childrenCount - 1)) / childrenCount)
+        } else {
+            cardWidth
+        }
+
+        val childrenCenterXs = children.indices.map { j ->
+            paddingStart + (childCardWidth + spacing) * j + (childCardWidth / 2)
+        }
+
+        val isExpanded = parentItem.node.id in expandedNodeIds
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandEnter,
+            exit = collapseExit
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                ConnectorLines(
+                    parentCenterX = parentCenterX,
+                    childrenCenterXs = childrenCenterXs,
+                    lineColor = MaterialTheme.colorScheme.outlineVariant
+                )
+
+                val childrenGridItems = children.map { child ->
+                    GridCardItem(
+                        node = child,
+                        isChild = true,
+                        parentId = parentItem.node.id,
+                        isShrunkBlock = shouldShrink,
+                        shrunkBlockSize = childrenCount
+                    )
+                }
+
+                if (shouldShrink) {
+                    RenderFlatList(
+                        itemsList = childrenGridItems,
+                        expandedNodeIds = expandedNodeIds,
+                        cols = cols,
+                        paddingStart = paddingStart,
+                        cardWidth = cardWidth,
+                        spacing = spacing,
+                        availableWidth = availableWidth,
+                        onToggle = onToggle,
+                        onEdit = onEdit,
+                        onDelete = onDelete,
+                        onAddChild = onAddChild
+                    )
+                } else {
+                    val mergedItems = childrenGridItems + remainingItems
+                    RenderFlatList(
+                        itemsList = mergedItems,
+                        expandedNodeIds = expandedNodeIds,
+                        cols = cols,
+                        paddingStart = paddingStart,
+                        cardWidth = cardWidth,
+                        spacing = spacing,
+                        availableWidth = availableWidth,
+                        onToggle = onToggle,
+                        onEdit = onEdit,
+                        onDelete = onDelete,
+                        onAddChild = onAddChild
+                    )
+                }
+            }
+        }
+
+        if (shouldShrink) {
+            RenderFlatList(
+                itemsList = remainingItems,
+                expandedNodeIds = expandedNodeIds,
+                cols = cols,
+                paddingStart = paddingStart,
+                cardWidth = cardWidth,
+                spacing = spacing,
+                availableWidth = availableWidth,
+                onToggle = onToggle,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onAddChild = onAddChild
+            )
+        }
+    } else {
+        RenderFlatList(
+            itemsList = remainingItems,
+            expandedNodeIds = expandedNodeIds,
+            cols = cols,
+            paddingStart = paddingStart,
+            cardWidth = cardWidth,
+            spacing = spacing,
+            availableWidth = availableWidth,
+            onToggle = onToggle,
+            onEdit = onEdit,
+            onDelete = onDelete,
+            onAddChild = onAddChild
+        )
+    }
+}
+
+@Composable
 private fun GridLocationCard(
-    flat: FlatNode,
+    node: HBLocationTreeItem,
     isExpanded: Boolean,
+    cardSize: Dp = 140.dp,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onAddChild: () -> Unit
 ) {
-    val node = flat.node
     val hasChildren = node.children.isNotEmpty()
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
-    val accentColor = MaterialTheme.colorScheme.primary
 
     if (showDeleteDialog) {
         DeleteLocationDialog(node.name, onConfirm = onDelete, onDismiss = { showDeleteDialog = false })
     }
 
+    val padding = when {
+        cardSize < 100.dp -> 6.dp
+        cardSize < 120.dp -> 8.dp
+        else -> 12.dp
+    }
+    val placeIconSize = when {
+        cardSize < 100.dp -> 12.dp
+        cardSize < 120.dp -> 14.dp
+        else -> 18.dp
+    }
+    val expandIconSize = when {
+        cardSize < 100.dp -> 10.dp
+        cardSize < 120.dp -> 12.dp
+        else -> 16.dp
+    }
+    val moreButtonSize = when {
+        cardSize < 100.dp -> 16.dp
+        cardSize < 120.dp -> 20.dp
+        else -> 24.dp
+    }
+    val moreIconSize = when {
+        cardSize < 100.dp -> 10.dp
+        cardSize < 120.dp -> 12.dp
+        else -> 16.dp
+    }
+
+    val nameStyle = when {
+        cardSize < 90.dp -> MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold, fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.9f)
+        cardSize < 120.dp -> MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold)
+        else -> MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold)
+    }
+
+    val metaStyle = when {
+        cardSize < 90.dp -> MaterialTheme.typography.labelSmall.copy(fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.75f)
+        cardSize < 120.dp -> MaterialTheme.typography.labelSmall.copy(fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.85f)
+        else -> MaterialTheme.typography.labelSmall
+    }
+
+    val contentSpacing = when {
+        cardSize < 100.dp -> 1.dp
+        cardSize < 120.dp -> 2.dp
+        else -> 4.dp
+    }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.size(cardSize),
         onClick = if (hasChildren) onToggle else ({})
     ) {
-        Row(Modifier.fillMaxWidth()) {
-            // Left accent bar shows hierarchy depth (none for root, colored for children)
-            if (flat.depth > 0) {
-                Box(
-                    Modifier
-                        .width(3.dp)
-                        .fillMaxHeight()
-                        .background(
-                            accentColor.copy(alpha = (0.4f + flat.depth * 0.2f).coerceAtMost(0.9f)),
-                            RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)
-                        )
-                )
-            }
-            Column(Modifier.weight(1f).padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Top row: Place icon and controls
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
                     Icon(
                         Icons.Default.Place, null,
-                        Modifier.size(14.dp),
+                        Modifier.size(placeIconSize),
                         tint = MaterialTheme.colorScheme.primary
                     )
-                    Spacer(Modifier.weight(1f))
-                    if (hasChildren) {
-                        Icon(
-                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            null, Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }, Modifier.size(24.dp)) {
-                            Icon(Icons.Default.MoreVert, null, Modifier.size(14.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (hasChildren) {
+                            Icon(
+                                if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                null, Modifier.size(expandIconSize),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
-                        DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                            DropdownMenuItem(
-                                text = { Text("Add sub-location") },
-                                leadingIcon = { Icon(Icons.Default.Add, null) },
-                                onClick = { menuExpanded = false; onAddChild() }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Edit") },
-                                leadingIcon = { Icon(Icons.Default.Edit, null) },
-                                onClick = { menuExpanded = false; onEdit() }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                                onClick = { menuExpanded = false; showDeleteDialog = true }
-                            )
+                        Box {
+                            IconButton(onClick = { menuExpanded = true }, Modifier.size(moreButtonSize)) {
+                                Icon(Icons.Default.MoreVert, null, Modifier.size(moreIconSize))
+                            }
+                            DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Add sub-location") },
+                                    leadingIcon = { Icon(Icons.Default.Add, null) },
+                                    onClick = { menuExpanded = false; onAddChild() }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Edit") },
+                                    leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                    onClick = { menuExpanded = false; onEdit() }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                                    onClick = { menuExpanded = false; showDeleteDialog = true }
+                                )
+                            }
                         }
                     }
                 }
-                Text(
-                    node.name,
-                    style = MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 2
-                )
-                val meta = buildList {
-                    if (node.itemCount > 0) add("${node.itemCount} item${if (node.itemCount != 1) "s" else ""}")
-                    if (hasChildren) add("${node.children.size} sub")
-                }.joinToString(" · ")
-                if (meta.isNotEmpty()) {
+                
+                // Bottom content: Name and metadata
+                Column(verticalArrangement = Arrangement.spacedBy(contentSpacing)) {
                     Text(
-                        meta,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        node.name,
+                        style = nameStyle,
+                        maxLines = if (cardSize < 100.dp) 1 else 2,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    val meta = buildList {
+                        if (node.itemCount > 0) add("${node.itemCount} item${if (node.itemCount != 1) "s" else ""}")
+                        if (hasChildren) add("${node.children.size} sub")
+                    }.joinToString(" · ")
+                    if (meta.isNotEmpty()) {
+                        Text(
+                            meta,
+                            style = metaStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }

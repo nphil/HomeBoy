@@ -8,11 +8,15 @@ import com.homeboy.app.api.HBTag
 import com.homeboy.app.api.HBTagCreate
 import com.homeboy.app.api.HBTagUpdate
 import com.homeboy.app.data.HomeboxRepository
+import com.homeboy.app.data.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class TagsViewModel(private val repo: HomeboxRepository) : ViewModel() {
+class TagsViewModel(
+    private val repo: HomeboxRepository,
+    private val prefs: PreferencesRepository
+) : ViewModel() {
 
     private val _tags = MutableStateFlow<List<HBTag>>(emptyList())
     val tags = _tags.asStateFlow()
@@ -26,7 +30,12 @@ class TagsViewModel(private val repo: HomeboxRepository) : ViewModel() {
     private val _viewMode = MutableStateFlow("list")
     val viewMode = _viewMode.asStateFlow()
 
-    init { load() }
+    init {
+        viewModelScope.launch {
+            prefs.tagsViewMode.collect { _viewMode.value = it }
+        }
+        load()
+    }
 
     fun load() {
         viewModelScope.launch {
@@ -78,7 +87,8 @@ class TagsViewModel(private val repo: HomeboxRepository) : ViewModel() {
     }
 
     fun toggleViewMode() {
-        _viewMode.value = if (_viewMode.value == "list") "grid" else "list"
+        val next = if (_viewMode.value == "list") "grid" else "list"
+        viewModelScope.launch { prefs.setTagsViewMode(next) }
     }
 
     fun clearSnackbar() { _snackbar.value = null }
@@ -87,7 +97,7 @@ class TagsViewModel(private val repo: HomeboxRepository) : ViewModel() {
         fun factory(app: HomeboxApplication) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(cls: Class<T>) =
-                TagsViewModel(app.repository) as T
+                TagsViewModel(app.repository, app.prefs) as T
         }
     }
 }

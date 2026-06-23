@@ -213,7 +213,7 @@ fun ItemsListPane(
     var showBulkDeleteConfirm by remember { mutableStateOf(false) }
 
     val snackbarHostState = remember { SnackbarHostState() }
-    val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     BackHandler(isSelecting) { selectedItems = emptySet() }
 
@@ -360,7 +360,8 @@ fun ItemsListPane(
                 }
             } else {
                 LazyColumn(
-                    contentPadding = PaddingValues(bottom = 88.dp),
+                    contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 88.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(items, key = { it.id }, contentType = { "item" }) { item ->
@@ -377,7 +378,6 @@ fun ItemsListPane(
                             },
                             onLongClick = { selectedItems = selectedItems + item.id }
                         )
-                        HorizontalDivider(modifier = Modifier.padding(start = if (isSelecting) 72.dp else 72.dp))
                     }
                 }
             }
@@ -548,60 +548,69 @@ private fun ItemListRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
-    ListItem(
-        headlineContent = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
-                if (item.archived) {
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.Archive, null, modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        },
-        supportingContent = {
-            Column {
-                item.effectiveLocation?.let { loc ->
-                    Text(loc.name, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if (item.effectiveLabels.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        item.effectiveLabels.take(3).forEach { label ->
-                            TagChipSmall(label.name, label.color)
-                        }
-                    }
-                }
-            }
-        },
-        trailingContent = {
-            if (item.quantity > 1) {
-                Text("×${item.quantity}", style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Medium)
-            }
-        },
-        leadingContent = {
-            if (isSelecting) {
-                Checkbox(checked = isSelected, onCheckedChange = null,
-                    modifier = Modifier.size(44.dp))
-            } else {
-                ItemThumbnail(item = item, size = 44.dp, corner = 8.dp, iconSize = 22.dp)
-            }
-        },
-        colors = ListItemDefaults.colors(
-            containerColor = when {
-                isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                selected -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-                else -> MaterialTheme.colorScheme.surface
-            }
-        ),
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
             .alpha(if (item.archived) 0.6f else 1f)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-    )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = when {
+                isSelected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+                selected -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.85f)
+                else -> MaterialTheme.colorScheme.surface
+            }
+        ),
+        elevation = CardDefaults.elevatedCardElevation(
+            defaultElevation = 1.dp,
+            pressedElevation = 2.dp
+        )
+    ) {
+        ListItem(
+            headlineContent = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f))
+                    if (item.archived) {
+                        Spacer(Modifier.width(4.dp))
+                        Icon(Icons.Default.Archive, null, modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            },
+            supportingContent = {
+                Column {
+                    item.effectiveLocation?.let { loc ->
+                        Text(loc.name, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    if (item.effectiveLabels.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            item.effectiveLabels.take(3).forEach { label ->
+                                TagChipSmall(label.name, label.color)
+                            }
+                        }
+                    }
+                }
+            },
+            trailingContent = {
+                if (item.quantity > 1) {
+                    Text("×${item.quantity}", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium)
+                }
+            },
+            leadingContent = {
+                if (isSelecting) {
+                    Checkbox(checked = isSelected, onCheckedChange = null,
+                        modifier = Modifier.size(44.dp))
+                } else {
+                    ItemThumbnail(item = item, size = 44.dp, corner = 8.dp, iconSize = 22.dp)
+                }
+            },
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        )
+    }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -613,48 +622,113 @@ private fun ItemGridCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
+            .aspectRatio(1f)
             .alpha(if (item.archived) 0.6f else 1f)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected)
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
-            else MaterialTheme.colorScheme.surface
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        ),
+        elevation = CardDefaults.elevatedCardElevation(
+            defaultElevation = 2.dp,
+            pressedElevation = 4.dp
         )
     ) {
-        Column(Modifier.padding(12.dp)) {
-            Box(
-                modifier = Modifier.fillMaxWidth().height(96.dp).clip(RoundedCornerShape(8.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                ItemThumbnail(item = item, size = 96.dp, corner = 8.dp, iconSize = 36.dp,
-                    fillWidth = true)
-                if (item.archived && !isSelecting) {
-                    Icon(Icons.Default.Archive, null,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(14.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                }
-                if (isSelecting) {
-                    Checkbox(
-                        checked = isSelected,
-                        onCheckedChange = null,
-                        modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = if (isSelected) {
+                            listOf(
+                                MaterialTheme.colorScheme.primaryContainer,
+                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                            )
+                        } else {
+                            listOf(
+                                MaterialTheme.colorScheme.surfaceContainer,
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            )
+                        }
                     )
+                )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(10.dp),
+                verticalArrangement = Arrangement.SpaceBetween
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    ItemThumbnail(item = item, size = 110.dp, corner = 12.dp, iconSize = 32.dp,
+                        fillWidth = true)
+                    if (item.archived && !isSelecting) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceDim.copy(alpha = 0.8f),
+                            shape = CircleShape,
+                            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Archive, null,
+                                modifier = Modifier.padding(4.dp).size(12.dp),
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    if (isSelecting) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = null,
+                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp)
+                        )
+                    }
                 }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(item.name, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-            item.effectiveLocation?.let { loc ->
-                Text(loc.name, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis)
-            }
-            if (item.quantity > 1) {
-                Text("×${item.quantity}", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(8.dp))
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        item.name,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val locName = item.effectiveLocation?.name ?: ""
+                        Text(
+                            text = locName,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (item.quantity > 1) {
+                            Text(
+                                text = "×${item.quantity}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
             }
         }
     }

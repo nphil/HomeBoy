@@ -12,7 +12,7 @@ import okhttp3.OkHttpClient
 
 class HomeboxApplication : Application(), ImageLoaderFactory {
     val prefs: PreferencesRepository by lazy { PreferencesRepository(this) }
-    val repository: HomeboxRepository by lazy { HomeboxRepository(prefs) }
+    val repository: HomeboxRepository by lazy { HomeboxRepository(this, prefs) }
 
     /**
      * Coil loader that attaches the raw Homebox token + X-Tenant header to every

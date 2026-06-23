@@ -9,11 +9,15 @@ import com.homeboy.app.api.HBLocationCreate
 import com.homeboy.app.api.HBLocationTreeItem
 import com.homeboy.app.api.HBLocationUpdate
 import com.homeboy.app.data.HomeboxRepository
+import com.homeboy.app.data.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class LocationsViewModel(private val repo: HomeboxRepository) : ViewModel() {
+class LocationsViewModel(
+    private val repo: HomeboxRepository,
+    private val prefs: PreferencesRepository
+) : ViewModel() {
 
     private val _tree = MutableStateFlow<List<HBLocationTreeItem>>(emptyList())
     val tree = _tree.asStateFlow()
@@ -27,7 +31,15 @@ class LocationsViewModel(private val repo: HomeboxRepository) : ViewModel() {
     private val _snackbar = MutableStateFlow<String?>(null)
     val snackbar = _snackbar.asStateFlow()
 
-    init { load() }
+    private val _viewMode = MutableStateFlow("list")
+    val viewMode = _viewMode.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            prefs.locationsViewMode.collect { _viewMode.value = it }
+        }
+        load()
+    }
 
     fun load() {
         viewModelScope.launch {
@@ -41,6 +53,11 @@ class LocationsViewModel(private val repo: HomeboxRepository) : ViewModel() {
                 _loading.value = false
             }
         }
+    }
+
+    fun toggleViewMode() {
+        val next = if (_viewMode.value == "list") "grid" else "list"
+        viewModelScope.launch { prefs.setLocationsViewMode(next) }
     }
 
     fun createLocation(name: String, description: String, parentId: String?) {
@@ -85,7 +102,7 @@ class LocationsViewModel(private val repo: HomeboxRepository) : ViewModel() {
         fun factory(app: HomeboxApplication) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(cls: Class<T>) =
-                LocationsViewModel(app.repository) as T
+                LocationsViewModel(app.repository, app.prefs) as T
         }
     }
 }

@@ -20,6 +20,8 @@ class PreferencesRepository(private val context: Context) {
         val KEY_THEME_INDEX = intPreferencesKey("theme_index")
         val KEY_ITEMS_SORT = stringPreferencesKey("items_sort")
         val KEY_ITEMS_VIEW_MODE = stringPreferencesKey("items_view_mode")
+        val KEY_LOCATIONS_VIEW_MODE = stringPreferencesKey("locations_view_mode")
+        val KEY_TAGS_VIEW_MODE = stringPreferencesKey("tags_view_mode")
         val KEY_SHOW_ARCHIVED = booleanPreferencesKey("show_archived")
         val KEY_KEEP_LOCATION = booleanPreferencesKey("keep_location")
         val KEY_KEEP_TAGS = booleanPreferencesKey("keep_tags")
@@ -34,6 +36,8 @@ class PreferencesRepository(private val context: Context) {
     val themeIndex: Flow<Int> = context.dataStore.data.map { it[KEY_THEME_INDEX] ?: 0 }
     val itemsSort: Flow<String> = context.dataStore.data.map { it[KEY_ITEMS_SORT] ?: "name_asc" }
     val itemsViewMode: Flow<String> = context.dataStore.data.map { it[KEY_ITEMS_VIEW_MODE] ?: "list" }
+    val locationsViewMode: Flow<String> = context.dataStore.data.map { it[KEY_LOCATIONS_VIEW_MODE] ?: "list" }
+    val tagsViewMode: Flow<String> = context.dataStore.data.map { it[KEY_TAGS_VIEW_MODE] ?: "list" }
     val keepLocation: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEEP_LOCATION] ?: false }
     val keepTags: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEEP_TAGS] ?: false }
 
@@ -64,6 +68,8 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setThemeIndex(i: Int) = context.dataStore.edit { it[KEY_THEME_INDEX] = i }
     suspend fun setItemsSort(s: String) = context.dataStore.edit { it[KEY_ITEMS_SORT] = s }
     suspend fun setItemsViewMode(m: String) = context.dataStore.edit { it[KEY_ITEMS_VIEW_MODE] = m }
+    suspend fun setLocationsViewMode(m: String) = context.dataStore.edit { it[KEY_LOCATIONS_VIEW_MODE] = m }
+    suspend fun setTagsViewMode(m: String) = context.dataStore.edit { it[KEY_TAGS_VIEW_MODE] = m }
 
     suspend fun getServerUrl() = serverUrl.first()
     suspend fun getToken() = token.first()
