@@ -1,12 +1,13 @@
 package com.homeboy.app.ui.locations
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -21,20 +22,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBLocationTreeItem
 
-// Fixed card geometry for the top-down org chart. Cells are slightly wider than
-// the cards so centering each card in its cell yields uniform gutters, while the
-// connector lines (which fill the full cell width) still join edge-to-edge.
-private val ORG_CARD_WIDTH = 150.dp
-private val ORG_CELL_WIDTH = 162.dp
-private val ORG_STUB_HEIGHT = 14.dp
-private val ORG_CONNECTOR_HEIGHT = 14.dp
+// Spring-based animations: expand with gentle bounce, collapse snappy
+private val expandEnter =
+    fadeIn(spring(stiffness = Spring.StiffnessMediumLow)) +
+    expandVertically(spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
+private val collapseExit =
+    fadeOut(spring(stiffness = Spring.StiffnessMedium)) +
+    shrinkVertically(spring(stiffness = Spring.StiffnessMedium))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,20 +51,16 @@ fun LocationsTab() {
     var editingLocation by remember { mutableStateOf<HBLocationTreeItem?>(null) }
     var addParentId by remember { mutableStateOf<String?>(null) }
     var orgChartMode by remember { mutableStateOf(false) }
+    // Start fully collapsed — user expands what they need
     var expandedNodeIds by remember { mutableStateOf(setOf<String>()) }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Expand every node by default the first time a tree arrives.
-    var didSeedExpansion by remember { mutableStateOf(false) }
-    LaunchedEffect(tree) {
-        if (!didSeedExpansion && tree.isNotEmpty()) {
-            expandedNodeIds = collectAllIds(tree)
-            didSeedExpansion = true
-        }
-    }
-
     LaunchedEffect(snackbar) {
         snackbar?.let { snackbarHostState.showSnackbar(it); vm.clearSnackbar() }
+    }
+
+    val onToggle: (String) -> Unit = { id ->
+        expandedNodeIds = if (id in expandedNodeIds) expandedNodeIds - id else expandedNodeIds + id
     }
 
     if (showAddSheet || editingLocation != null) {
@@ -73,18 +69,11 @@ fun LocationsTab() {
             parentId = addParentId,
             onDismiss = { showAddSheet = false; editingLocation = null; addParentId = null },
             onSave = { name, desc ->
-                if (editingLocation != null) {
-                    vm.updateLocation(editingLocation!!.id, name, desc)
-                } else {
-                    vm.createLocation(name, desc, addParentId)
-                }
+                if (editingLocation != null) vm.updateLocation(editingLocation!!.id, name, desc)
+                else vm.createLocation(name, desc, addParentId)
                 showAddSheet = false; editingLocation = null; addParentId = null
             }
         )
-    }
-
-    val onToggleExpand: (String) -> Unit = { id ->
-        expandedNodeIds = if (id in expandedNodeIds) expandedNodeIds - id else expandedNodeIds + id
     }
 
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior()
@@ -112,98 +101,83 @@ fun LocationsTab() {
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        if (loading && tree.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
-            }
-        } else if (tree.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Outlined.Place, null, Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(12.dp))
-                    Text("No locations", style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+        when {
+            loading && tree.isEmpty() -> {
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
                 }
             }
-        } else if (orgChartMode) {
-            // Top-down org chart: rounded cards joined by connector lines.
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .horizontalScroll(rememberScrollState())
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .padding(bottom = 80.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                tree.forEach { root ->
-                    OrgTreeNode(
-                        node = root,
-                        expandedNodeIds = expandedNodeIds,
-                        onToggleExpand = onToggleExpand,
-                        onEdit = { editingLocation = it },
-                        onDelete = { vm.deleteLocation(it.id) },
-                        onAddChild = { addParentId = it.id; showAddSheet = true }
-                    )
+            tree.isEmpty() -> {
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Outlined.Place, null, Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Spacer(Modifier.height(12.dp))
+                        Text("No locations", style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
-        } else {
-            // Tree list view: left-aligned cards with vertical connecting lines.
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .padding(bottom = 80.dp)
-            ) {
-                tree.forEach { node ->
-                    OrgChartNode(
-                        node = node,
-                        depth = 0,
-                        expandedNodeIds = expandedNodeIds,
-                        onToggleExpand = onToggleExpand,
-                        onEdit = { editingLocation = it },
-                        onDelete = { vm.deleteLocation(it.id) },
-                        onAddChild = { addParentId = it.id; showAddSheet = true }
-                    )
-                    Spacer(Modifier.height(12.dp))
+            orgChartMode -> {
+                // Top-down org chart: cards fill full width, children share width equally
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(bottom = 80.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    tree.forEach { root ->
+                        OrgChartNode(
+                            node = root,
+                            expandedNodeIds = expandedNodeIds,
+                            onToggle = onToggle,
+                            onEdit = { editingLocation = it },
+                            onDelete = { vm.deleteLocation(it.id) },
+                            onAddChild = { addParentId = it.id; showAddSheet = true }
+                        )
+                    }
+                }
+            }
+            else -> {
+                // Tree list: full-width cards with vertical connecting lines
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .padding(bottom = 80.dp)
+                ) {
+                    tree.forEach { node ->
+                        TreeListNode(
+                            node = node,
+                            depth = 0,
+                            expandedNodeIds = expandedNodeIds,
+                            onToggle = onToggle,
+                            onEdit = { editingLocation = it },
+                            onDelete = { vm.deleteLocation(it.id) },
+                            onAddChild = { addParentId = it.id; showAddSheet = true }
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
                 }
             }
         }
     }
 }
 
-private fun collectAllIds(nodes: List<HBLocationTreeItem>): Set<String> {
-    val out = mutableSetOf<String>()
-    fun walk(n: HBLocationTreeItem) {
-        out += n.id
-        n.children.forEach { walk(it) }
-    }
-    nodes.forEach { walk(it) }
-    return out
-}
-
-/** Width a subtree occupies in the top-down chart, accounting for collapsed nodes. */
-private fun subtreeWidth(node: HBLocationTreeItem, expanded: Set<String>): Dp {
-    val isExp = node.id in expanded
-    if (!isExp || node.children.isEmpty()) return ORG_CELL_WIDTH
-    var total = 0.dp
-    node.children.forEach { total += subtreeWidth(it, expanded) }
-    return total
-}
-
 // ---------------------------------------------------------------------------
-// Top-down org chart
+// Org chart: root nodes fill full width, children divide width via weight(1f)
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun OrgTreeNode(
+private fun OrgChartNode(
     node: HBLocationTreeItem,
     expandedNodeIds: Set<String>,
-    onToggleExpand: (String) -> Unit,
+    onToggle: (String) -> Unit,
     onEdit: (HBLocationTreeItem) -> Unit,
     onDelete: (HBLocationTreeItem) -> Unit,
     onAddChild: (HBLocationTreeItem) -> Unit
@@ -212,67 +186,82 @@ private fun OrgTreeNode(
     val hasChildren = node.children.isNotEmpty()
     val lineColor = MaterialTheme.colorScheme.outlineVariant
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        OrgNodeCard(
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        OrgCard(
             node = node,
             isExpanded = isExpanded,
             hasChildren = hasChildren,
-            onToggleExpand = { onToggleExpand(node.id) },
+            modifier = Modifier.fillMaxWidth(),
+            onToggle = { onToggle(node.id) },
             onEdit = { onEdit(node) },
             onDelete = { onDelete(node) },
             onAddChild = { onAddChild(node) }
         )
 
-        if (isExpanded && hasChildren) {
-            // Vertical stub dropping from the card to the connector bus.
-            Canvas(Modifier.width(2.dp).height(ORG_STUB_HEIGHT)) {
-                drawLine(
-                    color = lineColor,
-                    start = Offset(size.width / 2f, 0f),
-                    end = Offset(size.width / 2f, size.height),
-                    strokeWidth = 2.dp.toPx()
-                )
-            }
-            Row(verticalAlignment = Alignment.Top) {
-                val last = node.children.lastIndex
-                node.children.forEachIndexed { i, child ->
-                    val cellWidth = subtreeWidth(child, expandedNodeIds)
-                    Column(
-                        modifier = Modifier.width(cellWidth),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        // Per-child connector: horizontal bus segment + vertical drop.
-                        Canvas(Modifier.fillMaxWidth().height(ORG_CONNECTOR_HEIGHT)) {
-                            val cx = size.width / 2f
-                            val sw = 2.dp.toPx()
-                            drawLine(lineColor, Offset(cx, 0f), Offset(cx, size.height), sw)
-                            if (node.children.size > 1) {
-                                val startX = if (i == 0) cx else 0f
-                                val endX = if (i == last) cx else size.width
-                                drawLine(lineColor, Offset(startX, 0f), Offset(endX, 0f), sw)
+        AnimatedVisibility(
+            visible = isExpanded && hasChildren,
+            enter = expandEnter,
+            exit = collapseExit
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                // Vertical stub: parent card → horizontal bus
+                Canvas(
+                    Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .size(width = 2.dp, height = 10.dp)
+                ) {
+                    drawLine(lineColor, Offset(size.width / 2f, 0f), Offset(size.width / 2f, size.height), size.width)
+                }
+
+                // Children row: each child gets equal share of available width
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    node.children.forEachIndexed { i, child ->
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // Horizontal bus segment + vertical drop to child card
+                            Canvas(Modifier.fillMaxWidth().height(10.dp)) {
+                                val cx = size.width / 2f
+                                val sw = 2.dp.toPx()
+                                // Vertical drop
+                                drawLine(lineColor, Offset(cx, 0f), Offset(cx, size.height), sw)
+                                // Horizontal bus (connects siblings at the top)
+                                if (node.children.size > 1) {
+                                    val startX = if (i == 0) cx else 0f
+                                    val endX = if (i == node.children.lastIndex) cx else size.width
+                                    drawLine(lineColor, Offset(startX, 0f), Offset(endX, 0f), sw)
+                                }
                             }
+
+                            // Recurse: child inherits the width slot it occupies
+                            OrgChartNode(
+                                node = child,
+                                expandedNodeIds = expandedNodeIds,
+                                onToggle = onToggle,
+                                onEdit = onEdit,
+                                onDelete = onDelete,
+                                onAddChild = onAddChild
+                            )
                         }
-                        OrgTreeNode(
-                            node = child,
-                            expandedNodeIds = expandedNodeIds,
-                            onToggleExpand = onToggleExpand,
-                            onEdit = onEdit,
-                            onDelete = onDelete,
-                            onAddChild = onAddChild
-                        )
                     }
                 }
+                Spacer(Modifier.height(4.dp))
             }
         }
     }
 }
 
 @Composable
-private fun OrgNodeCard(
+private fun OrgCard(
     node: HBLocationTreeItem,
     isExpanded: Boolean,
     hasChildren: Boolean,
-    onToggleExpand: () -> Unit,
+    modifier: Modifier = Modifier,
+    onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onAddChild: () -> Unit
@@ -281,72 +270,78 @@ private fun OrgNodeCard(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
-        DeleteLocationDialog(name = node.name, onConfirm = onDelete, onDismiss = { showDeleteDialog = false })
+        DeleteLocationDialog(node.name, onConfirm = onDelete, onDismiss = { showDeleteDialog = false })
     }
 
     Card(
-        modifier = Modifier.width(ORG_CARD_WIDTH),
-        onClick = if (hasChildren) onToggleExpand else ({})
+        modifier = modifier.padding(horizontal = 3.dp),
+        onClick = if (hasChildren) onToggle else ({})
     ) {
-        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Place, null, Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.weight(1f))
-                if (hasChildren) {
-                    Icon(
-                        if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        null, Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Box {
-                    IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(24.dp)) {
-                        Icon(Icons.Default.MoreVert, null, Modifier.size(14.dp))
-                    }
-                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Add sub-location") },
-                            leadingIcon = { Icon(Icons.Default.Add, null) },
-                            onClick = { menuExpanded = false; onAddChild() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
-                            leadingIcon = { Icon(Icons.Default.Edit, null) },
-                            onClick = { menuExpanded = false; onEdit() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
-                            onClick = { menuExpanded = false; showDeleteDialog = true }
-                        )
-                    }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Default.Place, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.width(6.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    node.name,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2
+                )
+                val meta = buildList {
+                    if (node.itemCount > 0) add("${node.itemCount} item${if (node.itemCount != 1) "s" else ""}")
+                    if (hasChildren) add("${node.children.size} sub")
+                }.joinToString(" · ")
+                if (meta.isNotEmpty()) {
+                    Text(meta, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            Text(node.name, style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold, maxLines = 2)
-            val subtitle = buildList {
-                if (node.itemCount > 0) add("${node.itemCount} item${if (node.itemCount != 1) "s" else ""}")
-                if (hasChildren) add("${node.children.size} sub")
-            }.joinToString(" · ")
-            if (subtitle.isNotEmpty()) {
-                Text(subtitle, style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (hasChildren) {
+                Icon(
+                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    null, Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.MoreVert, null, Modifier.size(14.dp))
+                }
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Add sub-location") },
+                        leadingIcon = { Icon(Icons.Default.Add, null) },
+                        onClick = { menuExpanded = false; onAddChild() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Edit") },
+                        leadingIcon = { Icon(Icons.Default.Edit, null) },
+                        onClick = { menuExpanded = false; onEdit() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = { menuExpanded = false; showDeleteDialog = true }
+                    )
+                }
             }
         }
     }
 }
 
 // ---------------------------------------------------------------------------
-// Tree list view (left-aligned, vertical connecting lines, collapsible)
+// Tree list: full-width cards with vertical connecting lines (default view)
 // ---------------------------------------------------------------------------
 
 @Composable
-private fun OrgChartNode(
+private fun TreeListNode(
     node: HBLocationTreeItem,
     depth: Int,
     expandedNodeIds: Set<String>,
-    onToggleExpand: (String) -> Unit,
+    onToggle: (String) -> Unit,
     onEdit: (HBLocationTreeItem) -> Unit,
     onDelete: (HBLocationTreeItem) -> Unit,
     onAddChild: (HBLocationTreeItem) -> Unit
@@ -354,6 +349,7 @@ private fun OrgChartNode(
     val isExpanded = node.id in expandedNodeIds
     val hasChildren = node.children.isNotEmpty()
     val lineColor = MaterialTheme.colorScheme.outlineVariant
+    // Each depth level indents by 32dp; the vertical line is drawn at depth*32+12
     val connectorIndent = if (depth > 0) (depth - 1) * 32 + 12 else 0
 
     Column(Modifier.fillMaxWidth()) {
@@ -364,58 +360,51 @@ private fun OrgChartNode(
             verticalAlignment = Alignment.Top
         ) {
             if (depth > 0) {
+                // Horizontal connector from parent's vertical line to this card
                 Canvas(Modifier.size(width = 20.dp, height = 40.dp)) {
-                    val y = 20.dp.toPx()
-                    drawLine(
-                        color = lineColor,
-                        start = Offset(0f, y),
-                        end = Offset(size.width, y),
-                        strokeWidth = 2.dp.toPx()
-                    )
+                    drawLine(lineColor, Offset(0f, 20.dp.toPx()), Offset(size.width, 20.dp.toPx()), 2.dp.toPx())
                 }
             }
-            OrgChartCard(
+            TreeListCard(
                 node = node,
                 isExpanded = isExpanded,
                 hasChildren = hasChildren,
-                onToggleExpand = { onToggleExpand(node.id) },
+                modifier = Modifier.weight(1f),
+                onToggle = { onToggle(node.id) },
                 onEdit = { onEdit(node) },
                 onDelete = { onDelete(node) },
-                onAddChild = { onAddChild(node) },
-                modifier = Modifier.weight(1f)
+                onAddChild = { onAddChild(node) }
             )
         }
 
         AnimatedVisibility(
             visible = isExpanded && hasChildren,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
+            enter = expandEnter,
+            exit = collapseExit
         ) {
             val vertLineX = (connectorIndent + 12).dp
-
             Box(Modifier.fillMaxWidth()) {
+                // Vertical line running down beside all children
                 Canvas(Modifier.fillMaxWidth().matchParentSize()) {
-                    val x = vertLineX.toPx()
                     drawLine(
                         color = lineColor,
-                        start = Offset(x, 0f),
-                        end = Offset(x, size.height - 20.dp.toPx()),
+                        start = Offset(vertLineX.toPx(), 0f),
+                        end = Offset(vertLineX.toPx(), size.height - 20.dp.toPx()),
                         strokeWidth = 2.dp.toPx()
                     )
                 }
-
-                Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
                     node.children.forEach { child ->
-                        OrgChartNode(
+                        TreeListNode(
                             node = child,
                             depth = depth + 1,
                             expandedNodeIds = expandedNodeIds,
-                            onToggleExpand = onToggleExpand,
+                            onToggle = onToggle,
                             onEdit = onEdit,
                             onDelete = onDelete,
                             onAddChild = onAddChild
                         )
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
             }
@@ -424,37 +413,32 @@ private fun OrgChartNode(
 }
 
 @Composable
-private fun OrgChartCard(
+private fun TreeListCard(
     node: HBLocationTreeItem,
     isExpanded: Boolean,
     hasChildren: Boolean,
-    onToggleExpand: () -> Unit,
+    modifier: Modifier = Modifier,
+    onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onAddChild: () -> Unit,
-    modifier: Modifier = Modifier
+    onAddChild: () -> Unit
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     if (showDeleteDialog) {
-        DeleteLocationDialog(name = node.name, onConfirm = onDelete, onDismiss = { showDeleteDialog = false })
+        DeleteLocationDialog(node.name, onConfirm = onDelete, onDismiss = { showDeleteDialog = false })
     }
 
     ElevatedCard(
         modifier = modifier,
-        onClick = if (hasChildren) onToggleExpand else ({})
+        onClick = if (hasChildren) onToggle else ({})
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.Place,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
+            Icon(Icons.Default.Place, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(Modifier.width(8.dp))
             Column(Modifier.weight(1f)) {
                 Text(node.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
@@ -462,26 +446,19 @@ private fun OrgChartCard(
                     Text(node.description, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
-                if (node.itemCount > 0 || hasChildren) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (node.itemCount > 0) {
-                            Text("${node.itemCount} item${if (node.itemCount != 1) "s" else ""}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (hasChildren) {
-                            Text("${node.children.size} location${if (node.children.size != 1) "s" else ""}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                val meta = buildList {
+                    if (node.itemCount > 0) add("${node.itemCount} item${if (node.itemCount != 1) "s" else ""}")
+                    if (hasChildren) add("${node.children.size} location${if (node.children.size != 1) "s" else ""}")
+                }.joinToString(" · ")
+                if (meta.isNotEmpty()) {
+                    Text(meta, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (hasChildren) {
                 Icon(
                     if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
+                    null, Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.width(4.dp))
@@ -512,6 +489,10 @@ private fun OrgChartCard(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Shared
+// ---------------------------------------------------------------------------
+
 @Composable
 private fun DeleteLocationDialog(name: String, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
@@ -540,15 +521,14 @@ private fun LocationSheet(
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(Modifier.padding(16.dp).padding(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(if (existing != null) "Edit Location" else if (parentId != null) "Add Sub-Location" else "Add Location",
-                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-
+            Text(
+                if (existing != null) "Edit Location" else if (parentId != null) "Add Sub-Location" else "Add Location",
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold
+            )
             OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Name *") },
                 modifier = Modifier.fillMaxWidth(), singleLine = true)
-
             OutlinedTextField(value = description, onValueChange = { description = it },
                 label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
-
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Spacer(Modifier.width(8.dp))
