@@ -162,7 +162,6 @@ val ALL_MATERIAL_ICONS: List<Pair<String, ImageVector>> = TAG_ICONS + listOf(
     // Home & Appliances
     "shower" to Icons.Outlined.Shower,
     "iron" to Icons.Outlined.Iron,
-    "dryer" to Icons.Outlined.Dryer,
     "thermostat" to Icons.Outlined.Thermostat,
     "fireplace" to Icons.Outlined.Fireplace,
     "roofing" to Icons.Outlined.Roofing,
@@ -171,7 +170,6 @@ val ALL_MATERIAL_ICONS: List<Pair<String, ImageVector>> = TAG_ICONS + listOf(
     "door" to Icons.Outlined.DoorFront,
     "fence" to Icons.Outlined.Fence,
     "deck" to Icons.Outlined.Deck,
-    "lamp" to Icons.Outlined.Lamp,
     "living" to Icons.Outlined.Living,
     "foundation" to Icons.Outlined.Foundation,
     "cabin" to Icons.Outlined.Cabin,
