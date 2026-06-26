@@ -472,6 +472,9 @@ class HomeboxRepository(
         }
     }
 
+    /** Tag hierarchy built from the flat list (no server tree endpoint for tags). */
+    suspend fun getTagTree(): List<HBTagTreeItem> = buildTagTree(listTags())
+
     suspend fun createTag(tag: HBTagCreate): HBTag {
         val tempId = UUID.randomUUID().toString()
         try {

@@ -256,10 +256,39 @@ data class HBLocationTreeItem(
 data class HBTag(
     val id: String,
     val name: String,
+    val description: String? = null,
     val color: String? = null,
+    val icon: String? = null,
+    val parentId: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null
 )
+
+/** Recursive tag tree, built client-side from the flat `/v1/tags` list (mirrors HBLocationTreeItem). */
+data class HBTagTreeItem(
+    val id: String,
+    val name: String,
+    val color: String? = null,
+    val icon: String? = null,
+    val description: String? = null,
+    val children: List<HBTagTreeItem> = emptyList()
+)
+
+/** A zero/blank UUID (or a parent that no longer exists) means "root". */
+private fun isRootParent(parentId: String?, validIds: Set<String>): Boolean =
+    parentId.isNullOrBlank() ||
+        parentId.all { it == '0' || it == '-' } ||
+        parentId !in validIds
+
+fun buildTagTree(tags: List<HBTag>): List<HBTagTreeItem> {
+    val ids = tags.mapTo(HashSet()) { it.id }
+    val byParent = tags.groupBy { t -> if (isRootParent(t.parentId, ids)) null else t.parentId }
+    fun build(parentId: String?): List<HBTagTreeItem> =
+        byParent[parentId].orEmpty()
+            .sortedBy { it.name.lowercase() }
+            .map { t -> HBTagTreeItem(t.id, t.name, t.color, t.icon, t.description, build(t.id)) }
+    return build(null)
+}
 
 class HBTagListDeserializer : JsonDeserializer<List<HBTag>> {
     override fun deserialize(json: JsonElement, typeOfT: Type, ctx: JsonDeserializationContext): List<HBTag> {
@@ -275,13 +304,17 @@ class HBTagListDeserializer : JsonDeserializer<List<HBTag>> {
 data class HBTagCreate(
     val name: String,
     val description: String = "",
-    val color: String = "#6366f1"
+    val color: String = "#6366f1",
+    val icon: String = "",
+    val parentId: String? = null  // never send "" — Go UUID parse error → 500
 )
 
 data class HBTagUpdate(
     val name: String,
     val description: String = "",
-    val color: String = "#6366f1"
+    val color: String = "#6366f1",
+    val icon: String = "",
+    val parentId: String? = null  // preserve the tag's existing parent on edit
 )
 
 data class HBMaintenanceEntry(
