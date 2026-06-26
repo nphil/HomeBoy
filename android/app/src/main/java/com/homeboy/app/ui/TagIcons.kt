@@ -354,3 +354,20 @@ private val TAG_ICON_MAP: Map<String, ImageVector> = ALL_MATERIAL_ICONS.toMap()
 /** Resolve a stored tag icon key to a vector, or null if unset/unknown. */
 fun tagIcon(key: String?): ImageVector? =
     key?.takeIf { it.isNotBlank() }?.let { TAG_ICON_MAP[it] }
+
+/**
+ * Resolve a Material icon name (snake_case, e.g. "sports_football") to an outlined
+ * ImageVector via reflection. Requires the ProGuard rule:
+ *   -keep class androidx.compose.material.icons.outlined.** { *; }
+ * Returns null for unknown names or any reflection failure.
+ */
+fun resolveOutlinedIcon(snakeName: String): ImageVector? {
+    val pascal = snakeName.split("_")
+        .joinToString("") { it.replaceFirstChar(Char::uppercase) }
+    return try {
+        val cls = Class.forName("androidx.compose.material.icons.outlined.${pascal}Kt")
+        @Suppress("UNCHECKED_CAST")
+        cls.getDeclaredMethod("get$pascal", Icons.Outlined::class.java)
+            .invoke(null, Icons.Outlined) as? ImageVector
+    } catch (_: Exception) { null }
+}

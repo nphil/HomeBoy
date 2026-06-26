@@ -38,10 +38,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBTagTreeItem
+import androidx.compose.ui.graphics.vector.ImageVector
 import com.homeboy.app.ui.ALL_MATERIAL_ICONS
+import com.homeboy.app.ui.IconSearchRepository
 import com.homeboy.app.ui.TAG_ICONS
 import com.homeboy.app.ui.items.parseHexColor
+import com.homeboy.app.ui.resolveOutlinedIcon
 import com.homeboy.app.ui.tagIcon
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 val TAG_COLORS = listOf(
     "#6366f1", "#7c3aed", "#9333ea", "#c026d3", "#db2777",
@@ -756,17 +761,62 @@ private fun TagSheet(
     var iconSearch by remember { mutableStateOf("") }
 
     val previewColor = parseHexColor(selectedColor)
-    val localIconKeys = remember { TAG_ICONS.map { it.first }.toSet() }
-    val displayedIcons = remember(iconSearch, localIconKeys) {
-        if (iconSearch.isBlank()) {
-            TAG_ICONS
-        } else {
+    val scope = rememberCoroutineScope()
+
+    // Trigger the Google Fonts icon catalog fetch (once per process)
+    LaunchedEffect(Unit) { IconSearchRepository.fetchIfNeeded(scope) }
+    val apiIcons by IconSearchRepository.icons.collectAsStateWithLifecycle()
+    val isFetchLoading by IconSearchRepository.isLoading.collectAsStateWithLifecycle()
+    val isOffline by IconSearchRepository.isOffline.collectAsStateWithLifecycle()
+
+    // Fast map for curated + offline extended icons (no reflection needed)
+    val localIconMap = remember { ALL_MATERIAL_ICONS.toMap() }
+
+    // Filtered list of icon names (snake_case) derived from search query
+    val filteredNames = remember(iconSearch, apiIcons) {
+        if (iconSearch.isBlank()) emptyList()
+        else {
             val q = iconSearch.lowercase().trim()
-            ALL_MATERIAL_ICONS
+            val localKeys = TAG_ICONS.map { it.first }.toSet()
+            val localMatches = TAG_ICONS
                 .filter { q in it.first.lowercase() }
-                .sortedWith(compareBy({ !localIconKeys.contains(it.first) }, { it.first }))
+                .map { it.first }
+            val extended = if (apiIcons.isNotEmpty()) {
+                // API available: search by name + semantic tags + categories
+                apiIcons.filter { meta ->
+                    meta.name !in localKeys &&
+                    (q in meta.name ||
+                        meta.tags.any { t -> q in t.lowercase() } ||
+                        meta.categories.any { t -> q in t.lowercase() })
+                }.map { it.name }
+            } else {
+                // Offline: search only by key name in our extended static list
+                ALL_MATERIAL_ICONS
+                    .filter { it.first !in localKeys && q in it.first.lowercase() }
+                    .map { it.first }
+            }
+            (localMatches + extended).take(80)
         }
     }
+
+    // Resolve icon names → ImageVectors in background (reflection for non-local icons)
+    var resolvedIcons by remember { mutableStateOf<List<Pair<String, ImageVector>>>(emptyList()) }
+    var isResolving by remember { mutableStateOf(false) }
+
+    LaunchedEffect(filteredNames) {
+        if (filteredNames.isEmpty()) { resolvedIcons = emptyList(); return@LaunchedEffect }
+        isResolving = true
+        val result = withContext(Dispatchers.Default) {
+            filteredNames.mapNotNull { n ->
+                (localIconMap[n] ?: resolveOutlinedIcon(n))?.let { n to it }
+            }
+        }
+        resolvedIcons = result
+        isResolving = false
+    }
+
+    val displayedIcons: List<Pair<String, ImageVector>> =
+        if (iconSearch.isBlank()) TAG_ICONS else resolvedIcons
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -827,20 +877,39 @@ private fun TagSheet(
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = {
-                    if (iconSearch.isNotEmpty()) {
-                        IconButton(onClick = { iconSearch = "" }) {
-                            Icon(Icons.Default.Clear, "Clear search")
-                        }
+                    when {
+                        isResolving ->
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        iconSearch.isNotEmpty() ->
+                            IconButton(onClick = { iconSearch = "" }) {
+                                Icon(Icons.Default.Clear, "Clear search")
+                            }
+                        isFetchLoading ->
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        else -> {}
                     }
                 }
             )
 
-            if (iconSearch.isNotBlank() && displayedIcons.isEmpty()) {
-                Text(
-                    "No icons found for \"$iconSearch\"",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            // Status line
+            val statusText = when {
+                iconSearch.isBlank() && isFetchLoading -> "Fetching Material Icons catalog…"
+                iconSearch.isBlank() && isOffline -> "Offline — showing built-in icons"
+                iconSearch.isBlank() && apiIcons.isNotEmpty() ->
+                    "${apiIcons.size} icons available — type to search"
+                iconSearch.isBlank() -> ""
+                isResolving -> "Searching…"
+                else -> buildString {
+                    append("${displayedIcons.size} icons")
+                    when {
+                        apiIcons.isNotEmpty() -> append(" · catalog: ${apiIcons.size}")
+                        isOffline -> append(" · offline")
+                    }
+                }
+            }
+            if (statusText.isNotEmpty()) {
+                Text(statusText, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             FlowRow(
@@ -865,6 +934,14 @@ private fun TagSheet(
                         Icon(vector, key, Modifier.size(20.dp),
                             tint = if (selectedIcon == key) previewColor else MaterialTheme.colorScheme.onSurface)
                     }
+                }
+                if (iconSearch.isNotBlank() && displayedIcons.isEmpty() && !isResolving) {
+                    Text(
+                        "No icons found for \"$iconSearch\"",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 

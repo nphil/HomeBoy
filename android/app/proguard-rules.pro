@@ -1,3 +1,6 @@
+# Keep all Outlined Material Icons so reflection-based icon search works in release builds
+-keep class androidx.compose.material.icons.outlined.** { *; }
+
 # Gson reflection on API models
 -keep class com.homeboy.app.api.** { *; }
 -keep class com.google.gson.reflect.TypeToken { *; }
