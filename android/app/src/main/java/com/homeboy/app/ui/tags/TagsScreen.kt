@@ -475,24 +475,24 @@ private fun GridTagCard(
         else -> 12.dp
     }
     val tagIconSize = when {
-        cardSize < 100.dp -> 12.dp
-        cardSize < 120.dp -> 14.dp
-        else -> 18.dp
+        cardSize < 100.dp -> 26.dp
+        cardSize < 120.dp -> 32.dp
+        else -> 42.dp
     }
     val expandIconSize = when {
-        cardSize < 100.dp -> 10.dp
-        cardSize < 120.dp -> 12.dp
-        else -> 16.dp
+        cardSize < 100.dp -> 14.dp
+        cardSize < 120.dp -> 16.dp
+        else -> 20.dp
     }
     val moreButtonSize = when {
-        cardSize < 100.dp -> 16.dp
-        cardSize < 120.dp -> 20.dp
-        else -> 24.dp
+        cardSize < 100.dp -> 20.dp
+        cardSize < 120.dp -> 24.dp
+        else -> 28.dp
     }
     val moreIconSize = when {
-        cardSize < 100.dp -> 10.dp
-        cardSize < 120.dp -> 12.dp
-        else -> 16.dp
+        cardSize < 100.dp -> 14.dp
+        cardSize < 120.dp -> 16.dp
+        else -> 20.dp
     }
 
     val nameStyle = when {
@@ -688,8 +688,8 @@ private fun TreeListCard(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(leadingTagIcon(node), null, Modifier.size(20.dp), tint = tagColorOf(node))
-            Spacer(Modifier.width(8.dp))
+            Icon(leadingTagIcon(node), null, Modifier.size(28.dp), tint = tagColorOf(node))
+            Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(node.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 if (!node.description.isNullOrBlank()) {
@@ -805,12 +805,18 @@ private fun TagSheet(
     val searching = iconSearch.isNotBlank()
     val displayedIcons = if (searching) searchIcons else defaultIcons
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        windowInsets = WindowInsets(0)
+    ) {
         Column(
             Modifier
                 .padding(16.dp)
                 .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .imePadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
