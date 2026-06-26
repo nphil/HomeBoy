@@ -80,5 +80,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.android)
+    implementation(libs.onnxruntime.android.qnn)
     debugImplementation(libs.compose.ui.tooling)
 }

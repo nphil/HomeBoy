@@ -1,9 +1,11 @@
 package com.homeboy.app.ui.settings
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.api.HBGroup
 import com.homeboy.app.api.HBUserInfo
 import com.homeboy.app.data.HomeboxRepository
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 class SettingsViewModel(
+    private val appContext: Context,
     private val repo: HomeboxRepository,
     private val prefs: PreferencesRepository
 ) : ViewModel() {
@@ -19,6 +22,27 @@ class SettingsViewModel(
     val serverUrl = prefs.serverUrl.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
     val tenantName = prefs.tenantName.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
     val themeIndex = prefs.themeIndex.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    // ---- AI / on-device models --------------------------------------------
+    val aiSearchEnabled = prefs.aiSearchEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val modelStates: StateFlow<Map<String, ModelRepository.State>> = ModelRepository.states
+
+    init { ModelRepository.refreshStates(appContext) }
+
+    fun setAiSearchEnabled(enabled: Boolean) {
+        viewModelScope.launch { prefs.setAiSearchEnabled(enabled) }
+    }
+
+    fun downloadModel(id: String) = ModelRepository.download(viewModelScope, appContext, id)
+    fun cancelModelDownload(id: String) = ModelRepository.cancel(id)
+    fun deleteModel(id: String) {
+        ModelRepository.delete(appContext, id)
+        // If the embedding model is gone, semantic search can't run — turn it off.
+        if (ModelRepository.spec(id)?.purpose == ModelRepository.Purpose.EMBEDDING) {
+            setAiSearchEnabled(false)
+        }
+    }
 
     private val _userInfo = MutableStateFlow<HBUserInfo?>(null)
     val userInfo = _userInfo.asStateFlow()
@@ -74,7 +98,7 @@ class SettingsViewModel(
         fun factory(app: HomeboxApplication) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(cls: Class<T>) =
-                SettingsViewModel(app.repository, app.prefs) as T
+                SettingsViewModel(app, app.repository, app.prefs) as T
         }
     }
 }

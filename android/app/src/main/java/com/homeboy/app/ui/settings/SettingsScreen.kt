@@ -39,10 +39,13 @@ fun SettingsTab(onLogout: () -> Unit) {
     val userInfo by vm.userInfo.collectAsStateWithLifecycle()
     val groups by vm.groups.collectAsStateWithLifecycle()
     val snackbar by vm.snackbar.collectAsStateWithLifecycle()
+    val aiSearchEnabled by vm.aiSearchEnabled.collectAsStateWithLifecycle()
+    val modelStates by vm.modelStates.collectAsStateWithLifecycle()
 
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
     var showGroupPicker by remember { mutableStateOf(false) }
+    var showAiModels by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(snackbar) {
@@ -69,6 +72,18 @@ fun SettingsTab(onLogout: () -> Unit) {
             currentIndex = themeIndex,
             onSelect = { vm.setTheme(it) },
             onDismiss = { showThemePicker = false }
+        )
+    }
+
+    if (showAiModels) {
+        AiModelsSheet(
+            states = modelStates,
+            aiSearchEnabled = aiSearchEnabled,
+            onToggleAiSearch = { vm.setAiSearchEnabled(it) },
+            onDownload = { vm.downloadModel(it) },
+            onCancel = { vm.cancelModelDownload(it) },
+            onDelete = { vm.deleteModel(it) },
+            onDismiss = { showAiModels = false }
         )
     }
 
@@ -167,6 +182,25 @@ fun SettingsTab(onLogout: () -> Unit) {
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             }
 
+            // AI section
+            item { SettingsSectionHeader("AI") }
+            item {
+                val embedReady = modelStates["minilm-l6-v2"] is com.homeboy.app.ai.ModelRepository.State.Ready
+                ListItem(
+                    leadingContent = { Icon(Icons.Default.AutoAwesome, null) },
+                    headlineContent = { Text("AI Models") },
+                    supportingContent = {
+                        Text(
+                            if (embedReady) "Semantic search ${if (aiSearchEnabled) "on" else "off"} · manage models"
+                            else "Download on-device models for smarter search"
+                        )
+                    },
+                    trailingContent = { Icon(Icons.Default.ChevronRight, null) },
+                    modifier = Modifier.clickable { showAiModels = true }
+                )
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            }
+
             // About section
             item { SettingsSectionHeader("About") }
             item {
@@ -193,6 +227,108 @@ fun SettingsTab(onLogout: () -> Unit) {
             }
 
             item { Spacer(Modifier.height(32.dp)) }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiModelsSheet(
+    states: Map<String, com.homeboy.app.ai.ModelRepository.State>,
+    aiSearchEnabled: Boolean,
+    onToggleAiSearch: (Boolean) -> Unit,
+    onDownload: (String) -> Unit,
+    onCancel: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val repo = com.homeboy.app.ai.ModelRepository
+    val embedReady = states["minilm-l6-v2"] is com.homeboy.app.ai.ModelRepository.State.Ready
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(Modifier.padding(bottom = 32.dp)) {
+            Text(
+                "AI Models", style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(16.dp)
+            )
+            Text(
+                "Models run entirely on your device. Nothing is sent to a server.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            Spacer(Modifier.height(8.dp))
+
+            // Semantic search toggle — only meaningful once the embedding model is present.
+            ListItem(
+                leadingContent = { Icon(Icons.Default.Search, null) },
+                headlineContent = { Text("Semantic search") },
+                supportingContent = {
+                    Text(
+                        if (embedReady) "Find items by meaning, not just keywords"
+                        else "Download the MiniLM model below to enable"
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = aiSearchEnabled && embedReady,
+                        enabled = embedReady,
+                        onCheckedChange = onToggleAiSearch
+                    )
+                }
+            )
+            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+            repo.CATALOG.forEach { spec ->
+                val state = states[spec.id] ?: com.homeboy.app.ai.ModelRepository.State.NotDownloaded
+                ListItem(
+                    leadingContent = {
+                        Icon(
+                            if (spec.purpose == com.homeboy.app.ai.ModelRepository.Purpose.EMBEDDING)
+                                Icons.Default.Search else Icons.Default.AutoAwesome,
+                            null
+                        )
+                    },
+                    headlineContent = { Text(spec.displayName) },
+                    supportingContent = {
+                        val sub = when (state) {
+                            is com.homeboy.app.ai.ModelRepository.State.Downloading ->
+                                if (state.progress >= 0f) "Downloading ${(state.progress * 100).toInt()}%"
+                                else "Downloading…"
+                            is com.homeboy.app.ai.ModelRepository.State.Ready -> "Downloaded · ready"
+                            is com.homeboy.app.ai.ModelRepository.State.Failed -> "Failed: ${state.message}"
+                            else -> spec.description
+                        }
+                        Text(sub)
+                    },
+                    trailingContent = {
+                        when (state) {
+                            is com.homeboy.app.ai.ModelRepository.State.Downloading -> {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(22.dp), strokeWidth = 2.dp,
+                                        progress = { if (state.progress >= 0f) state.progress else 0f }
+                                    )
+                                    IconButton(onClick = { onCancel(spec.id) }) {
+                                        Icon(Icons.Default.Close, "Cancel")
+                                    }
+                                }
+                            }
+                            is com.homeboy.app.ai.ModelRepository.State.Ready -> {
+                                IconButton(onClick = { onDelete(spec.id) }) {
+                                    Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                            else -> {
+                                IconButton(onClick = { onDownload(spec.id) }) {
+                                    Icon(Icons.Default.Download, "Download")
+                                }
+                            }
+                        }
+                    }
+                )
+                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+            }
         }
     }
 }

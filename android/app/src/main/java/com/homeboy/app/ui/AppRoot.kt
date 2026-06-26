@@ -178,7 +178,7 @@ private fun SideRail(
                     modifier = Modifier.alpha(labelAlpha)
                 ) {
                     Spacer(Modifier.width(8.dp))
-                    HomeBoyLogo(modifier = Modifier.size(24.dp))
+                    HomeBoyLogo(modifier = Modifier.size(29.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
                         "HomeBoy",

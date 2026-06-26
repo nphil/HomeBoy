@@ -23,3 +23,7 @@
 -dontwarn retrofit2.**
 -dontwarn javax.annotation.**
 -dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRE
+
+# ONNX Runtime (JNI-backed; keep its classes and native bindings)
+-keep class ai.onnxruntime.** { *; }
+-dontwarn ai.onnxruntime.**

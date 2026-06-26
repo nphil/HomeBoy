@@ -1,9 +1,12 @@
 package com.homeboy.app.ui.items
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ai.EmbeddingService
+import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.api.HBItem
 import com.homeboy.app.api.HBItemCreate
 import com.homeboy.app.api.HBItemUpdate
@@ -27,9 +30,13 @@ enum class SortMode(val label: String) {
 }
 
 class ItemsViewModel(
+    private val appContext: Context,
     private val repo: HomeboxRepository,
     private val prefs: PreferencesRepository
 ) : ViewModel() {
+
+    /** Snapshot of the AI-search preference, kept current so load() can read it synchronously. */
+    private var aiSearchEnabled = false
 
     private val _items = MutableStateFlow<List<HBItem>>(emptyList())
     val items = _items.asStateFlow()
@@ -76,6 +83,14 @@ class ItemsViewModel(
         viewModelScope.launch {
             prefs.itemsViewMode.collect { _viewMode.value = it }
         }
+        viewModelScope.launch {
+            prefs.aiSearchEnabled.collect { enabled ->
+                val changed = aiSearchEnabled != enabled
+                aiSearchEnabled = enabled
+                // Re-run an active search so toggling AI reorders results immediately.
+                if (changed && _query.value.isNotBlank()) load()
+            }
+        }
         load()
     }
 
@@ -84,14 +99,31 @@ class ItemsViewModel(
             _loading.value = true
             _error.value = null
             try {
+                val query = _query.value.takeIf { it.isNotBlank() }
+                // When semantic search is on we fetch the full candidate set (no server-side
+                // keyword filter) and rank locally by meaning; otherwise let the server filter.
+                // Gate on the cheap file-existence check — the engine is built off the main
+                // thread inside rank().
+                val useSemantic = aiSearchEnabled && query != null &&
+                    ModelRepository.isReady(appContext, "minilm-l6-v2")
+
                 val resp = repo.listItems(
-                    query = _query.value.takeIf { it.isNotBlank() },
+                    query = if (useSemantic) null else query,
                     locationIds = listOfNotNull(_filterLocationId.value),
                     labelIds = listOfNotNull(_filterTagId.value),
                     includeArchived = _showArchived.value,
                     pageSize = 1000
                 )
-                _items.value = withContext(Dispatchers.Default) { applySortFilter(resp.items) }
+
+                _items.value = if (useSemantic) {
+                    val base = withContext(Dispatchers.Default) { applyArchivedFilter(resp.items) }
+                    // If the engine can't build/run, fall back to a local keyword filter so we
+                    // don't show the entire (unfiltered) catalog.
+                    EmbeddingService.rank(appContext, query!!, base)
+                        ?: withContext(Dispatchers.Default) { applySortFilter(keywordFilter(base, query)) }
+                } else {
+                    withContext(Dispatchers.Default) { applySortFilter(resp.items) }
+                }
                 if (_locations.value.isEmpty()) _locations.value = repo.listLocations()
                 if (_tags.value.isEmpty()) _tags.value = repo.listTags()
             } catch (e: Exception) {
@@ -181,6 +213,17 @@ class ItemsViewModel(
         load()
     }
 
+    /** Archived visibility only — used before semantic ranking replaces the sort order. */
+    private fun applyArchivedFilter(list: List<HBItem>): List<HBItem> =
+        if (_showArchived.value) list else list.filter { !it.archived }
+
+    /** Local name/description substring filter — fallback when the embedding engine is unavailable. */
+    private fun keywordFilter(list: List<HBItem>, query: String): List<HBItem> =
+        list.filter { item ->
+            item.name.contains(query, ignoreCase = true) ||
+                (item.description?.contains(query, ignoreCase = true) == true)
+        }
+
     private fun applySortFilter(list: List<HBItem>): List<HBItem> {
         val filtered = if (_showArchived.value) list else list.filter { !it.archived }
         return when (_sortMode.value) {
@@ -197,7 +240,7 @@ class ItemsViewModel(
         fun factory(app: HomeboxApplication) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(cls: Class<T>) =
-                ItemsViewModel(app.repository, app.prefs) as T
+                ItemsViewModel(app, app.repository, app.prefs) as T
         }
     }
 }

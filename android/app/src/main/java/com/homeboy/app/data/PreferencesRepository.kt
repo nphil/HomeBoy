@@ -29,6 +29,18 @@ class PreferencesRepository(private val context: Context) {
         val KEY_LAST_TAGS = stringPreferencesKey("last_tags")
         val KEY_RECENT_ICONS = stringPreferencesKey("recent_tag_icons")
         const val MAX_RECENT_ICONS = 24
+        val KEY_AI_SEARCH_ENABLED = booleanPreferencesKey("ai_search_enabled")
+        val KEY_AI_GEN_MODEL_ID = stringPreferencesKey("ai_gen_model_id")
+    }
+
+    /** Whether semantic (embedding-based) search is enabled. Off until a model is downloaded. */
+    val aiSearchEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_AI_SEARCH_ENABLED] ?: false }
+    suspend fun setAiSearchEnabled(v: Boolean) = context.dataStore.edit { it[KEY_AI_SEARCH_ENABLED] = v }
+
+    /** The selected generative model id for tag suggestions (null = none chosen). */
+    val aiGenModelId: Flow<String?> = context.dataStore.data.map { it[KEY_AI_GEN_MODEL_ID] }
+    suspend fun setAiGenModelId(id: String?) = context.dataStore.edit {
+        if (id == null) it.remove(KEY_AI_GEN_MODEL_ID) else it[KEY_AI_GEN_MODEL_ID] = id
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
