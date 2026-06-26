@@ -306,8 +306,9 @@ private fun AiModelsSheet(
                             is com.homeboy.app.ai.ModelRepository.State.Downloading -> {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     CircularProgressIndicator(
-                                        Modifier.size(22.dp), strokeWidth = 2.dp,
-                                        progress = { if (state.progress >= 0f) state.progress else 0f }
+                                        progress = { if (state.progress >= 0f) state.progress else 0f },
+                                        modifier = Modifier.size(22.dp),
+                                        strokeWidth = 2.dp
                                     )
                                     IconButton(onClick = { onCancel(spec.id) }) {
                                         Icon(Icons.Default.Close, "Cancel")

@@ -101,18 +101,20 @@ class EmbeddingEngine private constructor(
          * added to jniLibs, the QNN provider fails to initialise and we run on CPU, which is
          * perfectly fast for this small embedding model.
          */
-        fun create(modelFile: File, vocabFile: File): EmbeddingEngine? = try {
-            if (!modelFile.exists() || !vocabFile.exists()) return null
-            val tokenizer = WordPieceTokenizer.fromVocabFile(vocabFile) ?: return null
-            val env = OrtEnvironment.getEnvironment()
+        fun create(modelFile: File, vocabFile: File): EmbeddingEngine? {
+            return try {
+                if (!modelFile.exists() || !vocabFile.exists()) return null
+                val tokenizer = WordPieceTokenizer.fromVocabFile(vocabFile) ?: return null
+                val env = OrtEnvironment.getEnvironment()
 
-            // 1. Try the QNN (Hexagon NPU) provider; 2. fall back to CPU.
-            val qnnSession = tryCreate(env, modelFile, qnn = true)
-            if (qnnSession != null) EmbeddingEngine(env, qnnSession, tokenizer, usingNpu = true)
-            else tryCreate(env, modelFile, qnn = false)
-                ?.let { EmbeddingEngine(env, it, tokenizer, usingNpu = false) }
-        } catch (_: Throwable) {
-            null
+                // 1. Try the QNN (Hexagon NPU) provider; 2. fall back to CPU.
+                val qnnSession = tryCreate(env, modelFile, qnn = true)
+                if (qnnSession != null) EmbeddingEngine(env, qnnSession, tokenizer, usingNpu = true)
+                else tryCreate(env, modelFile, qnn = false)
+                    ?.let { EmbeddingEngine(env, it, tokenizer, usingNpu = false) }
+            } catch (_: Throwable) {
+                null
+            }
         }
 
         /**
