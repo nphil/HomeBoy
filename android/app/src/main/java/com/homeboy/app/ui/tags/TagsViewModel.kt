@@ -12,7 +12,9 @@ import com.homeboy.app.api.buildTagTree
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class TagsViewModel(
@@ -31,6 +33,10 @@ class TagsViewModel(
 
     private val _viewMode = MutableStateFlow("list")
     val viewMode = _viewMode.asStateFlow()
+
+    /** Recently-used tag icons (the local icon cache), newest first. */
+    val recentIcons = prefs.recentIcons
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private var flatTags: List<HBTag> = emptyList()
 
@@ -62,6 +68,7 @@ class TagsViewModel(
         viewModelScope.launch {
             try {
                 repo.createTag(HBTagCreate(name.trim(), description.trim(), color, icon, parentId))
+                if (icon.isNotBlank()) prefs.addRecentIcon(icon)
                 _snackbar.value = "Tag created"
                 load()
             } catch (e: Exception) {
@@ -76,6 +83,7 @@ class TagsViewModel(
                 // Preserve the tag's existing parent so editing never reparents it to root.
                 val parentId = currentParentId(id)
                 repo.updateTag(id, HBTagUpdate(name.trim(), description.trim(), color, icon, parentId))
+                if (icon.isNotBlank()) prefs.addRecentIcon(icon)
                 _snackbar.value = "Tag updated"
                 load()
             } catch (e: Exception) {

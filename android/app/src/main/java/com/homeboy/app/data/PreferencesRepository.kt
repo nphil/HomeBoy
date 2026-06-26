@@ -27,6 +27,8 @@ class PreferencesRepository(private val context: Context) {
         val KEY_KEEP_TAGS = booleanPreferencesKey("keep_tags")
         val KEY_LAST_LOCATION = stringPreferencesKey("last_location")
         val KEY_LAST_TAGS = stringPreferencesKey("last_tags")
+        val KEY_RECENT_ICONS = stringPreferencesKey("recent_tag_icons")
+        const val MAX_RECENT_ICONS = 24
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
@@ -40,6 +42,21 @@ class PreferencesRepository(private val context: Context) {
     val tagsViewMode: Flow<String> = context.dataStore.data.map { it[KEY_TAGS_VIEW_MODE] ?: "list" }
     val keepLocation: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEEP_LOCATION] ?: false }
     val keepTags: Flow<Boolean> = context.dataStore.data.map { it[KEY_KEEP_TAGS] ?: false }
+
+    /** Most-recently-used tag icon keys, newest first. Acts as the local icon cache. */
+    val recentIcons: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        (prefs[KEY_RECENT_ICONS] ?: "").split(",").filter { it.isNotBlank() }
+    }
+
+    /** Promote [key] to the front of the recents list, de-duped and capped. */
+    suspend fun addRecentIcon(key: String) {
+        if (key.isBlank()) return
+        context.dataStore.edit { prefs ->
+            val current = (prefs[KEY_RECENT_ICONS] ?: "").split(",").filter { it.isNotBlank() }
+            val updated = (listOf(key) + current.filter { it != key }).take(MAX_RECENT_ICONS)
+            prefs[KEY_RECENT_ICONS] = updated.joinToString(",")
+        }
+    }
 
     suspend fun setServerUrl(url: String) = context.dataStore.edit { it[KEY_SERVER_URL] = url }
     suspend fun setToken(t: String) = context.dataStore.edit { it[KEY_TOKEN] = t }

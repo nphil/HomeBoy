@@ -15,6 +15,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -27,8 +29,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -39,13 +45,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBTagTreeItem
 import androidx.compose.ui.graphics.vector.ImageVector
-import com.homeboy.app.ui.ALL_MATERIAL_ICONS
 import com.homeboy.app.ui.IconSearchRepository
+import com.homeboy.app.ui.POPULAR_ICON_NAMES
 import com.homeboy.app.ui.TAG_ICONS
 import com.homeboy.app.ui.items.parseHexColor
-import com.homeboy.app.ui.resolveOutlinedIcon
 import com.homeboy.app.ui.tagIcon
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 val TAG_COLORS = listOf(
@@ -80,6 +86,7 @@ fun TagsTab() {
     val tree by vm.tree.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
     val snackbar by vm.snackbar.collectAsStateWithLifecycle()
+    val recentIcons by vm.recentIcons.collectAsStateWithLifecycle()
 
     var showAddSheet by remember { mutableStateOf(false) }
     var editingTag by remember { mutableStateOf<HBTagTreeItem?>(null) }
@@ -102,6 +109,7 @@ fun TagsTab() {
         TagSheet(
             existing = editingTag,
             parentId = addParentId,
+            recentIcons = recentIcons,
             onDismiss = { showAddSheet = false; editingTag = null; addParentId = null },
             onSave = { name, desc, color, icon ->
                 if (editingTag != null) vm.updateTag(editingTag!!.id, name, desc, color, icon)
@@ -751,72 +759,51 @@ private fun DeleteTagDialog(name: String, onConfirm: () -> Unit, onDismiss: () -
 private fun TagSheet(
     existing: HBTagTreeItem?,
     parentId: String?,
+    recentIcons: List<String>,
     onDismiss: () -> Unit,
     onSave: (name: String, description: String, color: String, icon: String) -> Unit
 ) {
+    val ctx = LocalContext.current
     var name by remember { mutableStateOf(existing?.name ?: "") }
     var description by remember { mutableStateOf(existing?.description ?: "") }
     var selectedColor by remember { mutableStateOf(existing?.color ?: TAG_COLORS[0]) }
     var selectedIcon by remember { mutableStateOf(existing?.icon ?: "") }
     var iconSearch by remember { mutableStateOf("") }
+    var showColorWheel by remember { mutableStateOf(false) }
 
     val previewColor = parseHexColor(selectedColor)
     val scope = rememberCoroutineScope()
 
-    // Trigger the Google Fonts icon catalog fetch (once per process)
-    LaunchedEffect(Unit) { IconSearchRepository.fetchIfNeeded(scope) }
-    val apiIcons by IconSearchRepository.icons.collectAsStateWithLifecycle()
-    val isFetchLoading by IconSearchRepository.isLoading.collectAsStateWithLifecycle()
-    val isOffline by IconSearchRepository.isOffline.collectAsStateWithLifecycle()
+    // Load the online Material Icons catalog (disk-cached after first fetch).
+    LaunchedEffect(Unit) { IconSearchRepository.ensureLoaded(scope, ctx) }
+    val catalogStatus by IconSearchRepository.status.collectAsStateWithLifecycle()
+    val catalogNames by IconSearchRepository.names.collectAsStateWithLifecycle()
 
-    // Fast map for curated + offline extended icons (no reflection needed)
-    val localIconMap = remember { ALL_MATERIAL_ICONS.toMap() }
-
-    // Filtered list of icon names (snake_case) derived from search query
-    val filteredNames = remember(iconSearch, apiIcons) {
-        if (iconSearch.isBlank()) emptyList()
-        else {
-            val q = iconSearch.lowercase().trim()
-            val localKeys = TAG_ICONS.map { it.first }.toSet()
-            val localMatches = TAG_ICONS
-                .filter { q in it.first.lowercase() }
-                .map { it.first }
-            val extended = if (apiIcons.isNotEmpty()) {
-                // API available: search by name + semantic tags + categories
-                apiIcons.filter { meta ->
-                    meta.name !in localKeys &&
-                    (q in meta.name ||
-                        meta.tags.any { t -> q in t.lowercase() } ||
-                        meta.categories.any { t -> q in t.lowercase() })
-                }.map { it.name }
-            } else {
-                // Offline: search only by key name in our extended static list
-                ALL_MATERIAL_ICONS
-                    .filter { it.first !in localKeys && q in it.first.lowercase() }
-                    .map { it.first }
-            }
-            (localMatches + extended).take(80)
+    // Default grid (no query): recently-used cache first, then a few popular starters.
+    var defaultIcons by remember { mutableStateOf<List<Pair<String, ImageVector>>>(emptyList()) }
+    LaunchedEffect(recentIcons) {
+        val names = (recentIcons + POPULAR_ICON_NAMES).distinct()
+        defaultIcons = withContext(Dispatchers.Default) {
+            names.mapNotNull { n -> tagIcon(n)?.let { n to it } }
         }
     }
 
-    // Resolve icon names → ImageVectors in background (reflection for non-local icons)
-    var resolvedIcons by remember { mutableStateOf<List<Pair<String, ImageVector>>>(emptyList()) }
-    var isResolving by remember { mutableStateOf(false) }
-
-    LaunchedEffect(filteredNames) {
-        if (filteredNames.isEmpty()) { resolvedIcons = emptyList(); return@LaunchedEffect }
-        isResolving = true
-        val result = withContext(Dispatchers.Default) {
-            filteredNames.mapNotNull { n ->
-                (localIconMap[n] ?: resolveOutlinedIcon(n))?.let { n to it }
-            }
+    // Search grid (debounced): query the online catalog, resolve names to vectors.
+    var searchIcons by remember { mutableStateOf<List<Pair<String, ImageVector>>>(emptyList()) }
+    var isSearching by remember { mutableStateOf(false) }
+    LaunchedEffect(iconSearch, catalogNames) {
+        if (iconSearch.isBlank()) { searchIcons = emptyList(); isSearching = false; return@LaunchedEffect }
+        isSearching = true
+        delay(250) // debounce keystrokes
+        val names = IconSearchRepository.search(iconSearch)
+        searchIcons = withContext(Dispatchers.Default) {
+            names.mapNotNull { n -> tagIcon(n)?.let { n to it } }
         }
-        resolvedIcons = result
-        isResolving = false
+        isSearching = false
     }
 
-    val displayedIcons: List<Pair<String, ImageVector>> =
-        if (iconSearch.isBlank()) TAG_ICONS else resolvedIcons
+    val searching = iconSearch.isNotBlank()
+    val displayedIcons = if (searching) searchIcons else defaultIcons
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -837,34 +824,72 @@ private fun TagSheet(
             OutlinedTextField(value = description, onValueChange = { description = it },
                 label = { Text("Description") }, modifier = Modifier.fillMaxWidth(), maxLines = 3)
 
-            // Color
+            // -------- Color --------
             Text("Color", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TAG_COLORS.chunked(8).forEach { rowColors ->
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    rowColors.forEach { hex ->
-                        val c = parseHexColor(hex)
-                        val isSelected = hex == selectedColor
-                        Box(
-                            modifier = Modifier
-                                .size(if (isSelected) 36.dp else 28.dp)
-                                .clip(CircleShape)
-                                .background(c)
-                                .clickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
-                                ) { selectedColor = hex },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (isSelected) {
-                                Icon(Icons.Default.Check, null, Modifier.size(16.dp), tint = Color.White)
-                            }
-                        }
+
+            val isCustomColor = selectedColor !in TAG_COLORS
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                TAG_COLORS.forEach { hex ->
+                    val c = parseHexColor(hex)
+                    val isSelected = hex == selectedColor
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(c)
+                            .then(
+                                if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                                else Modifier
+                            )
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) { selectedColor = hex; showColorWheel = false },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isSelected) Icon(Icons.Default.Check, null, Modifier.size(18.dp), tint = Color.White)
                     }
+                }
+                // Custom color wheel trigger — shows the current custom color if active.
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            brush = Brush.sweepGradient(
+                                listOf(
+                                    Color.Red, Color.Yellow, Color.Green,
+                                    Color.Cyan, Color.Blue, Color.Magenta, Color.Red
+                                )
+                            )
+                        )
+                        .then(
+                            if (isCustomColor) Modifier.border(2.dp, MaterialTheme.colorScheme.onSurface, CircleShape)
+                            else Modifier
+                        )
+                        .clickable { showColorWheel = !showColorWheel },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        if (showColorWheel) Icons.Default.Close else Icons.Default.Colorize,
+                        "Custom color", Modifier.size(18.dp), tint = Color.White
+                    )
                 }
             }
 
-            // Icon
+            AnimatedVisibility(visible = showColorWheel, enter = expandEnter, exit = collapseExit) {
+                ColorPicker(
+                    initial = previewColor,
+                    onColor = { selectedColor = colorToHex(it) }
+                )
+            }
+
+            // -------- Icon --------
             Text("Icon", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
 
@@ -878,14 +903,10 @@ private fun TagSheet(
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 trailingIcon = {
                     when {
-                        isResolving ->
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        iconSearch.isNotEmpty() ->
-                            IconButton(onClick = { iconSearch = "" }) {
-                                Icon(Icons.Default.Clear, "Clear search")
-                            }
-                        isFetchLoading ->
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        isSearching -> CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                        iconSearch.isNotEmpty() -> IconButton(onClick = { iconSearch = "" }) {
+                            Icon(Icons.Default.Clear, "Clear search")
+                        }
                         else -> {}
                     }
                 }
@@ -893,22 +914,30 @@ private fun TagSheet(
 
             // Status line
             val statusText = when {
-                iconSearch.isBlank() && isFetchLoading -> "Fetching Material Icons catalog…"
-                iconSearch.isBlank() && isOffline -> "Offline — showing built-in icons"
-                iconSearch.isBlank() && apiIcons.isNotEmpty() ->
-                    "${apiIcons.size} icons available — type to search"
-                iconSearch.isBlank() -> ""
-                isResolving -> "Searching…"
-                else -> buildString {
-                    append("${displayedIcons.size} icons")
-                    when {
-                        apiIcons.isNotEmpty() -> append(" · catalog: ${apiIcons.size}")
-                        isOffline -> append(" · offline")
-                    }
+                searching && isSearching -> "Searching ${catalogNames.size} icons…"
+                searching -> "${displayedIcons.size} results"
+                catalogStatus == IconSearchRepository.Status.LOADING -> "Loading icon catalog…"
+                catalogStatus == IconSearchRepository.Status.OFFLINE ->
+                    "Offline — showing recent icons. Connect to search all icons."
+                catalogStatus == IconSearchRepository.Status.READY ->
+                    "${catalogNames.size} icons online — type to search"
+                else -> "Recent icons"
+            }
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(statusText, style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (catalogStatus == IconSearchRepository.Status.OFFLINE) {
+                    TextButton(
+                        onClick = { IconSearchRepository.retry(scope, ctx) },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) { Text("Retry", style = MaterialTheme.typography.labelSmall) }
                 }
             }
-            if (statusText.isNotEmpty()) {
-                Text(statusText, style = MaterialTheme.typography.labelSmall,
+
+            // Section label above the grid
+            if (!searching && recentIcons.isNotEmpty()) {
+                Text("Recently used", style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
@@ -935,22 +964,20 @@ private fun TagSheet(
                             tint = if (selectedIcon == key) previewColor else MaterialTheme.colorScheme.onSurface)
                     }
                 }
-                if (iconSearch.isNotBlank() && displayedIcons.isEmpty() && !isResolving) {
-                    Text(
-                        "No icons found for \"$iconSearch\"",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+            }
+
+            if (searching && displayedIcons.isEmpty() && !isSearching) {
+                Text(
+                    if (catalogNames.isEmpty()) "Icon catalog not loaded yet — check your connection."
+                    else "No icons found for \"$iconSearch\"",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             if (selectedIcon.isNotBlank()) {
-                Text(
-                    "Selected: $selectedIcon",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Text("Selected: $selectedIcon", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
@@ -961,6 +988,100 @@ private fun TagSheet(
                     enabled = name.isNotBlank()
                 ) { Text("Save") }
             }
+        }
+    }
+}
+
+/** Convert a Compose Color to a "#RRGGBB" hex string. */
+private fun colorToHex(c: Color): String =
+    String.format("#%06X", 0xFFFFFF and c.toArgb())
+
+/**
+ * Compact HSV color picker: a saturation/value panel + a hue slider, emitting any hex
+ * color. Homebox stores tag color as a free-form hex string, so fully custom colors work.
+ */
+@Composable
+private fun ColorPicker(
+    initial: Color,
+    onColor: (Color) -> Unit
+) {
+    var hue by remember { mutableStateOf(0f) }
+    var sat by remember { mutableStateOf(1f) }
+    var value by remember { mutableStateOf(1f) }
+    var initialized by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (!initialized) {
+            val hsv = FloatArray(3)
+            android.graphics.Color.colorToHSV(initial.toArgb(), hsv)
+            hue = hsv[0]; sat = hsv[1]; value = hsv[2]
+            initialized = true
+        }
+    }
+
+    val current = Color.hsv(hue, sat.coerceIn(0f, 1f), value.coerceIn(0f, 1f))
+    LaunchedEffect(hue, sat, value) { if (initialized) onColor(current) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        // Saturation / Value panel
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(150.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .pointerInput(Unit) {
+                    detectTapGestures { off ->
+                        sat = (off.x / size.width).coerceIn(0f, 1f)
+                        value = (1f - off.y / size.height).coerceIn(0f, 1f)
+                    }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, _ ->
+                        sat = (change.position.x / size.width).coerceIn(0f, 1f)
+                        value = (1f - change.position.y / size.height).coerceIn(0f, 1f)
+                    }
+                }
+        ) {
+            Canvas(Modifier.matchParentSize()) {
+                drawRect(Brush.horizontalGradient(listOf(Color.White, Color.hsv(hue, 1f, 1f))))
+                drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black)))
+                val mx = sat * size.width
+                val my = (1f - value) * size.height
+                drawCircle(Color.White, radius = 8.dp.toPx(), center = Offset(mx, my),
+                    style = Stroke(width = 2.dp.toPx()))
+            }
+        }
+
+        // Hue slider
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(28.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .pointerInput(Unit) {
+                    detectTapGestures { off -> hue = (off.x / size.width).coerceIn(0f, 1f) * 360f }
+                }
+                .pointerInput(Unit) {
+                    detectDragGestures { change, _ ->
+                        hue = (change.position.x / size.width).coerceIn(0f, 1f) * 360f
+                    }
+                }
+        ) {
+            Canvas(Modifier.matchParentSize()) {
+                val hueColors = (0..360 step 60).map { Color.hsv(it.toFloat(), 1f, 1f) }
+                drawRect(Brush.horizontalGradient(hueColors))
+                val hx = (hue / 360f) * size.width
+                drawLine(Color.White, Offset(hx, 0f), Offset(hx, size.height), strokeWidth = 3.dp.toPx())
+            }
+        }
+
+        // Preview + hex
+        Row(verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(36.dp).clip(CircleShape).background(current)
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape))
+            Text(colorToHex(current).uppercase(), style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium)
         }
     }
 }
