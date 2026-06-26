@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBTagTreeItem
+import com.homeboy.app.ui.ALL_MATERIAL_ICONS
 import com.homeboy.app.ui.TAG_ICONS
 import com.homeboy.app.ui.items.parseHexColor
 import com.homeboy.app.ui.tagIcon
@@ -752,8 +753,20 @@ private fun TagSheet(
     var description by remember { mutableStateOf(existing?.description ?: "") }
     var selectedColor by remember { mutableStateOf(existing?.color ?: TAG_COLORS[0]) }
     var selectedIcon by remember { mutableStateOf(existing?.icon ?: "") }
+    var iconSearch by remember { mutableStateOf("") }
 
     val previewColor = parseHexColor(selectedColor)
+    val localIconKeys = remember { TAG_ICONS.map { it.first }.toSet() }
+    val displayedIcons = remember(iconSearch, localIconKeys) {
+        if (iconSearch.isBlank()) {
+            TAG_ICONS
+        } else {
+            val q = iconSearch.lowercase().trim()
+            ALL_MATERIAL_ICONS
+                .filter { q in it.first.lowercase() }
+                .sortedWith(compareBy({ !localIconKeys.contains(it.first) }, { it.first }))
+        }
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -804,6 +817,32 @@ private fun TagSheet(
             // Icon
             Text("Icon", style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            OutlinedTextField(
+                value = iconSearch,
+                onValueChange = { iconSearch = it },
+                label = { Text("Search Material Icons") },
+                placeholder = { Text("e.g. home, star, tools…") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                trailingIcon = {
+                    if (iconSearch.isNotEmpty()) {
+                        IconButton(onClick = { iconSearch = "" }) {
+                            Icon(Icons.Default.Clear, "Clear search")
+                        }
+                    }
+                }
+            )
+
+            if (iconSearch.isNotBlank() && displayedIcons.isEmpty()) {
+                Text(
+                    "No icons found for \"$iconSearch\"",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -817,7 +856,7 @@ private fun TagSheet(
                     Icon(Icons.Default.Block, "No icon", Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                TAG_ICONS.forEach { (key, vector) ->
+                displayedIcons.forEach { (key, vector) ->
                     IconPickerCell(
                         selected = selectedIcon == key,
                         accent = previewColor,
@@ -827,6 +866,14 @@ private fun TagSheet(
                             tint = if (selectedIcon == key) previewColor else MaterialTheme.colorScheme.onSurface)
                     }
                 }
+            }
+
+            if (selectedIcon.isNotBlank()) {
+                Text(
+                    "Selected: $selectedIcon",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
