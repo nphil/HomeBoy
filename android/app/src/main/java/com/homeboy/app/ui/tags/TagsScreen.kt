@@ -808,8 +808,7 @@ private fun TagSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        windowInsets = WindowInsets(0)
+        sheetState = sheetState
     ) {
         Column(
             Modifier
