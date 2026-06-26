@@ -202,4 +202,39 @@ interface HomeboxApiService {
         @Header("Authorization") token: String,
         @Header("X-Tenant") tenant: String?
     ): Response<JsonElement>
+
+    // Global maintenance log across all items. status = scheduled | completed | both
+    @GET("v1/maintenance")
+    suspend fun listAllMaintenance(
+        @Header("Authorization") token: String,
+        @Header("X-Tenant") tenant: String?,
+        @Query("status") status: String?
+    ): Response<List<HBMaintenanceWithDetails>>
+
+    // Statistics
+    @GET("v1/groups/statistics")
+    suspend fun getStatistics(
+        @Header("Authorization") token: String,
+        @Header("X-Tenant") tenant: String?
+    ): Response<HBGroupStatistics>
+
+    @GET("v1/groups/statistics/locations")
+    suspend fun getStatsByLocation(
+        @Header("Authorization") token: String,
+        @Header("X-Tenant") tenant: String?
+    ): Response<List<HBTotalsByOrganizer>>
+
+    @GET("v1/groups/statistics/tags")
+    suspend fun getStatsByTag(
+        @Header("Authorization") token: String,
+        @Header("X-Tenant") tenant: String?
+    ): Response<List<HBTotalsByOrganizer>>
+
+    @GET("v1/groups/statistics/purchase-price")
+    suspend fun getPurchasePriceOverTime(
+        @Header("Authorization") token: String,
+        @Header("X-Tenant") tenant: String?,
+        @Query("start") start: String?,
+        @Query("end") end: String?
+    ): Response<HBValueOverTime>
 }

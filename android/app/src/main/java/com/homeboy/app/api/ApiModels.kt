@@ -109,6 +109,7 @@ data class HBItemDetail(
     val parent: HBItemSummary? = null,
     val syncChildEntityLocations: Boolean = false,
     val attachments: List<HBAttachment>? = null,
+    val fields: List<HBEntityField>? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null
 ) {
@@ -156,6 +157,7 @@ data class HBItemUpdate(
     val soldNotes: String = "",
     val parentId: String? = null,  // location OR sub-item parent; never send ""
     val tagIds: List<String> = emptyList(),
+    val fields: List<HBEntityField> = emptyList(),
     val syncChildEntityLocations: Boolean = false
 ) {
     companion object {
@@ -182,9 +184,31 @@ data class HBItemUpdate(
             soldNotes = detail.soldNotes ?: "",
             parentId = detail.effectiveLocation?.id,
             tagIds = detail.effectiveLabels.map { it.id },
+            fields = detail.fields ?: emptyList(),
             syncChildEntityLocations = detail.syncChildEntityLocations
         )
     }
+}
+
+/**
+ * Custom field on an entity (`fields` array on EntityOut/EntityUpdate).
+ * `type` is one of: text, number, boolean. `id` is omitted when creating new ones.
+ */
+data class HBEntityField(
+    val id: String? = null,
+    val type: String = "text",
+    val name: String = "",
+    val textValue: String = "",
+    val numberValue: Int = 0,
+    val booleanValue: Boolean = false
+) {
+    /** Human-readable value for display, by type. */
+    val displayValue: String
+        get() = when (type) {
+            "boolean" -> if (booleanValue) "Yes" else "No"
+            "number" -> numberValue.toString()
+            else -> textValue
+        }
 }
 
 /** Entity type record from `/v1/entity-types`. Locations have isLocation=true. */
@@ -264,15 +288,33 @@ data class HBMaintenanceEntry(
     val id: String,
     val name: String,
     val description: String? = null,
-    val date: String? = null,
+    // v0.25.x returns `date`; v0.26+ renamed it `completedDate`. Accept both.
+    @SerializedName(value = "date", alternate = ["completedDate"]) val date: String? = null,
     val scheduledDate: String? = null,
     @SerializedName("cost") val cost: String? = null,  // server encodes cost as string
     val createdAt: String? = null,
     val updatedAt: String? = null
 ) {
     val costDouble: Double get() = cost?.toDoubleOrNull() ?: 0.0
-    val isCompleted: Boolean get() = !date.isNullOrBlank()
-    val isScheduled: Boolean get() = !scheduledDate.isNullOrBlank()
+    val isCompleted: Boolean get() = !date.isNullOrBlank() && !date.startsWith("0001")
+    val isScheduled: Boolean get() = !scheduledDate.isNullOrBlank() && !scheduledDate.startsWith("0001")
+}
+
+/** Global maintenance log (`GET /v1/maintenance`) — entries enriched with their item. */
+data class HBMaintenanceWithDetails(
+    val id: String,
+    val name: String,
+    val description: String? = null,
+    @SerializedName(value = "date", alternate = ["completedDate"]) val date: String? = null,
+    val scheduledDate: String? = null,
+    @SerializedName("cost") val cost: String? = null,
+    @SerializedName(value = "itemID", alternate = ["itemId"]) val itemId: String? = null,
+    val itemName: String? = null
+) {
+    val costDouble: Double get() = cost?.toDoubleOrNull() ?: 0.0
+    val isCompleted: Boolean get() = !date.isNullOrBlank() && !date.startsWith("0001")
+    val isScheduled: Boolean get() = !scheduledDate.isNullOrBlank() && !scheduledDate.startsWith("0001")
+    fun toEntry() = HBMaintenanceEntry(id, name, description, date, scheduledDate, cost)
 }
 
 data class HBMaintenanceCreate(
@@ -281,4 +323,38 @@ data class HBMaintenanceCreate(
     val date: String = "",           // "" = not completed
     val scheduledDate: String = "",  // "" = no schedule
     @SerializedName("cost") val cost: String = "0"  // must be JSON string per API
+)
+
+// ---------------------------------------------------------------------------
+// Statistics (GET /v1/groups/statistics*)
+// ---------------------------------------------------------------------------
+
+data class HBGroupStatistics(
+    val totalUsers: Int = 0,
+    val totalItems: Int = 0,
+    val totalLocations: Int = 0,
+    val totalTags: Int = 0,
+    val totalItemPrice: Double = 0.0,
+    val totalWithWarranty: Int = 0
+)
+
+/** One row of the by-location / by-tag breakdowns. `total` is a value sum. */
+data class HBTotalsByOrganizer(
+    val id: String = "",
+    val name: String = "",
+    val total: Double = 0.0
+)
+
+data class HBValueOverTime(
+    val valueAtStart: Double = 0.0,
+    val valueAtEnd: Double = 0.0,
+    val start: String? = null,
+    val end: String? = null,
+    val entries: List<HBValueOverTimeEntry> = emptyList()
+)
+
+data class HBValueOverTimeEntry(
+    val date: String? = null,
+    val value: Double = 0.0,
+    val name: String? = null
 )

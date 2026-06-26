@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.api.HBEntityField
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
 import kotlinx.coroutines.Dispatchers
@@ -82,6 +83,8 @@ fun AddEditItemScreen(
 
     // Photos picked from the gallery, kept as raw bytes for upload on save.
     val photoBytes = remember { mutableStateListOf<ByteArray>() }
+    // Editable custom fields (seeded once from the existing item).
+    val customFields = remember { mutableStateListOf<HBEntityField>() }
     var stickySeeded by remember { mutableStateOf(false) }
 
     val photoPicker = rememberLauncherForActivityResult(
@@ -107,6 +110,8 @@ fun AddEditItemScreen(
                 quantityText = item.quantity.toString()
                 selectedLocationId = item.effectiveLocation?.id
                 selectedTagIds = item.effectiveLabels.map { it.id }.toSet()
+                customFields.clear()
+                customFields.addAll(item.fields.orEmpty())
             }
         }
     }
@@ -143,7 +148,8 @@ fun AddEditItemScreen(
                                 tagIds = selectedTagIds.toList(),
                                 parentId = parentId?.takeIf { it.isNotBlank() },
                                 existingId = itemId,
-                                photos = photoBytes.toList()
+                                photos = photoBytes.toList(),
+                                fields = customFields.toList()
                             )
                         },
                         enabled = name.isNotBlank() && !saving
@@ -288,6 +294,30 @@ fun AddEditItemScreen(
                 }
             }
 
+            // Custom fields
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Custom Fields", style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = {
+                        customFields.add(HBEntityField(type = "text", name = "", textValue = ""))
+                    }) {
+                        Icon(Icons.Default.Add, null, Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Add")
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    customFields.forEachIndexed { i, field ->
+                        CustomFieldRow(
+                            field = field,
+                            onChange = { customFields[i] = it },
+                            onRemove = { customFields.removeAt(i) }
+                        )
+                    }
+                }
+            }
+
             // Photos
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -354,6 +384,83 @@ fun AddEditItemScreen(
 
             Spacer(Modifier.height(32.dp))
         }
+        }
+    }
+}
+
+@Composable
+private fun CustomFieldRow(
+    field: HBEntityField,
+    onChange: (HBEntityField) -> Unit,
+    onRemove: () -> Unit
+) {
+    var typeMenu by remember { mutableStateOf(false) }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedTextField(
+                    value = field.name,
+                    onValueChange = { onChange(field.copy(name = it)) },
+                    label = { Text("Field name") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = onRemove) {
+                    Icon(Icons.Default.DeleteOutline, "Remove field",
+                        tint = MaterialTheme.colorScheme.error)
+                }
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box {
+                    OutlinedButton(onClick = { typeMenu = true }) {
+                        Text(field.type.replaceFirstChar { it.uppercase() })
+                        Icon(Icons.Default.ArrowDropDown, null)
+                    }
+                    DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
+                        listOf("text", "number", "boolean").forEach { t ->
+                            DropdownMenuItem(
+                                text = { Text(t.replaceFirstChar { it.uppercase() }) },
+                                onClick = { typeMenu = false; onChange(field.copy(type = t)) }
+                            )
+                        }
+                    }
+                }
+                when (field.type) {
+                    "boolean" -> {
+                        Spacer(Modifier.weight(1f))
+                        Text(if (field.booleanValue) "True" else "False",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Switch(checked = field.booleanValue,
+                            onCheckedChange = { onChange(field.copy(booleanValue = it)) })
+                    }
+                    "number" -> OutlinedTextField(
+                        value = if (field.numberValue == 0) "" else field.numberValue.toString(),
+                        onValueChange = { onChange(field.copy(numberValue = it.toIntOrNull() ?: 0)) },
+                        label = { Text("Value") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
+                    else -> OutlinedTextField(
+                        value = field.textValue,
+                        onValueChange = { onChange(field.copy(textValue = it)) },
+                        label = { Text("Value") },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
         }
     }
 }

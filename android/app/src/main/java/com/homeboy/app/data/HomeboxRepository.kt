@@ -353,6 +353,19 @@ class HomeboxRepository(
     suspend fun updateMaintenance(id: String, entry: HBMaintenanceCreate) = client().updateMaintenance(id, entry)
     suspend fun deleteMaintenance(id: String) = client().deleteMaintenance(id)
 
+    /** Global maintenance log across all items. status = scheduled | completed | both */
+    suspend fun listAllMaintenance(status: String? = "both") = client().listAllMaintenance(status)
+
+    // -------------------------------------------------------------------------
+    // Statistics
+    // -------------------------------------------------------------------------
+
+    suspend fun getStatistics() = client().getStatistics()
+    suspend fun getStatsByLocation() = client().getStatsByLocation()
+    suspend fun getStatsByTag() = client().getStatsByTag()
+    suspend fun getPurchasePriceOverTime(start: String?, end: String?) =
+        client().getPurchasePriceOverTime(start, end)
+
     // -------------------------------------------------------------------------
     // Locations
     // -------------------------------------------------------------------------

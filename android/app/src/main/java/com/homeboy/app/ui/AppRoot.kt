@@ -47,7 +47,9 @@ import androidx.window.core.layout.WindowWidthSizeClass
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.ui.items.ItemsTab
 import com.homeboy.app.ui.locations.LocationsTab
+import com.homeboy.app.ui.maintenance.MaintenanceTab
 import com.homeboy.app.ui.settings.SettingsTab
+import com.homeboy.app.ui.statistics.StatisticsTab
 import com.homeboy.app.ui.tags.TagsTab
 
 private enum class NavTab(
@@ -55,10 +57,12 @@ private enum class NavTab(
     val icon: ImageVector,
     val activeIcon: ImageVector
 ) {
-    ITEMS(    "Items",     Icons.Outlined.Inventory2,            Icons.Filled.Inventory2),
-    LOCATIONS("Locations", Icons.Outlined.Place,                 Icons.Filled.Place),
-    TAGS(     "Tags",      Icons.AutoMirrored.Outlined.Label,    Icons.AutoMirrored.Filled.Label),
-    SETTINGS( "Settings",  Icons.Outlined.Settings,              Icons.Filled.Settings)
+    ITEMS(       "Items",       Icons.Outlined.Inventory2,            Icons.Filled.Inventory2),
+    LOCATIONS(   "Locations",   Icons.Outlined.Place,                 Icons.Filled.Place),
+    TAGS(        "Tags",        Icons.AutoMirrored.Outlined.Label,    Icons.AutoMirrored.Filled.Label),
+    MAINTENANCE( "Maintenance", Icons.Outlined.Handyman,              Icons.Filled.Handyman),
+    STATISTICS(  "Statistics",  Icons.Outlined.Insights,              Icons.Filled.Insights),
+    SETTINGS(    "Settings",    Icons.Outlined.Settings,              Icons.Filled.Settings)
 }
 
 @Composable
@@ -125,7 +129,9 @@ private fun TabContent(selected: Int, onSelect: (Int) -> Unit) {
         0 -> ItemsTab()
         1 -> LocationsTab()
         2 -> TagsTab()
-        3 -> SettingsTab(onLogout = { onSelect(0) })
+        3 -> MaintenanceTab()
+        4 -> StatisticsTab()
+        5 -> SettingsTab(onLogout = { onSelect(0) })
     }
 }
 

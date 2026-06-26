@@ -338,6 +338,20 @@ fun ItemDetailScreen(
                 }
             }
 
+            // Custom fields
+            val customFields = detail.fields.orEmpty().filter { it.name.isNotBlank() }
+            if (customFields.isNotEmpty()) {
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Custom Fields", style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            customFields.forEach { f -> DetailRow(f.name, f.displayValue) }
+                        }
+                    }
+                }
+            }
+
             // Sub-items / components
             if (children.isNotEmpty()) {
                 item {

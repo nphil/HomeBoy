@@ -91,7 +91,8 @@ class AddEditItemViewModel(
         tagIds: List<String>,
         parentId: String?,
         existingId: String?,
-        photos: List<ByteArray> = emptyList()
+        photos: List<ByteArray> = emptyList(),
+        fields: List<HBEntityField> = emptyList()
     ) {
         _saving.value = true
         _error.value = null
@@ -99,9 +100,11 @@ class AddEditItemViewModel(
             try {
                 // Entities API merges location + sub-item parent into one `parentId`.
                 val effectiveParent = parentId ?: locationId
+                // Drop blank-named custom fields so we never persist empty rows.
+                val cleanFields = fields.filter { it.name.isNotBlank() }
                 val itemId: String = if (existingId != null) {
                     val current = _existingItem.value
-                    val update = if (current != null) {
+                    val base = if (current != null) {
                         HBItemUpdate.from(current).copy(
                             name = name,
                             description = description,
@@ -115,12 +118,20 @@ class AddEditItemViewModel(
                             tagIds = tagIds, parentId = effectiveParent
                         )
                     }
-                    repo.updateItem(existingId, update).id
+                    repo.updateItem(existingId, base.copy(fields = cleanFields)).id
                 } else {
-                    repo.createItem(HBItemCreate(
+                    // EntityCreate has no fields array — create first, then patch fields in.
+                    val created = repo.createItem(HBItemCreate(
                         name = name, description = description, quantity = quantity,
                         tagIds = tagIds, parentId = effectiveParent
-                    )).id
+                    ))
+                    if (cleanFields.isNotEmpty()) {
+                        repo.updateItem(created.id, HBItemUpdate.from(created).copy(
+                            name = name, description = description, quantity = quantity,
+                            tagIds = tagIds, parentId = effectiveParent, fields = cleanFields
+                        ))
+                    }
+                    created.id
                 }
 
                 // Upload any picked photos (first becomes primary).

@@ -213,6 +213,36 @@ class HomeboxClient(baseUrl: String) {
         if (!resp.isSuccessful) throw Exception("deleteTag failed: ${resp.code()}")
     }
 
+    suspend fun listAllMaintenance(status: String?): List<HBMaintenanceWithDetails> {
+        val resp = api.listAllMaintenance(auth(), tenant, status)
+        if (!resp.isSuccessful) throw Exception("listAllMaintenance failed: ${resp.code()}")
+        return resp.body() ?: emptyList()
+    }
+
+    suspend fun getStatistics(): HBGroupStatistics {
+        val resp = api.getStatistics(auth(), tenant)
+        if (!resp.isSuccessful) throw Exception("getStatistics failed: ${resp.code()}")
+        return resp.body() ?: HBGroupStatistics()
+    }
+
+    suspend fun getStatsByLocation(): List<HBTotalsByOrganizer> {
+        val resp = api.getStatsByLocation(auth(), tenant)
+        if (!resp.isSuccessful) throw Exception("getStatsByLocation failed: ${resp.code()}")
+        return resp.body() ?: emptyList()
+    }
+
+    suspend fun getStatsByTag(): List<HBTotalsByOrganizer> {
+        val resp = api.getStatsByTag(auth(), tenant)
+        if (!resp.isSuccessful) throw Exception("getStatsByTag failed: ${resp.code()}")
+        return resp.body() ?: emptyList()
+    }
+
+    suspend fun getPurchasePriceOverTime(start: String?, end: String?): HBValueOverTime {
+        val resp = api.getPurchasePriceOverTime(auth(), tenant, start, end)
+        if (!resp.isSuccessful) throw Exception("getPurchasePriceOverTime failed: ${resp.code()}")
+        return resp.body() ?: HBValueOverTime()
+    }
+
     suspend fun listGroups(): List<HBGroup> {
         val resp = api.listGroups(auth(), tenant)
         if (!resp.isSuccessful) throw Exception("listGroups failed: ${resp.code()}")
