@@ -65,6 +65,17 @@ fun StatisticsTab() {
         }
 
         val s = stats
+        // Built here in the @Composable body — MaterialTheme can't be read inside
+        // the LazyListScope lambda (it's not a composable scope).
+        val tiles = if (s != null) listOf(
+            StatSpec("Total value", s.totalItemPrice, true, Icons.Default.Payments, MaterialTheme.colorScheme.primary),
+            StatSpec("Items", s.totalItems.toDouble(), false, Icons.Outlined.Inventory2, MaterialTheme.colorScheme.secondary),
+            StatSpec("Locations", s.totalLocations.toDouble(), false, Icons.Default.Place, MaterialTheme.colorScheme.tertiary),
+            StatSpec("Tags", s.totalTags.toDouble(), false, Icons.AutoMirrored.Filled.Label, MaterialTheme.colorScheme.primary),
+            StatSpec("With warranty", s.totalWithWarranty.toDouble(), false, Icons.Default.VerifiedUser, MaterialTheme.colorScheme.secondary),
+            StatSpec("Users", s.totalUsers.toDouble(), false, Icons.Default.Group, MaterialTheme.colorScheme.tertiary)
+        ) else emptyList()
+
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
@@ -81,15 +92,7 @@ fun StatisticsTab() {
             }
 
             // Summary tiles (2-column grid)
-            if (s != null) {
-                val tiles = listOf(
-                    StatSpec("Total value", s.totalItemPrice, true, Icons.Default.Payments, MaterialTheme.colorScheme.primary),
-                    StatSpec("Items", s.totalItems.toDouble(), false, Icons.Outlined.Inventory2, MaterialTheme.colorScheme.secondary),
-                    StatSpec("Locations", s.totalLocations.toDouble(), false, Icons.Default.Place, MaterialTheme.colorScheme.tertiary),
-                    StatSpec("Tags", s.totalTags.toDouble(), false, Icons.AutoMirrored.Filled.Label, MaterialTheme.colorScheme.primary),
-                    StatSpec("With warranty", s.totalWithWarranty.toDouble(), false, Icons.Default.VerifiedUser, MaterialTheme.colorScheme.secondary),
-                    StatSpec("Users", s.totalUsers.toDouble(), false, Icons.Default.Group, MaterialTheme.colorScheme.tertiary)
-                )
+            if (tiles.isNotEmpty()) {
                 items(tiles.chunked(2)) { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         row.forEach { spec -> StatTile(Modifier.weight(1f), spec) }
