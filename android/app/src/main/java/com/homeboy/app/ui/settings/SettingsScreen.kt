@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -77,14 +79,20 @@ fun SettingsTab(onLogout: () -> Unit) {
     }
 
     if (showAiModels) {
+        val customModels by vm.customModels.collectAsStateWithLifecycle()
+        val embedModelId by vm.embedModelId.collectAsStateWithLifecycle()
         AiModelsSheet(
             states = modelStates,
+            customModels = customModels,
+            embedModelId = embedModelId,
             aiSearchEnabled = aiSearchEnabled,
             npuActive = npuActive,
             onToggleAiSearch = { vm.setAiSearchEnabled(it) },
+            onSetDefault = { vm.setDefaultEmbedModel(it) },
             onDownload = { vm.downloadModel(it) },
             onCancel = { vm.cancelModelDownload(it) },
             onDelete = { vm.deleteModel(it) },
+            onAddCustom = { name, modelUrl, vocabUrl -> vm.addCustomModel(name, modelUrl, vocabUrl) },
             onDismiss = { showAiModels = false }
         )
     }
@@ -237,19 +245,36 @@ fun SettingsTab(onLogout: () -> Unit) {
 @Composable
 private fun AiModelsSheet(
     states: Map<String, com.homeboy.app.ai.ModelRepository.State>,
+    customModels: List<com.homeboy.app.ai.ModelRepository.ModelSpec>,
+    embedModelId: String,
     aiSearchEnabled: Boolean,
     npuActive: Boolean?,
     onToggleAiSearch: (Boolean) -> Unit,
+    onSetDefault: (String) -> Unit,
     onDownload: (String) -> Unit,
     onCancel: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onAddCustom: (String, String, String) -> Unit,
     onDismiss: () -> Unit
 ) {
     val repo = com.homeboy.app.ai.ModelRepository
-    val embedReady = states["minilm-l6-v2"] is com.homeboy.app.ai.ModelRepository.State.Ready
+    val allModels = repo.CATALOG + customModels
+    val embedReady = states[embedModelId] is com.homeboy.app.ai.ModelRepository.State.Ready
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    if (showAddDialog) {
+        AddCustomModelDialog(
+            onAdd = { name, modelUrl, vocabUrl -> onAddCustom(name, modelUrl, vocabUrl); showAddDialog = false },
+            onDismiss = { showAddDialog = false }
+        )
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(bottom = 32.dp)) {
+        Column(
+            Modifier
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             Text(
                 "AI Models", style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(16.dp)
@@ -284,14 +309,14 @@ private fun AiModelsSheet(
             }
             Spacer(Modifier.height(8.dp))
 
-            // Semantic search toggle — only meaningful once the embedding model is present.
+            // Semantic search toggle — only meaningful once the active model is present.
             ListItem(
                 leadingContent = { Icon(Icons.Default.Search, null) },
                 headlineContent = { Text("Semantic search") },
                 supportingContent = {
                     Text(
                         if (embedReady) "Find items by meaning, not just keywords"
-                        else "Download the MiniLM model below to enable"
+                        else "Download a model below to enable"
                     )
                 },
                 trailingContent = {
@@ -304,15 +329,25 @@ private fun AiModelsSheet(
             )
             HorizontalDivider(Modifier.padding(horizontal = 16.dp))
 
-            repo.CATALOG.forEach { spec ->
+            Text(
+                "Models  ·  tap a downloaded model to make it the default",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp)
+            )
+
+            allModels.forEach { spec ->
                 val state = states[spec.id] ?: com.homeboy.app.ai.ModelRepository.State.NotDownloaded
+                val isReady = state is com.homeboy.app.ai.ModelRepository.State.Ready
+                val isDefault = spec.id == embedModelId
                 ListItem(
+                    modifier = if (isReady) Modifier.clickable { onSetDefault(spec.id) } else Modifier,
                     leadingContent = {
-                        Icon(
-                            if (spec.purpose == com.homeboy.app.ai.ModelRepository.Purpose.EMBEDDING)
-                                Icons.Default.Search else Icons.Default.AutoAwesome,
-                            null
-                        )
+                        if (isReady) {
+                            RadioButton(selected = isDefault, onClick = { onSetDefault(spec.id) })
+                        } else {
+                            Icon(Icons.Default.Search, null)
+                        }
                     },
                     headlineContent = { Text(spec.displayName) },
                     supportingContent = {
@@ -320,7 +355,8 @@ private fun AiModelsSheet(
                             is com.homeboy.app.ai.ModelRepository.State.Downloading ->
                                 if (state.progress >= 0f) "Downloading ${(state.progress * 100).toInt()}%"
                                 else "Downloading…"
-                            is com.homeboy.app.ai.ModelRepository.State.Ready -> "Downloaded · ready"
+                            is com.homeboy.app.ai.ModelRepository.State.Ready ->
+                                if (isDefault) "Default · ready" else "Ready"
                             is com.homeboy.app.ai.ModelRepository.State.Failed -> "Failed: ${state.message}"
                             else -> spec.description
                         }
@@ -355,8 +391,58 @@ private fun AiModelsSheet(
                 )
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             }
+
+            // Add a custom HuggingFace ONNX model.
+            ListItem(
+                leadingContent = { Icon(Icons.Default.Add, null) },
+                headlineContent = { Text("Add custom model") },
+                supportingContent = { Text("Paste a HuggingFace ONNX model + vocab URL") },
+                modifier = Modifier.clickable { showAddDialog = true }
+            )
         }
     }
+}
+
+@Composable
+private fun AddCustomModelDialog(
+    onAdd: (name: String, modelUrl: String, vocabUrl: String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var modelUrl by remember { mutableStateOf("") }
+    var vocabUrl by remember { mutableStateOf("") }
+    val valid = modelUrl.startsWith("http") && vocabUrl.startsWith("http")
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add custom model") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "Must be a quantized (QDQ) ONNX BERT-style embedding model to run on the NPU; " +
+                        "other ONNX models fall back to CPU.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it },
+                    label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = modelUrl, onValueChange = { modelUrl = it },
+                    label = { Text("model.onnx URL") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = vocabUrl, onValueChange = { vocabUrl = it },
+                    label = { Text("vocab.txt URL") }, singleLine = true, modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = valid, onClick = { onAdd(name, modelUrl, vocabUrl) }) { Text("Add") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }
 
 @Composable

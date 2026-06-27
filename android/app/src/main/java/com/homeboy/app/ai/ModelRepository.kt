@@ -75,13 +75,58 @@ object ModelRepository {
             ),
             onnxFileName = "model.onnx",
             vocabFileName = "vocab.txt"
+        ),
+        ModelSpec(
+            id = "bge-small-en-v1.5",
+            displayName = "BGE-small EN (retrieval)",
+            description = "Stronger retrieval-tuned embeddings. ~33 MB.",
+            purpose = Purpose.EMBEDDING,
+            approxBytes = 33_000_000,
+            files = listOf(
+                ModelFile(
+                    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model_quantized.onnx",
+                    "model.onnx"
+                ),
+                ModelFile(
+                    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/vocab.txt",
+                    "vocab.txt"
+                )
+            ),
+            onnxFileName = "model.onnx",
+            vocabFileName = "vocab.txt"
+        ),
+        ModelSpec(
+            id = "gte-small",
+            displayName = "GTE-small (general)",
+            description = "Well-rounded general-purpose embeddings. ~33 MB.",
+            purpose = Purpose.EMBEDDING,
+            approxBytes = 33_000_000,
+            files = listOf(
+                ModelFile(
+                    "https://huggingface.co/Xenova/gte-small/resolve/main/onnx/model_quantized.onnx",
+                    "model.onnx"
+                ),
+                ModelFile(
+                    "https://huggingface.co/Xenova/gte-small/resolve/main/vocab.txt",
+                    "vocab.txt"
+                )
+            ),
+            onnxFileName = "model.onnx",
+            vocabFileName = "vocab.txt"
         )
         // Generative models (e.g. Llama 3.2 1B for tag suggestions) are added in a later
         // phase alongside their inference engine, so we don't offer a large download that
         // nothing consumes yet.
     )
 
-    fun spec(id: String): ModelSpec? = CATALOG.firstOrNull { it.id == id }
+    /** User-added models (custom HuggingFace URLs), persisted across launches. */
+    private val _customModels = MutableStateFlow<List<ModelSpec>>(emptyList())
+    val customModels: StateFlow<List<ModelSpec>> = _customModels.asStateFlow()
+
+    /** Curated catalog plus any user-added models. */
+    fun allSpecs(): List<ModelSpec> = CATALOG + _customModels.value
+
+    fun spec(id: String): ModelSpec? = allSpecs().firstOrNull { it.id == id }
 
     // ---- State -------------------------------------------------------------
 
@@ -118,10 +163,71 @@ object ModelRepository {
     /** Reconcile in-memory state with what's actually on disk. Safe to call on startup. */
     fun refreshStates(context: Context) {
         val map = HashMap<String, State>()
-        for (spec in CATALOG) {
+        for (spec in allSpecs()) {
             map[spec.id] = if (isReady(context, spec.id)) State.Ready else State.NotDownloaded
         }
         _states.value = map
+    }
+
+    // ---- Custom models -----------------------------------------------------
+
+    /** A user-added model, persisted as JSON. Files are always saved as model.onnx + vocab.txt. */
+    private data class CustomEntry(
+        @com.google.gson.annotations.SerializedName("id") val id: String,
+        @com.google.gson.annotations.SerializedName("name") val name: String,
+        @com.google.gson.annotations.SerializedName("modelUrl") val modelUrl: String,
+        @com.google.gson.annotations.SerializedName("vocabUrl") val vocabUrl: String
+    )
+
+    private fun CustomEntry.toSpec() = ModelSpec(
+        id = id,
+        displayName = name,
+        description = "Custom model • ${modelUrl.substringAfter("huggingface.co/").substringBefore("/resolve")}",
+        purpose = Purpose.EMBEDDING,
+        approxBytes = 30_000_000,
+        files = listOf(ModelFile(modelUrl, "model.onnx"), ModelFile(vocabUrl, "vocab.txt")),
+        onnxFileName = "model.onnx",
+        vocabFileName = "vocab.txt"
+    )
+
+    /** Load persisted custom models from the JSON blob produced by [serializeCustomModels]. */
+    fun loadCustomModels(context: Context, json: String) {
+        val entries = runCatching {
+            val type = object : com.google.gson.reflect.TypeToken<List<CustomEntry>>() {}.type
+            com.google.gson.Gson().fromJson<List<CustomEntry>>(json, type)
+        }.getOrNull() ?: emptyList()
+        _customModels.value = entries.map { it.toSpec() }
+        refreshStates(context)
+    }
+
+    /** Serialize current custom models so the caller can persist them. */
+    fun serializeCustomModels(): String {
+        val entries = _customModels.value.map {
+            CustomEntry(it.id, it.displayName, it.files[0].url, it.files.getOrNull(1)?.url ?: "")
+        }
+        return com.google.gson.Gson().toJson(entries)
+    }
+
+    /**
+     * Add a custom model from a HuggingFace ONNX URL + vocab URL. Returns the new id, or null
+     * if the URL looks invalid. Caller should persist [serializeCustomModels] afterwards.
+     */
+    fun addCustomModel(context: Context, name: String, modelUrl: String, vocabUrl: String): String? {
+        val m = modelUrl.trim()
+        val v = vocabUrl.trim()
+        if (!m.startsWith("http") || !v.startsWith("http")) return null
+        val id = "custom-" + kotlin.math.abs((m + v).hashCode()).toString(16)
+        if (allSpecs().any { it.id == id }) return id // already present
+        val entry = CustomEntry(id, name.ifBlank { "Custom model" }, m, v)
+        _customModels.value = _customModels.value + entry.toSpec()
+        refreshStates(context)
+        return id
+    }
+
+    /** Remove a custom model (and its files). Caller should re-persist afterwards. */
+    fun removeCustomModel(context: Context, id: String) {
+        delete(context, id)
+        _customModels.value = _customModels.value.filterNot { it.id == id }
     }
 
     // ---- Download / delete -------------------------------------------------

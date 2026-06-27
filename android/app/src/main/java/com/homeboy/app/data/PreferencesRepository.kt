@@ -31,6 +31,9 @@ class PreferencesRepository(private val context: Context) {
         const val MAX_RECENT_ICONS = 24
         val KEY_AI_SEARCH_ENABLED = booleanPreferencesKey("ai_search_enabled")
         val KEY_AI_GEN_MODEL_ID = stringPreferencesKey("ai_gen_model_id")
+        val KEY_AI_EMBED_MODEL_ID = stringPreferencesKey("ai_embed_model_id")
+        val KEY_AI_CUSTOM_MODELS = stringPreferencesKey("ai_custom_models")
+        const val DEFAULT_EMBED_MODEL_ID = "minilm-l6-v2"
     }
 
     /** Whether semantic (embedding-based) search is enabled. Off until a model is downloaded. */
@@ -42,6 +45,16 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setAiGenModelId(id: String?) = context.dataStore.edit {
         if (id == null) it.remove(KEY_AI_GEN_MODEL_ID) else it[KEY_AI_GEN_MODEL_ID] = id
     }
+
+    /** The active embedding model used for semantic search. */
+    val aiEmbedModelId: Flow<String> =
+        context.dataStore.data.map { it[KEY_AI_EMBED_MODEL_ID] ?: DEFAULT_EMBED_MODEL_ID }
+    suspend fun setAiEmbedModelId(id: String) = context.dataStore.edit { it[KEY_AI_EMBED_MODEL_ID] = id }
+
+    /** Raw JSON for user-added custom models (serialized by ModelRepository). */
+    val aiCustomModelsJson: Flow<String> = context.dataStore.data.map { it[KEY_AI_CUSTOM_MODELS] ?: "" }
+    suspend fun setAiCustomModelsJson(json: String) =
+        context.dataStore.edit { it[KEY_AI_CUSTOM_MODELS] = json }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
     val token: Flow<String> = context.dataStore.data.map { it[KEY_TOKEN] ?: "" }

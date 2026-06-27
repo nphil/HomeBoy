@@ -91,6 +91,16 @@ class ItemsViewModel(
                 if (changed && _query.value.isNotBlank()) load()
             }
         }
+        // Keep the embedding model registry + active selection in sync with preferences.
+        viewModelScope.launch {
+            prefs.aiCustomModelsJson.collect { ModelRepository.loadCustomModels(appContext, it) }
+        }
+        viewModelScope.launch {
+            prefs.aiEmbedModelId.collect { id ->
+                EmbeddingService.setModel(id)
+                if (aiSearchEnabled && _query.value.isNotBlank()) load()
+            }
+        }
         load()
     }
 
@@ -105,7 +115,7 @@ class ItemsViewModel(
                 // Gate on the cheap file-existence check — the engine is built off the main
                 // thread inside rank().
                 val useSemantic = aiSearchEnabled && query != null &&
-                    ModelRepository.isReady(appContext, "minilm-l6-v2")
+                    ModelRepository.isReady(appContext, EmbeddingService.selectedModelId)
 
                 val resp = repo.listItems(
                     query = if (useSemantic) null else query,

@@ -30,21 +30,49 @@ class SettingsViewModel(
     val modelStates: StateFlow<Map<String, ModelRepository.State>> = ModelRepository.states
     /** null = engine not built yet, true = running on NPU, false = CPU fallback. */
     val npuActive: StateFlow<Boolean?> = EmbeddingService.npuActive
+    val customModels: StateFlow<List<ModelRepository.ModelSpec>> = ModelRepository.customModels
+    val embedModelId = prefs.aiEmbedModelId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesRepository.DEFAULT_EMBED_MODEL_ID)
 
-    init { ModelRepository.refreshStates(appContext) }
+    init {
+        // Restore any custom models, then reconcile download state with disk.
+        viewModelScope.launch {
+            ModelRepository.loadCustomModels(appContext, prefs.aiCustomModelsJson.first())
+            ModelRepository.refreshStates(appContext)
+        }
+    }
 
     fun setAiSearchEnabled(enabled: Boolean) {
         viewModelScope.launch { prefs.setAiSearchEnabled(enabled) }
     }
 
+    /** Pick which downloaded embedding model semantic search uses. */
+    fun setDefaultEmbedModel(id: String) {
+        viewModelScope.launch { prefs.setAiEmbedModelId(id) }
+        EmbeddingService.setModel(id)
+    }
+
+    fun addCustomModel(name: String, modelUrl: String, vocabUrl: String) {
+        val id = ModelRepository.addCustomModel(appContext, name, modelUrl, vocabUrl)
+        if (id == null) {
+            _snackbar.value = "Invalid model URL"
+            return
+        }
+        viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
+    }
+
     fun downloadModel(id: String) = ModelRepository.download(viewModelScope, appContext, id)
     fun cancelModelDownload(id: String) = ModelRepository.cancel(id)
     fun deleteModel(id: String) {
-        ModelRepository.delete(appContext, id)
-        // If the embedding model is gone, semantic search can't run — turn it off.
-        if (ModelRepository.spec(id)?.purpose == ModelRepository.Purpose.EMBEDDING) {
-            setAiSearchEnabled(false)
+        val isCustom = ModelRepository.customModels.value.any { it.id == id }
+        if (isCustom) {
+            ModelRepository.removeCustomModel(appContext, id)
+            viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
+        } else {
+            ModelRepository.delete(appContext, id)
         }
+        // If the active embedding model is gone, semantic search can't run — turn it off.
+        if (id == embedModelId.value) setAiSearchEnabled(false)
     }
 
     private val _userInfo = MutableStateFlow<HBUserInfo?>(null)

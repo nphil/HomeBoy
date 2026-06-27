@@ -18,7 +18,18 @@ import kotlinx.coroutines.withContext
  */
 object EmbeddingService {
 
-    private const val MODEL_ID = "minilm-l6-v2"
+    /** The active embedding model id; updated from preferences. */
+    @Volatile
+    var selectedModelId: String = "minilm-l6-v2"
+        private set
+
+    /** Switch the active model. Rebuilds the engine on next use if it changed. */
+    fun setModel(id: String) {
+        if (id.isNotBlank() && id != selectedModelId) {
+            selectedModelId = id
+            invalidate()
+        }
+    }
 
     private var engine: EmbeddingEngine? = null
     private var initFailed = false
@@ -50,9 +61,10 @@ object EmbeddingService {
     private fun engineOrNull(context: Context): EmbeddingEngine? {
         engine?.let { return it }
         if (initFailed) return null
-        if (!ModelRepository.isReady(context, MODEL_ID)) return null
-        val model = ModelRepository.fileFor(context, MODEL_ID, "model.onnx")
-        val vocab = ModelRepository.fileFor(context, MODEL_ID, "vocab.txt")
+        val id = selectedModelId
+        if (!ModelRepository.isReady(context, id)) return null
+        val model = ModelRepository.fileFor(context, id, "model.onnx")
+        val vocab = ModelRepository.fileFor(context, id, "vocab.txt")
         if (model == null || vocab == null) return null
         val built = EmbeddingEngine.create(model, vocab)
         if (built == null) { initFailed = true; return null }
