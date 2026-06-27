@@ -36,7 +36,8 @@ class PreferencesRepository(private val context: Context) {
         val KEY_HF_TOKEN = stringPreferencesKey("hf_token")
         val KEY_AI_TAGS_ENABLED = booleanPreferencesKey("ai_tags_enabled")
         val KEY_AI_UNLOAD_MINUTES = intPreferencesKey("ai_unload_minutes")
-        const val DEFAULT_EMBED_MODEL_ID = "minilm-l6-v2"
+        val KEY_AI_MODEL_BACKENDS = stringPreferencesKey("ai_model_backends")
+        const val DEFAULT_EMBED_MODEL_ID = "nomic-embed-v1.5"
         const val DEFAULT_UNLOAD_MINUTES = 5
     }
 
@@ -75,6 +76,29 @@ class PreferencesRepository(private val context: Context) {
     val aiUnloadMinutes: Flow<Int> =
         context.dataStore.data.map { it[KEY_AI_UNLOAD_MINUTES] ?: DEFAULT_UNLOAD_MINUTES }
     suspend fun setAiUnloadMinutes(m: Int) = context.dataStore.edit { it[KEY_AI_UNLOAD_MINUTES] = m }
+
+    /**
+     * Per-model backend override (modelId -> "NPU"/"GPU"/"CPU"). A model with no entry uses the
+     * smart default (embeddings → NPU, generation → CPU). Stored as a compact JSON object.
+     */
+    val aiModelBackends: Flow<Map<String, String>> =
+        context.dataStore.data.map { parseBackends(it[KEY_AI_MODEL_BACKENDS]) }
+
+    suspend fun setAiModelBackend(modelId: String, backend: String?) =
+        context.dataStore.edit { prefs ->
+            val map = parseBackends(prefs[KEY_AI_MODEL_BACKENDS]).toMutableMap()
+            if (backend == null) map.remove(modelId) else map[modelId] = backend
+            prefs[KEY_AI_MODEL_BACKENDS] =
+                map.entries.joinToString(",", "{", "}") { "\"${it.key}\":\"${it.value}\"" }
+        }
+
+    private fun parseBackends(raw: String?): Map<String, String> {
+        if (raw.isNullOrBlank()) return emptyMap()
+        return runCatching {
+            val type = object : com.google.gson.reflect.TypeToken<Map<String, String>>() {}.type
+            com.google.gson.Gson().fromJson<Map<String, String>>(raw, type) ?: emptyMap()
+        }.getOrDefault(emptyMap())
+    }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
     val token: Flow<String> = context.dataStore.data.map { it[KEY_TOKEN] ?: "" }

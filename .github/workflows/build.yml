@@ -9,6 +9,9 @@ on:
     paths-ignore:
       - 'android/**'
       - '.github/workflows/android.yml'
+      - '.github/workflows/build.yml'
+      - '.gitattributes'
+      - '.gitmodules'
       - '**/*.md'
   workflow_dispatch:
 

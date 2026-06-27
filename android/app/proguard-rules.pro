@@ -24,14 +24,6 @@
 -dontwarn javax.annotation.**
 -dontwarn org.codehaus.mojo.animal_sniffer.IgnoreJRE
 
-# ONNX Runtime (JNI-backed; keep its classes and native bindings)
--keep class ai.onnxruntime.** { *; }
--dontwarn ai.onnxruntime.**
-
-# MediaPipe LLM Inference (JNI + protobuf backed; keep classes referenced from native)
--keep class com.google.mediapipe.** { *; }
--dontwarn com.google.mediapipe.**
--keep class com.google.protobuf.** { *; }
--dontwarn com.google.protobuf.**
--dontwarn com.google.errorprone.annotations.**
--dontwarn javax.lang.model.**
+# llmkit (llama.cpp/GGUF engine; JNI-backed — names are referenced from native code via JNI)
+-keep class com.homeboy.llmkit.** { *; }
+-dontwarn com.homeboy.llmkit.**

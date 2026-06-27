@@ -77,6 +77,7 @@ class AddEditItemViewModel(
     private var genModelId: String? = null
     private var unloadMinutes = PreferencesRepository.DEFAULT_UNLOAD_MINUTES
     private var aiTagsEnabled = false
+    private var modelBackends: Map<String, String> = emptyMap()
     private var suggestJob: Job? = null
 
     /** Debounced request: regenerate suggestions ~0.8s after the user stops typing. */
@@ -87,10 +88,11 @@ class AddEditItemViewModel(
         if (!ModelRepository.isReady(appContext, id)) return
         suggestJob = viewModelScope.launch {
             delay(800)
-            val file = ModelRepository.fileFor(appContext, id, "model.task") ?: return@launch
+            val file = ModelRepository.fileFor(appContext, id, "model.gguf") ?: return@launch
             val modelName = ModelRepository.spec(id)?.displayName ?: "Language model"
+            val preferred = com.homeboy.app.ai.AiBackend.fromToken(modelBackends[id])
             _tagSuggestions.value = TagSuggestionService.suggest(
-                appContext, id, modelName, file, name, description, _tags.value, unloadMinutes
+                appContext, id, modelName, file, name, description, _tags.value, unloadMinutes, preferred
             )
         }
     }
@@ -112,6 +114,7 @@ class AddEditItemViewModel(
         viewModelScope.launch { prefs.aiTagsEnabled.collect { aiTagsEnabled = it } }
         viewModelScope.launch { prefs.aiGenModelId.collect { genModelId = it } }
         viewModelScope.launch { prefs.aiUnloadMinutes.collect { unloadMinutes = it } }
+        viewModelScope.launch { prefs.aiModelBackends.collect { modelBackends = it } }
         // Register any custom (HF-added) models so isReady/fileFor resolve before Settings is opened.
         viewModelScope.launch { prefs.aiCustomModelsJson.collect { ModelRepository.loadCustomModels(appContext, it) } }
     }

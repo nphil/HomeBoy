@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+          FastRPC loader for the Qualcomm Hexagon (cDSP) backend. Marked optional so the library
+          still installs on devices without a Hexagon NPU — there the engine falls back to GPU/CPU.
+        -->
+        <uses-native-library
+            android:name="libcdsprpc.so"
+            android:required="false" />
+        <!--
+          Adreno OpenCL driver. libggml-opencl.so is a load-time dependency of the engine, so the
+          app's linker namespace must be granted access to the vendor's libOpenCL.so or the whole
+          native engine (CPU/NPU included) fails to load. Optional so non-Adreno devices still run.
+        -->
+        <uses-native-library
+            android:name="libOpenCL.so"
+            android:required="false" />
+    </application>
+
+</manifest>

@@ -14,6 +14,7 @@ import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -97,7 +98,25 @@ class ItemsViewModel(
         }
         viewModelScope.launch {
             prefs.aiEmbedModelId.collect { id ->
-                EmbeddingService.setModel(id)
+                // Migrate a stored id that no longer exists (e.g. the pre-GGUF "minilm-l6-v2")
+                // to the current default, so semantic search isn't silently stuck on a dead model.
+                // Custom ids ("custom…") are kept even if their spec hasn't loaded yet.
+                val resolved = when {
+                    ModelRepository.spec(id) != null -> id
+                    id.startsWith("custom") -> id
+                    else -> PreferencesRepository.DEFAULT_EMBED_MODEL_ID
+                }
+                if (resolved != id) prefs.setAiEmbedModelId(resolved)
+                EmbeddingService.setModel(resolved)
+                if (aiSearchEnabled && _query.value.isNotBlank()) load()
+            }
+        }
+        // Apply the selected embedding model's backend override (NPU/CPU) to the engine.
+        viewModelScope.launch {
+            combine(prefs.aiEmbedModelId, prefs.aiModelBackends) { id, backends ->
+                com.homeboy.app.ai.AiBackend.fromToken(backends[id])
+            }.collect {
+                EmbeddingService.setPreferredBackend(it)
                 if (aiSearchEnabled && _query.value.isNotBlank()) load()
             }
         }

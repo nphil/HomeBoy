@@ -20,19 +20,38 @@ object EmbeddingService {
 
     /** The active embedding model id; updated from preferences. */
     @Volatile
-    var selectedModelId: String = "minilm-l6-v2"
+    var selectedModelId: String = "nomic-embed-v1.5"
         private set
 
-    /** Switch the active model. Rebuilds the engine on next use if it changed. */
+    /** Switch the active model. Rebuilds the engine on next use if it changed. A blank or
+     *  unknown non-custom id falls back to the default so search never points at a dead model. */
     fun setModel(id: String) {
-        if (id.isNotBlank() && id != selectedModelId) {
-            selectedModelId = id
+        val resolved = when {
+            id.isBlank() -> return
+            ModelRepository.spec(id) != null -> id
+            id.startsWith("custom") -> id
+            else -> "nomic-embed-v1.5"
+        }
+        if (resolved != selectedModelId) {
+            selectedModelId = resolved
             invalidate()
         }
     }
 
     private var engine: EmbeddingEngine? = null
     private var initFailed = false
+
+    /** User backend override for the active model (null = smart default NPU → CPU). */
+    @Volatile
+    private var preferredBackend: AiBackend? = null
+
+    /** Set the backend override; rebuilds the engine on next use if it changed. */
+    fun setPreferredBackend(backend: AiBackend?) {
+        if (backend != preferredBackend) {
+            preferredBackend = backend
+            invalidate()
+        }
+    }
 
     /** Cached item vectors: id -> (contentHash, vector). */
     private val vectorCache = HashMap<String, Pair<Int, FloatArray>>()
@@ -62,10 +81,9 @@ object EmbeddingService {
         if (initFailed) return null
         val id = selectedModelId
         if (!ModelRepository.isReady(context, id)) return null
-        val model = ModelRepository.fileFor(context, id, "model.onnx")
-        val vocab = ModelRepository.fileFor(context, id, "vocab.txt")
-        if (model == null || vocab == null) return null
-        val built = EmbeddingEngine.create(model, vocab)
+        val model = ModelRepository.fileFor(context, id, "model.gguf")
+        if (model == null) { initFailed = true; return null }
+        val built = EmbeddingEngine.create(model, context.applicationInfo.nativeLibraryDir, preferredBackend)
         if (built == null) { initFailed = true; return null }
         engine = built
         _backend.value = built.backend

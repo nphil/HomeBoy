@@ -46,6 +46,17 @@ class SettingsViewModel(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
     val unloadMinutes = prefs.aiUnloadMinutes
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesRepository.DEFAULT_UNLOAD_MINUTES)
+    /** Per-model backend override (modelId -> "NPU"/"GPU"/"CPU"). */
+    val modelBackends: StateFlow<Map<String, String>> = prefs.aiModelBackends
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /**
+     * Acceleration tiers offered in the override menu. We intentionally do NOT probe the native
+     * runtime here — enumerating ggml devices must happen off the main thread with the library path
+     * initialised, and is unnecessary for the UI: the engine already falls back gracefully when a
+     * requested tier isn't present (the live badge then shows the tier that actually engaged).
+     */
+    val deviceBackends: Set<AiBackend> = setOf(AiBackend.NPU, AiBackend.GPU, AiBackend.CPU)
 
     init {
         // Restore any custom models, then reconcile download state with disk.
@@ -75,6 +86,18 @@ class SettingsViewModel(
     fun setDefaultGenModel(id: String?) {
         viewModelScope.launch { prefs.setAiGenModelId(id) }
     }
+
+    /** Override where a model runs (NPU/GPU/CPU), or null to reset to the smart default. */
+    fun setModelBackend(id: String, backend: AiBackend?) {
+        viewModelScope.launch { prefs.setAiModelBackend(id, backend?.name) }
+    }
+
+    /** Manually unload (eject) the embedding engine from memory. */
+    fun unloadEmbed() = EmbeddingService.invalidate()
+
+    /** Fetch a model's HuggingFace card (README) for the detail sheet. */
+    suspend fun hfModelCard(id: String): String? =
+        HuggingFaceRepository.modelCard(id, prefs.getHfToken())
 
     // ---- HuggingFace in-app search -----------------------------------------
     private val _hfResults = MutableStateFlow<List<HuggingFaceRepository.HfModel>>(emptyList())
@@ -113,22 +136,21 @@ class SettingsViewModel(
         HuggingFaceRepository.files(id, prefs.getHfToken())
 
     /**
-     * Add an embedding model discovered on HuggingFace and start downloading it. [onnxPath] and
-     * [vocabPath] are the exact files the detail sheet chose, so display and download agree.
+     * Add an embedding model discovered on HuggingFace and start downloading it. [ggufPath] is the
+     * exact GGUF the detail sheet chose, so display and download agree.
      */
-    fun addHfEmbeddingModel(model: HuggingFaceRepository.HfModel, onnxPath: String, vocabPath: String) {
-        val modelUrl = HuggingFaceRepository.resolveUrl(model.id, onnxPath)
-        val vocabUrl = HuggingFaceRepository.resolveUrl(model.id, vocabPath)
-        val id = ModelRepository.addCustomModel(appContext, model.name, modelUrl, vocabUrl)
+    fun addHfEmbeddingModel(model: HuggingFaceRepository.HfModel, ggufPath: String) {
+        val url = HuggingFaceRepository.resolveUrl(model.id, ggufPath)
+        val id = ModelRepository.addCustomModel(appContext, model.name, url)
         if (id == null) { _snackbar.value = "Couldn't add model"; return }
         viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
         ModelRepository.download(viewModelScope, appContext, id)
         _snackbar.value = "Downloading ${model.name}"
     }
 
-    /** Add a generative (MediaPipe `.task`) model; [taskPath] is the file the sheet chose. */
-    fun addHfGenModel(model: HuggingFaceRepository.HfModel, taskPath: String) {
-        val url = HuggingFaceRepository.resolveUrl(model.id, taskPath)
+    /** Add a generative GGUF model; [ggufPath] is the file the sheet chose. */
+    fun addHfGenModel(model: HuggingFaceRepository.HfModel, ggufPath: String) {
+        val url = HuggingFaceRepository.resolveUrl(model.id, ggufPath)
         val id = ModelRepository.addCustomGenModel(appContext, model.name, url)
         if (id == null) { _snackbar.value = "Couldn't add model"; return }
         viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
@@ -142,8 +164,8 @@ class SettingsViewModel(
         EmbeddingService.setModel(id)
     }
 
-    fun addCustomModel(name: String, modelUrl: String, vocabUrl: String) {
-        val id = ModelRepository.addCustomModel(appContext, name, modelUrl, vocabUrl)
+    fun addCustomModel(name: String, ggufUrl: String) {
+        val id = ModelRepository.addCustomModel(appContext, name, ggufUrl)
         if (id == null) {
             _snackbar.value = "Invalid model URL"
             return

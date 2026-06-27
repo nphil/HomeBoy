@@ -277,51 +277,29 @@ fun AddEditItemScreen(
                 }
             }
 
-            // AI tag suggestions — only when enabled and a language model is downloaded.
-            if (aiSuggestionsOn) {
-                AiTagSuggestions(
+            // Tags — AI suggestions (when on) sit above a bounded, scrollable list of every tag,
+            // so a long tag library never takes over the form.
+            if (aiSuggestionsOn || tags.isNotEmpty()) {
+                TagsSection(
+                    allTags = tags,
+                    selectedTagIds = selectedTagIds,
+                    aiOn = aiSuggestionsOn,
                     llmState = llmState,
                     suggestions = tagSuggestions,
-                    selectedTagIds = selectedTagIds,
-                    onAddExisting = { selectedTagIds = selectedTagIds + it },
+                    onToggle = { id ->
+                        selectedTagIds = if (id in selectedTagIds) selectedTagIds - id
+                                         else selectedTagIds + id
+                    },
                     onAddNovel = { novelName ->
                         vm.createNovelTag(novelName) { created -> selectedTagIds = selectedTagIds + created.id }
                     }
                 )
             }
 
-            // Tag picker
-            if (tags.isNotEmpty()) {
-                Column {
-                    Text("Tags", style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        tags.forEach { tag ->
-                            val selected = tag.id in selectedTagIds
-                            FilterChip(
-                                selected = selected,
-                                onClick = {
-                                    selectedTagIds = if (selected)
-                                        selectedTagIds - tag.id
-                                    else
-                                        selectedTagIds + tag.id
-                                },
-                                label = { Text(tag.name, style = MaterialTheme.typography.labelMedium) }
-                            )
-                        }
-                    }
-                }
-            }
-
             // Custom fields
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Custom Fields", style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    SectionLabel("Custom Fields", Modifier.weight(1f))
                     TextButton(onClick = {
                         customFields.add(HBEntityField(type = "text", name = "", textValue = ""))
                     }) {
@@ -344,8 +322,7 @@ fun AddEditItemScreen(
             // Photos
             Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Photos", style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    SectionLabel("Photos", Modifier.weight(1f))
                     TextButton(onClick = {
                         photoPicker.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
@@ -411,69 +388,172 @@ fun AddEditItemScreen(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun AiTagSuggestions(
+private fun TagsSection(
+    allTags: List<HBTag>,
+    selectedTagIds: Set<String>,
+    aiOn: Boolean,
     llmState: LlmEngineManager.State,
     suggestions: TagSuggestionService.Suggestions?,
-    selectedTagIds: Set<String>,
-    onAddExisting: (String) -> Unit,
+    onToggle: (String) -> Unit,
     onAddNovel: (String) -> Unit
 ) {
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(Icons.Default.AutoAwesome, null, Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.primary)
-            Text("AI suggestions", style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SectionLabel("Tags", Modifier.weight(1f))
+            val n = selectedTagIds.size
+            if (n > 0) {
+                Text("$n selected", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        Spacer(Modifier.height(6.dp))
-        when (llmState) {
-            is LlmEngineManager.State.Loading -> AiStatusLine("Loading AI model…")
-            is LlmEngineManager.State.Generating -> AiStatusLine("Generating…")
-            is LlmEngineManager.State.Error -> Text(
-                llmState.message, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error
+
+        if (aiOn) {
+            AiSuggestionBox(
+                llmState = llmState,
+                suggestions = suggestions,
+                selectedTagIds = selectedTagIds,
+                onToggleExisting = onToggle,
+                onAddNovel = onAddNovel
             )
-            else -> {
-                val s = suggestions
-                if (s == null || s.isEmpty) {
-                    Text("Type a name to get tag ideas.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                } else {
+        }
+
+        if (allTags.isNotEmpty()) {
+            // Selected tags float to the front so the current choice stays visible in the scroll box.
+            val ordered = remember(allTags, selectedTagIds) {
+                allTags.sortedByDescending { it.id in selectedTagIds }
+            }
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    Modifier
+                        .heightIn(max = 168.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(12.dp)
+                ) {
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        s.existing.forEach { tag ->
-                            val already = tag.id in selectedTagIds
-                            AssistChip(
-                                onClick = { if (!already) onAddExisting(tag.id) },
-                                label = { Text(tag.name, style = MaterialTheme.typography.labelMedium) },
-                                leadingIcon = {
-                                    Icon(if (already) Icons.Default.Check else Icons.Default.Add,
-                                        null, Modifier.size(16.dp))
-                                }
-                            )
-                        }
-                        s.novel.forEach { novelName ->
-                            AssistChip(
-                                onClick = { onAddNovel(novelName) },
-                                label = { Text(novelName, style = MaterialTheme.typography.labelMedium) },
-                                leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) }
+                        ordered.forEach { tag ->
+                            TagFilterChip(
+                                tag = tag,
+                                selected = tag.id in selectedTagIds,
+                                onClick = { onToggle(tag.id) }
                             )
                         }
                     }
-                    Spacer(Modifier.height(4.dp))
-                    Text("Suggested by ${s.modelLabel} · ${s.backend.shortLabel}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
     }
+}
+
+/** A selectable chip for an existing tag, showing its own icon/color when it has one. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TagFilterChip(tag: HBTag, selected: Boolean, onClick: () -> Unit) {
+    val leading = com.homeboy.app.ui.tagIcon(tag.icon)
+    val tagColor = tag.color?.let { parseHexColor(it) }
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(tag.name, style = MaterialTheme.typography.labelMedium) },
+        leadingIcon = when {
+            selected -> { { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) } }
+            leading != null -> {
+                { Icon(leading, null, Modifier.size(16.dp),
+                    tint = tagColor ?: MaterialTheme.colorScheme.onSurfaceVariant) }
+            }
+            else -> null
+        }
+    )
+}
+
+/**
+ * AI tag ideas. Matches against the user's existing tags first (tap to apply — no "+", they already
+ * exist); anything new is offered as a novel chip with a "+" since tapping it creates the tag.
+ */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun AiSuggestionBox(
+    llmState: LlmEngineManager.State,
+    suggestions: TagSuggestionService.Suggestions?,
+    selectedTagIds: Set<String>,
+    onToggleExisting: (String) -> Unit,
+    onAddNovel: (String) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Icon(Icons.Default.AutoAwesome, null, Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary)
+                Text("AI suggestions", style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            when (llmState) {
+                is LlmEngineManager.State.Loading -> AiStatusLine("Loading AI model…")
+                is LlmEngineManager.State.Generating -> AiStatusLine("Finding tags…")
+                is LlmEngineManager.State.Error -> Text(
+                    llmState.message, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+                else -> {
+                    val s = suggestions
+                    if (s == null || s.isEmpty) {
+                        Text("Type a name to get tag ideas.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // Existing matches first — tap to apply, no "+" (they already exist).
+                            s.existing.forEach { tag ->
+                                val sel = tag.id in selectedTagIds
+                                FilterChip(
+                                    selected = sel,
+                                    onClick = { onToggleExisting(tag.id) },
+                                    label = { Text(tag.name, style = MaterialTheme.typography.labelMedium) },
+                                    leadingIcon = if (sel) {
+                                        { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                                    } else null
+                                )
+                            }
+                            // Novel ideas — "+" because tapping creates a brand-new tag.
+                            s.novel.forEach { novelName ->
+                                AssistChip(
+                                    onClick = { onAddNovel(novelName) },
+                                    label = { Text(novelName, style = MaterialTheme.typography.labelMedium) },
+                                    leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) }
+                                )
+                            }
+                        }
+                        Text("via ${s.modelLabel} · ${s.backend.shortLabel}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(text, style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier)
 }
 
 @Composable

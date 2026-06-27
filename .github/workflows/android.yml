@@ -20,6 +20,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+          # The :llmkit native libs (libllama / libggml* / Hexagon NPU + OpenCL GPU
+          # backends) are committed via Git LFS under android/llmkit/src/main/jniLibs.
+          # Without this they'd check out as pointer stubs and the APK would ship
+          # broken .so's that crash on launch.
+          lfs: true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4

@@ -58,23 +58,14 @@ android {
         buildConfig = true
     }
 
-    // The transitive com.qualcomm.qti:qnn-runtime ships HTP backends for every Hexagon
-    // generation (V68–V81) plus DSP/GPU backends — ~200 MB of native libs. We only target
-    // the Snapdragon 8 Elite (Hexagon V79), so keep libQnnHtp.so + the V79 skel/stub +
-    // System + Prepare (needed for on-device graph compile) and drop the other Hexagon
-    // generations. We DO keep libQnnGpu.so so float models that the NPU can't run fall back
-    // to the Adreno GPU instead of all the way to CPU. Other SoCs simply use CPU.
+    // The :llmkit module supplies the prebuilt arm64 native engine (llama.cpp + ggml NPU/GPU/CPU
+    // backends). Both it and ggml ship the shared C++ runtime; keep one copy.
     packaging {
         jniLibs {
-            excludes += listOf(
-                "**/libQnnHtpV68Skel.so", "**/libQnnHtpV68Stub.so",
-                "**/libQnnHtpV69Skel.so", "**/libQnnHtpV69Stub.so",
-                "**/libQnnHtpV73Skel.so", "**/libQnnHtpV73Stub.so",
-                "**/libQnnHtpV75Skel.so", "**/libQnnHtpV75Stub.so",
-                "**/libQnnHtpV81Skel.so", "**/libQnnHtpV81Stub.so",
-                "**/libQnnDsp.so", "**/libQnnDspV66Skel.so", "**/libQnnDspV66Stub.so"
-            )
-            // ONNX Runtime and MediaPipe both bundle the shared C++ runtime; keep one.
+            // Extract native libs to a real on-disk dir. FastRPC loads the Hexagon HTP skel
+            // (libggml-htp-v79.so) as an actual file via ADSP_LIBRARY_PATH — it can't read it
+            // from inside the APK — so legacy (extracted) packaging is required for the NPU.
+            useLegacyPackaging = true
             pickFirsts += listOf("**/libc++_shared.so")
         }
     }
@@ -101,7 +92,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.android)
-    implementation(libs.onnxruntime.android.qnn)
-    implementation(libs.mediapipe.tasks.genai)
+    implementation(project(":llmkit"))
     debugImplementation(libs.compose.ui.tooling)
 }

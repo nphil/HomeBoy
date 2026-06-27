@@ -12,6 +12,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -212,6 +213,22 @@ fun ItemsListPane(
     val isSelecting = selectedItems.isNotEmpty()
     var showBulkDeleteConfirm by remember { mutableStateOf(false) }
 
+    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
+    // Snap results to the top whenever the search results change. Semantic re-ranking REORDERS the
+    // list, and because the rows are keyed by id, a LazyGrid/Column anchors to whatever item was at
+    // the top and follows it to its new (lower) position — scrolling the user down. Re-running this
+    // on `items` (after the debounced results arrive), not just on the keystroke, wins that race.
+    LaunchedEffect(items, query) {
+        if (query.isNotBlank()) {
+            // requestScrollToItem (not scrollToItem): a non-suspend, unconditional "put index 0 at
+            // the top on the next measure" that overrides the key-anchor and survives the rapid
+            // re-emissions while typing (which would cancel a suspend scroll mid-flight).
+            runCatching { gridState.requestScrollToItem(0) }
+            runCatching { listState.requestScrollToItem(0) }
+        }
+    }
+
     val snackbarHostState = remember { SnackbarHostState() }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
@@ -336,6 +353,7 @@ fun ItemsListPane(
                 }
             } else if (viewMode == "grid") {
                 LazyVerticalGrid(
+                    state = gridState,
                     columns = GridCells.Adaptive(minSize = 160.dp),
                     contentPadding = PaddingValues(12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -360,6 +378,7 @@ fun ItemsListPane(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 88.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxSize()

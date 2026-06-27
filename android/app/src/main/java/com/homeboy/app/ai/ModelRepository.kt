@@ -37,10 +37,8 @@ object ModelRepository {
         val purpose: Purpose,
         val approxBytes: Long,
         val files: List<ModelFile>,
-        /** The primary ONNX graph file name (within the bundle dir). */
-        val onnxFileName: String,
-        /** The tokenizer vocab file name, if this model needs WordPiece tokenization. */
-        val vocabFileName: String? = null
+        /** The on-device GGUF file name (within the bundle dir). Always "model.gguf". */
+        val modelFileName: String = "model.gguf"
     )
 
     sealed interface State {
@@ -58,65 +56,31 @@ object ModelRepository {
      */
     val CATALOG: List<ModelSpec> = listOf(
         ModelSpec(
-            id = "minilm-l6-v2",
-            displayName = "MiniLM-L6 (semantic search)",
-            description = "Lightweight sentence embeddings for smarter search. ~23 MB.",
+            id = "nomic-embed-v1.5",
+            displayName = "Nomic Embed v1.5 (semantic search)",
+            description = "Sentence embeddings for smarter search. Runs on NPU/CPU. ~274 MB.",
             purpose = Purpose.EMBEDDING,
-            approxBytes = 23_000_000,
+            approxBytes = 274_000_000,
             files = listOf(
                 ModelFile(
-                    "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx",
-                    "model.onnx"
-                ),
-                ModelFile(
-                    "https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/vocab.txt",
-                    "vocab.txt"
+                    "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf",
+                    "model.gguf"
                 )
-            ),
-            onnxFileName = "model.onnx",
-            vocabFileName = "vocab.txt"
+            )
         ),
         ModelSpec(
-            id = "bge-small-en-v1.5",
-            displayName = "BGE-small EN (retrieval)",
-            description = "Stronger retrieval-tuned embeddings. ~33 MB.",
-            purpose = Purpose.EMBEDDING,
-            approxBytes = 33_000_000,
+            id = "llama-3.2-1b-instruct",
+            displayName = "Llama 3.2 1B Instruct (tag suggestions)",
+            description = "Compact instruct model for tag suggestions. Q4_0, runs on NPU/GPU/CPU. ~770 MB.",
+            purpose = Purpose.GENERATION,
+            approxBytes = 770_000_000,
             files = listOf(
                 ModelFile(
-                    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/onnx/model_quantized.onnx",
-                    "model.onnx"
-                ),
-                ModelFile(
-                    "https://huggingface.co/Xenova/bge-small-en-v1.5/resolve/main/vocab.txt",
-                    "vocab.txt"
+                    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0.gguf",
+                    "model.gguf"
                 )
-            ),
-            onnxFileName = "model.onnx",
-            vocabFileName = "vocab.txt"
-        ),
-        ModelSpec(
-            id = "gte-small",
-            displayName = "GTE-small (general)",
-            description = "Well-rounded general-purpose embeddings. ~33 MB.",
-            purpose = Purpose.EMBEDDING,
-            approxBytes = 33_000_000,
-            files = listOf(
-                ModelFile(
-                    "https://huggingface.co/Xenova/gte-small/resolve/main/onnx/model_quantized.onnx",
-                    "model.onnx"
-                ),
-                ModelFile(
-                    "https://huggingface.co/Xenova/gte-small/resolve/main/vocab.txt",
-                    "vocab.txt"
-                )
-            ),
-            onnxFileName = "model.onnx",
-            vocabFileName = "vocab.txt"
+            )
         )
-        // Generative models (e.g. Llama 3.2 1B for tag suggestions) are added in a later
-        // phase alongside their inference engine, so we don't offer a large download that
-        // nothing consumes yet.
     )
 
     /** User-added models (custom HuggingFace URLs), persisted across launches. */
@@ -186,29 +150,15 @@ object ModelRepository {
 
     private fun CustomEntry.toSpec(): ModelSpec {
         val repoSlug = modelUrl.substringAfter("huggingface.co/").substringBefore("/resolve")
-        return if (purpose == "GENERATION") {
-            ModelSpec(
-                id = id,
-                displayName = name,
-                description = "Language model • $repoSlug",
-                purpose = Purpose.GENERATION,
-                approxBytes = 1_000_000_000,
-                files = listOf(ModelFile(modelUrl, "model.task")),
-                onnxFileName = "model.task",
-                vocabFileName = null
-            )
-        } else {
-            ModelSpec(
-                id = id,
-                displayName = name,
-                description = "Embedding model • $repoSlug",
-                purpose = Purpose.EMBEDDING,
-                approxBytes = 30_000_000,
-                files = listOf(ModelFile(modelUrl, "model.onnx"), ModelFile(vocabUrl, "vocab.txt")),
-                onnxFileName = "model.onnx",
-                vocabFileName = "vocab.txt"
-            )
-        }
+        val gen = purpose == "GENERATION"
+        return ModelSpec(
+            id = id,
+            displayName = name,
+            description = (if (gen) "Language model • " else "Embedding model • ") + repoSlug,
+            purpose = if (gen) Purpose.GENERATION else Purpose.EMBEDDING,
+            approxBytes = if (gen) 1_000_000_000 else 140_000_000,
+            files = listOf(ModelFile(modelUrl, "model.gguf"))
+        )
     }
 
     /** Load persisted custom models from the JSON blob produced by [serializeCustomModels]. */
@@ -233,27 +183,26 @@ object ModelRepository {
     }
 
     /**
-     * Add a custom model from a HuggingFace ONNX URL + vocab URL. Returns the new id, or null
-     * if the URL looks invalid. Caller should persist [serializeCustomModels] afterwards.
+     * Add a custom embedding model from a HuggingFace GGUF URL. Returns the new id, or null if the
+     * URL looks invalid. Caller should persist [serializeCustomModels] afterwards.
      */
-    fun addCustomModel(context: Context, name: String, modelUrl: String, vocabUrl: String): String? {
-        val m = modelUrl.trim()
-        val v = vocabUrl.trim()
-        if (!m.startsWith("http") || !v.startsWith("http")) return null
-        val id = "custom-" + kotlin.math.abs((m + v).hashCode()).toString(16)
+    fun addCustomModel(context: Context, name: String, ggufUrl: String): String? {
+        val m = ggufUrl.trim()
+        if (!m.startsWith("http")) return null
+        val id = "custom-" + kotlin.math.abs(m.hashCode()).toString(16)
         if (allSpecs().any { it.id == id }) return id // already present
-        val entry = CustomEntry(id, name.ifBlank { "Custom model" }, m, v)
+        val entry = CustomEntry(id, name.ifBlank { "Custom embedder" }, m, "", "EMBEDDING")
         _customModels.value = _customModels.value + entry.toSpec()
         refreshStates(context)
         return id
     }
 
     /**
-     * Add a custom generative (MediaPipe `.task`) model from a HuggingFace URL. Returns the new
-     * id, or null if the URL is invalid. Caller should persist [serializeCustomModels] afterwards.
+     * Add a custom generative model from a HuggingFace GGUF URL. Returns the new id, or null if
+     * the URL is invalid. Caller should persist [serializeCustomModels] afterwards.
      */
-    fun addCustomGenModel(context: Context, name: String, taskUrl: String): String? {
-        val m = taskUrl.trim()
+    fun addCustomGenModel(context: Context, name: String, ggufUrl: String): String? {
+        val m = ggufUrl.trim()
         if (!m.startsWith("http")) return null
         val id = "customgen-" + kotlin.math.abs(m.hashCode()).toString(16)
         if (allSpecs().any { it.id == id }) return id

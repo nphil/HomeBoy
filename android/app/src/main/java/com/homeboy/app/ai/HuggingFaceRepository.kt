@@ -10,13 +10,13 @@ import okhttp3.Request
 import java.util.concurrent.TimeUnit
 
 /**
- * Thin HuggingFace Hub API client used by the in-app model browser. Searches for ONNX models,
- * inspects their file lists, and classifies how each would run on this device (NPU / GPU / CPU)
- * from the ONNX export's filenames. An optional access token raises rate limits and unlocks
- * gated repos.
+ * Thin HuggingFace Hub API client for the in-app model browser. Searches for GGUF models (one
+ * format serves both embeddings and generation under llama.cpp), inspects their file lists, and
+ * classifies how each would run on this device — including a human-readable [Compatibility.warning]
+ * for models that will run but aren't ideal (no Q4_0 → no NPU, unusual architecture, very large).
  *
- * All calls are best-effort: any failure surfaces as an empty list / null so the UI can show a
- * friendly empty state rather than crash.
+ * All calls are best-effort: any failure surfaces as an empty list / null so the UI shows a
+ * friendly empty state rather than crashing.
  */
 object HuggingFaceRepository {
 
@@ -50,22 +50,25 @@ object HuggingFaceRepository {
 
     // ---- Public model ------------------------------------------------------
 
-    /** How a model can run on this device, derived from its files. */
+    /**
+     * How a GGUF model runs on this device, derived from its files + name.
+     *
+     * The Hexagon NPU only accelerates Q4_0/Q8_0/MXFP4 (and standard transformer architectures);
+     * everything else still runs, just on GPU/CPU. [warning] is non-null when the model is runnable
+     * but sub-optimal, and is shown next to the model name so the user knows before downloading.
+     */
     data class Compatibility(
-        /** Highest tier the model can engage, or null when it has no usable export. */
+        /** Highest tier the model can engage, or null when it has no GGUF. */
         val best: AiBackend?,
-        val quantizedOnnx: List<String>,
-        val floatOnnx: List<String>,
-        /** MediaPipe LiteRT bundles (.task / .litertlm) for generative models. */
-        val mediaPipeFiles: List<String>,
-        val hasVocab: Boolean,
-        val hasTokenizerJson: Boolean,
-        val hasGenaiConfig: Boolean
+        /** GGUF files in an NPU-friendly quant (Q4_0/Q8_0/MXFP4). */
+        val ggufNpu: List<String>,
+        /** Other GGUF files (Q4_K_M, f16, …) — GPU/CPU only. */
+        val ggufOther: List<String>,
+        val recommended: Boolean,
+        val warning: String?
     ) {
-        val hasOnnx: Boolean get() = quantizedOnnx.isNotEmpty() || floatOnnx.isNotEmpty()
-        /** MediaPipe runs on GPU or CPU (never the Hexagon NPU). */
-        val hasMediaPipe: Boolean get() = mediaPipeFiles.isNotEmpty()
-        val isRunnable: Boolean get() = hasOnnx || hasMediaPipe
+        val hasGguf: Boolean get() = ggufNpu.isNotEmpty() || ggufOther.isNotEmpty()
+        val isRunnable: Boolean get() = hasGguf
     }
 
     data class HfModel(
@@ -95,10 +98,10 @@ object HuggingFaceRepository {
     // ---- Search ------------------------------------------------------------
 
     /**
-     * Search models for [purpose]. Embedding = ONNX exports; generation = MediaPipe LiteRT
-     * (.task/.litertlm) bundles, which live in the `litert-community` org — so generation search
-     * is always scoped there (even with a query) to return models we can actually run. Results
-     * carry their file list + computed [Compatibility] so the UI can badge each one.
+     * Search GGUF models for [purpose] (embedding = feature-extraction, generation =
+     * text-generation). Only models with a runnable GGUF are returned; sub-optimal ones come back
+     * with a [Compatibility.warning]. Keeps the caller's [sort]; results carry their file list +
+     * computed [Compatibility] so the UI can badge + warn each one.
      */
     suspend fun search(
         query: String,
@@ -107,13 +110,12 @@ object HuggingFaceRepository {
         sort: Sort = Sort.DOWNLOADS
     ): List<HfModel> = withContext(Dispatchers.IO) {
         val q = query.trim()
+        val pipeline = when (purpose) {
+            ModelRepository.Purpose.EMBEDDING -> "feature-extraction"
+            ModelRepository.Purpose.GENERATION -> "text-generation"
+        }
         val url = buildString {
-            when (purpose) {
-                ModelRepository.Purpose.EMBEDDING ->
-                    append("$API/models?filter=onnx&pipeline_tag=feature-extraction")
-                ModelRepository.Purpose.GENERATION ->
-                    append("$API/models?pipeline_tag=text-generation&author=litert-community")
-            }
+            append("$API/models?filter=gguf&pipeline_tag=$pipeline")
             append("&sort=${sort.apiValue}&direction=-1&limit=100&full=true")
             if (q.isNotEmpty()) append("&search=${enc(q)}")
         }
@@ -125,13 +127,9 @@ object HuggingFaceRepository {
         parsed.mapNotNull { m ->
             val id = m.id ?: return@mapNotNull null
             val files = m.siblings?.mapNotNull { it.rfilename } ?: emptyList()
-            val compat = classify(files)
-            // Only surface models we can actually run for this purpose.
-            val runnable = when (purpose) {
-                ModelRepository.Purpose.EMBEDDING -> compat.hasOnnx
-                ModelRepository.Purpose.GENERATION -> compat.hasMediaPipe
-            }
-            if (!runnable) return@mapNotNull null
+            val compat = classify(id, files)
+            // Only surface models we can actually run; non-ideal ones carry a warning instead.
+            if (!compat.isRunnable) return@mapNotNull null
             HfModel(
                 id = id,
                 author = id.substringBefore('/', ""),
@@ -160,17 +158,29 @@ object HuggingFaceRepository {
     fun resolveUrl(id: String, path: String): String = "$RESOLVE/$id/resolve/main/$path"
 
     /**
-     * Decide exactly which file(s) to download for [model] given [purpose] and the repo [tree]
-     * (with sizes). Crucially this is NOT the whole repo — only the one bundle we run, so the
-     * displayed size and the actual download match. For models that ship several variants we
-     * pick the smallest (most device-friendly) one.
-     *
-     * - GENERATION → the single smallest MediaPipe `.task`/`.litertlm` bundle.
-     * - EMBEDDING  → the smallest ONNX (preferring a quantized export) + the repo's vocab.txt.
+     * Fetch the model's README (its HuggingFace "model card") as plain markdown, with the YAML
+     * frontmatter stripped, for display on the detail sheet. Returns null if there's no card.
+     */
+    suspend fun modelCard(id: String, token: String): String? = withContext(Dispatchers.IO) {
+        val md = get("$RESOLVE/$id/raw/main/README.md", token) ?: return@withContext null
+        var body = md
+        if (body.trimStart().startsWith("---")) {
+            // Drop the leading "--- … ---" metadata block.
+            val after = body.trimStart().removePrefix("---")
+            val end = after.indexOf("\n---")
+            body = if (end >= 0) after.substring(end + 4) else after
+        }
+        body.trim().take(8000).ifBlank { null }
+    }
+
+    /**
+     * Decide which single GGUF to download for [model]. NOT the whole repo — just the one file we
+     * run, so the displayed size matches the download. Prefers an NPU-friendly Q4_0/Q8_0/MXFP4
+     * quant; otherwise the smallest GGUF.
      */
     fun planDownload(
         model: HfModel,
-        purpose: ModelRepository.Purpose,
+        @Suppress("UNUSED_PARAMETER") purpose: ModelRepository.Purpose,
         tree: List<HfFile>
     ): List<PlannedFile> {
         fun sizeOf(path: String): Long = tree.firstOrNull { it.path == path }?.size ?: 0L
@@ -180,51 +190,54 @@ object HuggingFaceRepository {
             return sized.filter { it.second > 0 }.minByOrNull { it.second }?.first
                 ?: sized.first().first
         }
-        return when (purpose) {
-            ModelRepository.Purpose.GENERATION -> {
-                val task = smallest(model.compat.mediaPipeFiles) ?: return emptyList()
-                listOf(PlannedFile(task, "model.task", sizeOf(task)))
-            }
-            ModelRepository.Purpose.EMBEDDING -> {
-                val onnxCandidates = model.compat.quantizedOnnx.ifEmpty { model.compat.floatOnnx }
-                val onnx = smallest(onnxCandidates) ?: return emptyList()
-                val vocab = model.files.firstOrNull {
-                    it.substringAfterLast('/').equals("vocab.txt", ignoreCase = true)
-                }
-                buildList {
-                    add(PlannedFile(onnx, "model.onnx", sizeOf(onnx)))
-                    if (vocab != null) add(PlannedFile(vocab, "vocab.txt", sizeOf(vocab)))
-                }
-            }
-        }
+        val candidates = model.compat.ggufNpu.ifEmpty { model.compat.ggufOther }
+        val gguf = smallest(candidates) ?: return emptyList()
+        return listOf(PlannedFile(gguf, "model.gguf", sizeOf(gguf)))
     }
 
     // ---- Compatibility classification --------------------------------------
 
-    private val QUANT_HINTS = listOf("quant", "int8", "uint8", "qdq", "_q4", "q4f", "_i8", "_u8")
+    /** Quant tokens the Hexagon NPU backend repacks/accelerates. */
+    private val NPU_QUANTS = listOf("q4_0", "q8_0", "mxfp4")
 
-    private fun classify(files: List<String>): Compatibility {
-        val onnx = files.filter { it.endsWith(".onnx", ignoreCase = true) }
-        val quant = onnx.filter { f -> QUANT_HINTS.any { f.lowercase().contains(it) } }
-        val float = onnx - quant.toSet()
-        val mediaPipe = files.filter {
-            it.endsWith(".task", ignoreCase = true) || it.endsWith(".litertlm", ignoreCase = true)
+    /** Architecture hints llama.cpp's Hexagon backend has no kernels for → CPU fallback only. */
+    private val EXOTIC_ARCH = listOf("mamba", "rwkv", "deltanet", "qwen3.5", "qwen-3.5", "jamba", "ssm")
+
+    /** Param-count hints that signal a model is too big to be snappy for on-device tagging. */
+    private val LARGE_HINTS = listOf("70b", "72b", "65b", "34b", "32b", "30b", "27b", "20b", "13b", "14b")
+
+    private fun classify(modelId: String, files: List<String>): Compatibility {
+        val lowerId = modelId.lowercase()
+        val gguf = files.filter { it.endsWith(".gguf", ignoreCase = true) }
+        val npu = gguf.filter { f -> NPU_QUANTS.any { f.lowercase().contains(it) } }
+        val other = gguf - npu.toSet()
+
+        val exotic = EXOTIC_ARCH.any { lowerId.contains(it) } || gguf.any { f ->
+            EXOTIC_ARCH.any { f.lowercase().contains(it) }
         }
+        val large = LARGE_HINTS.any { lowerId.contains(it) }
+
         val best = when {
-            quant.isNotEmpty() -> AiBackend.NPU          // quantized ONNX → Hexagon NPU
-            mediaPipe.isNotEmpty() -> AiBackend.GPU       // MediaPipe LiteRT → Adreno GPU
-            float.isNotEmpty() -> AiBackend.GPU           // float ONNX → GPU
+            gguf.isEmpty() -> null
+            npu.isNotEmpty() && !exotic -> AiBackend.NPU
+            else -> AiBackend.GPU // float / K-quant runs on GPU (→ CPU) but not the NPU
+        }
+
+        val warning: String? = when {
+            gguf.isEmpty() -> null
+            exotic -> "Unusual architecture — the NPU has no kernels for it; will fall back to CPU and may be slow"
+            large -> "Large model — high memory use and slow generation on-device; a 0.5–1.5B model is recommended for tags"
+            npu.isEmpty() -> "No Q4_0 build — runs on GPU/CPU only, not the NPU. Pick a Q4_0 quant for NPU acceleration"
             else -> null
         }
-        fun has(name: String) = files.any { it.substringAfterLast('/').equals(name, ignoreCase = true) }
+        val recommended = warning == null && best == AiBackend.NPU
+
         return Compatibility(
             best = best,
-            quantizedOnnx = quant,
-            floatOnnx = float,
-            mediaPipeFiles = mediaPipe,
-            hasVocab = has("vocab.txt"),
-            hasTokenizerJson = has("tokenizer.json"),
-            hasGenaiConfig = has("genai_config.json")
+            ggufNpu = npu,
+            ggufOther = other,
+            recommended = recommended,
+            warning = warning
         )
     }
 

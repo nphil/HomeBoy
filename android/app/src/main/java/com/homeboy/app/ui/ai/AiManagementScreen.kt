@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -23,10 +24,9 @@ import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.ui.settings.SettingsViewModel
 
 /**
- * Full-screen on-device AI manager. Two clearly separated capabilities — semantic search
- * (small embedding models) and tag suggestions (larger language models) — each with its own
- * explanation, enable switch, model list, and "add model" entry point. A HuggingFace section
- * at the bottom holds the optional access token used for in-app model discovery.
+ * On-device AI manager. Two capabilities — semantic search (embedding models) and tag suggestions
+ * (language models). Each downloaded model shows where it runs (NPU/GPU/CPU), lets the user override
+ * that backend, eject it from memory, or delete it.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,6 +45,7 @@ fun AiManagementScreen(
     val llmState by vm.llmState.collectAsStateWithLifecycle()
     val hfToken by vm.hfToken.collectAsStateWithLifecycle()
     val unloadMinutes by vm.unloadMinutes.collectAsStateWithLifecycle()
+    val backends by vm.modelBackends.collectAsStateWithLifecycle()
 
     val allSpecs = ModelRepository.CATALOG + customModels
     val embedModels = allSpecs.filter { it.purpose == ModelRepository.Purpose.EMBEDDING }
@@ -53,6 +54,11 @@ fun AiManagementScreen(
     val embedReady = states[embedModelId] is ModelRepository.State.Ready
     val genId = genModelId
     val genReady = genId != null && states[genId] is ModelRepository.State.Ready
+
+    // Which gen model is resident, and on which tier — used to badge the right row "live".
+    val genLoadedId = (llmState as? LlmEngineManager.State.Ready)?.modelId
+        ?: (llmState as? LlmEngineManager.State.Loading)?.modelId
+    val genLiveBackend = (llmState as? LlmEngineManager.State.Ready)?.backend
 
     Scaffold(
         topBar = {
@@ -66,28 +72,11 @@ fun AiManagementScreen(
     ) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(bottom = 40.dp)
+            contentPadding = PaddingValues(top = 8.dp, bottom = 40.dp)
         ) {
-            item {
-                ExplainerCard(
-                    icon = Icons.Default.Lock,
-                    title = "Runs on your device",
-                    body = "Every model runs entirely on this device using the Snapdragon NPU when " +
-                        "possible. Nothing you search or type is ever sent to a server."
-                )
-            }
-
             // ---- Semantic search (embedding models) ---------------------------
             item { SectionHeader("Semantic search", Icons.Default.Search) }
-            item {
-                Text(
-                    "Small models that understand meaning, so search finds related items even when " +
-                        "the words differ — \"charger\" finds \"power adapter\".",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
+            item { SectionBlurb("Finds related items even when the words differ — “charger” finds “power adapter.”") }
             item {
                 ListItem(
                     headlineContent = { Text("Enable semantic search") },
@@ -104,36 +93,27 @@ fun AiManagementScreen(
                     }
                 )
             }
-            if (aiSearchEnabled && embedReady && embedBackend != null) {
-                item { AccelerationRow(embedBackend!!) }
-            }
             items(embedModels, key = { it.id }) { spec ->
                 ModelRow(
                     spec = spec,
                     state = states[spec.id] ?: ModelRepository.State.NotDownloaded,
                     isDefault = spec.id == embedModelId,
+                    override = AiBackend.fromToken(backends[spec.id]),
+                    liveBackend = if (spec.id == embedModelId && aiSearchEnabled) embedBackend else null,
+                    deviceBackends = vm.deviceBackends,
                     onSetDefault = { vm.setDefaultEmbedModel(spec.id) },
+                    onSetBackend = { vm.setModelBackend(spec.id, it) },
+                    onUnload = { vm.unloadEmbed() },
                     onDownload = { vm.downloadModel(spec.id) },
                     onCancel = { vm.cancelModelDownload(spec.id) },
                     onDelete = { vm.deleteModel(spec.id) }
                 )
             }
-            item {
-                AddModelButton("Browse embedding models") { onBrowse(ModelRepository.Purpose.EMBEDDING) }
-            }
+            item { AddModelButton("Browse embedding models") { onBrowse(ModelRepository.Purpose.EMBEDDING) } }
 
             // ---- Tag suggestions (language models) ----------------------------
             item { SectionHeader("Tag suggestions", Icons.Default.AutoAwesome) }
-            item {
-                Text(
-                    "Larger language models that read an item's name and description and suggest " +
-                        "fitting tags. They load only when you're adding an item and unload " +
-                        "automatically to free memory.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
+            item { SectionBlurb("Reads an item's name and description and suggests fitting tags. Loads on demand and unloads when idle.") }
             item {
                 ListItem(
                     headlineContent = { Text("Enable AI tag suggestions") },
@@ -150,121 +130,235 @@ fun AiManagementScreen(
                     }
                 )
             }
-            if (genReady) {
-                item { LlmStatusRow(llmState) { vm.unloadLlm() } }
-            }
-            item {
-                MemoryTimeoutRow(
-                    minutes = unloadMinutes,
-                    enabled = genReady,
-                    onSelect = { vm.setUnloadMinutes(it) }
-                )
-            }
+            item { MemoryTimeoutRow(minutes = unloadMinutes, enabled = genReady, onSelect = { vm.setUnloadMinutes(it) }) }
             if (genModels.isEmpty()) {
-                item {
-                    Text(
-                        "No language models added yet. Browse HuggingFace to find one that fits " +
-                            "your device.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                    )
-                }
+                item { SectionBlurb("No language models yet. Browse HuggingFace to find one that fits your device.") }
             }
             items(genModels, key = { it.id }) { spec ->
                 ModelRow(
                     spec = spec,
                     state = states[spec.id] ?: ModelRepository.State.NotDownloaded,
                     isDefault = spec.id == genModelId,
+                    override = AiBackend.fromToken(backends[spec.id]),
+                    liveBackend = if (spec.id == genLoadedId) genLiveBackend else null,
+                    deviceBackends = vm.deviceBackends,
                     onSetDefault = { vm.setDefaultGenModel(spec.id) },
+                    onSetBackend = { vm.setModelBackend(spec.id, it) },
+                    onUnload = { vm.unloadLlm() },
                     onDownload = { vm.downloadModel(spec.id) },
                     onCancel = { vm.cancelModelDownload(spec.id) },
                     onDelete = { vm.deleteModel(spec.id) }
                 )
             }
-            item {
-                AddModelButton("Browse language models") { onBrowse(ModelRepository.Purpose.GENERATION) }
-            }
+            item { AddModelButton("Browse language models") { onBrowse(ModelRepository.Purpose.GENERATION) } }
 
             // ---- HuggingFace account ------------------------------------------
             item { SectionHeader("HuggingFace", Icons.Default.Key) }
-            item {
-                Text(
-                    "Add a free HuggingFace access token to raise download rate limits and reach " +
-                        "gated models. Generate one at huggingface.co/settings/tokens.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
-                )
-            }
+            item { SectionBlurb("Add a free access token to raise download limits and reach gated models. Generate one at huggingface.co/settings/tokens.") }
             item { HfTokenField(token = hfToken, onSave = { vm.setHfToken(it) }) }
         }
     }
 }
 
-@Composable
-private fun AccelerationRow(backend: AiBackend) {
-    val (tint, icon) = when (backend) {
-        AiBackend.NPU -> MaterialTheme.colorScheme.primary to Icons.Default.Bolt
-        AiBackend.GPU -> MaterialTheme.colorScheme.tertiary to Icons.Default.Memory
-        AiBackend.CPU -> MaterialTheme.colorScheme.onSurfaceVariant to Icons.Default.Memory
+// ---- Backend (NPU/GPU/CPU) helpers -----------------------------------------
+
+private fun AiBackend.icon(): ImageVector = when (this) {
+    AiBackend.NPU -> Icons.Default.Bolt
+    AiBackend.GPU -> Icons.Default.DeveloperBoard
+    AiBackend.CPU -> Icons.Default.Memory
+}
+
+/** The smart default tier for a purpose when the user hasn't overridden it. */
+private fun defaultBackend(purpose: ModelRepository.Purpose): AiBackend =
+    if (purpose == ModelRepository.Purpose.EMBEDDING) AiBackend.NPU else AiBackend.CPU
+
+/** Whether [tier] can run [purpose] models on this device, and why not when it can't. */
+private fun availability(
+    tier: AiBackend,
+    purpose: ModelRepository.Purpose,
+    device: Set<AiBackend>
+): Pair<Boolean, String?> = when (tier) {
+    AiBackend.CPU -> true to null
+    AiBackend.NPU ->
+        if (AiBackend.NPU in device) true to null else false to "No NPU on this device"
+    AiBackend.GPU -> when {
+        purpose == ModelRepository.Purpose.EMBEDDING -> false to "Not supported for embedding models"
+        AiBackend.GPU in device -> true to null
+        else -> false to "No GPU on this device"
     }
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Icon(icon, null, Modifier.size(16.dp), tint = tint)
-        Text(
-            "Running on ${backend.label}",
-            style = MaterialTheme.typography.labelMedium,
-            color = tint
-        )
+}
+
+/** A compact, tappable chip showing where a model runs, with a dropdown to override it. */
+@Composable
+private fun BackendChip(
+    purpose: ModelRepository.Purpose,
+    override: AiBackend?,
+    liveBackend: AiBackend?,
+    device: Set<AiBackend>,
+    onSetBackend: (AiBackend?) -> Unit
+) {
+    var open by remember { mutableStateOf(false) }
+    val target = override ?: defaultBackend(purpose)
+    val shown = liveBackend ?: target
+    val live = liveBackend != null
+
+    Box {
+        Surface(
+            color = if (live) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceContainerHighest,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.clickable { open = true }
+        ) {
+            Row(
+                Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(shown.icon(), null, Modifier.size(14.dp),
+                    tint = if (live) MaterialTheme.colorScheme.onPrimaryContainer
+                           else MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    shown.shortLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (live) MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            Text("Run on", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
+            // Auto (recommended) resets to the smart default.
+            DropdownMenuItem(
+                text = { Text("Auto · ${defaultBackend(purpose).shortLabel}") },
+                onClick = { onSetBackend(null); open = false },
+                leadingIcon = { Icon(Icons.Default.AutoMode, null, Modifier.size(18.dp)) },
+                trailingIcon = if (override == null) {
+                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                } else null
+            )
+            HorizontalDivider()
+            listOf(AiBackend.NPU, AiBackend.GPU, AiBackend.CPU).forEach { tier ->
+                val (avail, reason) = availability(tier, purpose, device)
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(tier.label)
+                            if (!avail && reason != null) Text(reason,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    },
+                    enabled = avail,
+                    onClick = { onSetBackend(tier); open = false },
+                    leadingIcon = { Icon(tier.icon(), null, Modifier.size(18.dp)) },
+                    trailingIcon = if (override == tier) {
+                        { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                    } else null
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun LlmStatusRow(state: LlmEngineManager.State, onUnload: () -> Unit) {
-    val (text, tint) = when (state) {
-        is LlmEngineManager.State.Loading -> "Loading model…" to MaterialTheme.colorScheme.onSurfaceVariant
-        is LlmEngineManager.State.Generating -> "Generating…" to MaterialTheme.colorScheme.primary
-        is LlmEngineManager.State.Ready -> "Loaded in memory · ${state.backend.label}" to MaterialTheme.colorScheme.primary
-        is LlmEngineManager.State.Error -> state.message to MaterialTheme.colorScheme.error
-        LlmEngineManager.State.Unloaded -> "Not loaded — loads on demand, frees memory when idle" to MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val busy = state is LlmEngineManager.State.Loading || state is LlmEngineManager.State.Generating
-    val loaded = state is LlmEngineManager.State.Ready || busy
-    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        if (busy) {
-            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-        } else {
-            Icon(Icons.Default.Memory, null, Modifier.size(16.dp), tint = tint)
+private fun ModelRow(
+    spec: ModelRepository.ModelSpec,
+    state: ModelRepository.State,
+    isDefault: Boolean,
+    override: AiBackend?,
+    liveBackend: AiBackend?,
+    deviceBackends: Set<AiBackend>,
+    onSetDefault: () -> Unit,
+    onSetBackend: (AiBackend?) -> Unit,
+    onUnload: () -> Unit,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val isReady = state is ModelRepository.State.Ready
+    Column {
+        ListItem(
+            modifier = if (isReady) Modifier.clickable { onSetDefault() } else Modifier,
+            leadingContent = {
+                if (isReady) RadioButton(selected = isDefault, onClick = onSetDefault)
+                else Icon(
+                    if (spec.purpose == ModelRepository.Purpose.GENERATION) Icons.Default.AutoAwesome
+                    else Icons.Default.Search, null
+                )
+            },
+            headlineContent = { Text(spec.displayName) },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    val status = when (state) {
+                        is ModelRepository.State.Downloading ->
+                            if (state.progress >= 0f) "Downloading ${(state.progress * 100).toInt()}%" else "Downloading…"
+                        is ModelRepository.State.Ready -> if (isDefault) "Default" else "Ready"
+                        is ModelRepository.State.Failed -> "Failed: ${state.message}"
+                        else -> spec.description
+                    }
+                    Text(status, style = MaterialTheme.typography.bodySmall)
+                    if (isReady) {
+                        BackendChip(
+                            purpose = spec.purpose,
+                            override = override,
+                            liveBackend = liveBackend,
+                            device = deviceBackends,
+                            onSetBackend = onSetBackend
+                        )
+                    }
+                }
+            },
+            trailingContent = {
+                when (state) {
+                    is ModelRepository.State.Downloading -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(
+                            progress = { if (state.progress >= 0f) state.progress else 0f },
+                            modifier = Modifier.size(22.dp), strokeWidth = 2.dp
+                        )
+                        IconButton(onClick = onCancel) { Icon(Icons.Default.Close, "Cancel") }
+                    }
+                    is ModelRepository.State.Ready -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (liveBackend != null) {
+                            IconButton(onClick = onUnload) {
+                                Icon(Icons.Default.Eject, "Unload from memory",
+                                    tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(Icons.Default.DeleteOutline, "Delete",
+                                tint = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    else -> IconButton(onClick = onDownload) { Icon(Icons.Default.Download, "Download") }
+                }
+            }
+        )
+        if (state is ModelRepository.State.Downloading) {
+            LinearProgressIndicator(
+                progress = { if (state.progress >= 0f) state.progress else 0f },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
         }
-        Text(text, style = MaterialTheme.typography.labelMedium, color = tint, modifier = Modifier.weight(1f))
-        if (loaded) TextButton(onClick = onUnload) { Text("Unload") }
     }
 }
 
 @Composable
 private fun MemoryTimeoutRow(minutes: Int, enabled: Boolean, onSelect: (Int) -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
-    val label = when (minutes) {
-        0 -> "Keep loaded"
-        else -> "After $minutes min idle"
-    }
+    val label = if (minutes == 0) "Keep loaded" else "After $minutes min idle"
     ListItem(
-        leadingContent = { Icon(Icons.Default.Memory, null) },
+        leadingContent = { Icon(Icons.Default.Timer, null) },
         headlineContent = { Text("Unload from memory") },
         supportingContent = { Text("Free RAM when the model isn't in use") },
         trailingContent = {
             Box {
                 TextButton(onClick = { menuOpen = true }, enabled = enabled) {
-                    Text(label)
-                    Icon(Icons.Default.ArrowDropDown, null)
+                    Text(label); Icon(Icons.Default.ArrowDropDown, null)
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     listOf(2 to "After 2 min idle", 5 to "After 5 min idle", 0 to "Keep loaded")
@@ -281,66 +375,6 @@ private fun MemoryTimeoutRow(minutes: Int, enabled: Boolean, onSelect: (Int) -> 
             }
         }
     )
-}
-
-@Composable
-private fun ModelRow(
-    spec: ModelRepository.ModelSpec,
-    state: ModelRepository.State,
-    isDefault: Boolean,
-    onSetDefault: () -> Unit,
-    onDownload: () -> Unit,
-    onCancel: () -> Unit,
-    onDelete: () -> Unit
-) {
-    val isReady = state is ModelRepository.State.Ready
-    Column {
-    ListItem(
-        modifier = if (isReady) Modifier.clickable { onSetDefault() } else Modifier,
-        leadingContent = {
-            if (isReady) RadioButton(selected = isDefault, onClick = onSetDefault)
-            else Icon(
-                if (spec.purpose == ModelRepository.Purpose.GENERATION) Icons.Default.AutoAwesome
-                else Icons.Default.Search,
-                null
-            )
-        },
-        headlineContent = { Text(spec.displayName) },
-        supportingContent = {
-            val sub = when (state) {
-                is ModelRepository.State.Downloading ->
-                    if (state.progress >= 0f) "Downloading ${(state.progress * 100).toInt()}%"
-                    else "Downloading…"
-                is ModelRepository.State.Ready -> if (isDefault) "Default · ready" else "Ready"
-                is ModelRepository.State.Failed -> "Failed: ${state.message}"
-                else -> spec.description
-            }
-            Text(sub)
-        },
-        trailingContent = {
-            when (state) {
-                is ModelRepository.State.Downloading -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(
-                        progress = { if (state.progress >= 0f) state.progress else 0f },
-                        modifier = Modifier.size(22.dp),
-                        strokeWidth = 2.dp
-                    )
-                    IconButton(onClick = onCancel) { Icon(Icons.Default.Close, "Cancel") }
-                }
-                is ModelRepository.State.Ready -> IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
-                }
-                else -> IconButton(onClick = onDownload) { Icon(Icons.Default.Download, "Download") }
-            }
-        }
-    )
-    if (state is ModelRepository.State.Downloading) {
-        LinearProgressIndicator(
-            progress = { if (state.progress >= 0f) state.progress else 0f },
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-        )
-    }
-    }
 }
 
 @Composable
@@ -379,10 +413,7 @@ private fun HfTokenField(token: String, onSave: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth()
         )
         if (dirty) {
-            Row(
-                Modifier.fillMaxWidth().padding(top = 4.dp),
-                horizontalArrangement = Arrangement.End
-            ) {
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = { draft = token }) { Text("Cancel") }
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = { onSave(draft) }) { Text("Save") }
@@ -392,41 +423,24 @@ private fun HfTokenField(token: String, onSave: (String) -> Unit) {
 }
 
 @Composable
-private fun SectionHeader(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+private fun SectionHeader(title: String, icon: ImageVector) {
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-        Text(
-            title,
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary
-        )
+        Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.primary)
     }
 }
 
 @Composable
-private fun ExplainerCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    body: String
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().padding(16.dp)
-    ) {
-        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-            Column {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(2.dp))
-                Text(body, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
+private fun SectionBlurb(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+    )
 }

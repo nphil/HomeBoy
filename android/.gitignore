@@ -1,0 +1,15 @@
+# Gradle / Android build artifacts
+.gradle/
+build/
+**/build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Machine-specific — never commit (absolute SDK/NDK paths)
+local.properties
+
+# IDE
+.idea/
+*.iml
+.kotlin/

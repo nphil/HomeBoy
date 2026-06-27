@@ -14,5 +14,22 @@ package com.homeboy.app.ai
 enum class AiBackend(val label: String, val shortLabel: String) {
     NPU("NPU (Hexagon)", "NPU"),
     GPU("GPU (Adreno)", "GPU"),
-    CPU("CPU", "CPU")
+    CPU("CPU", "CPU");
+
+    /** Map to the [com.homeboy.llmkit.Backend] hint used when loading a model. */
+    fun toKitBackend(): com.homeboy.llmkit.Backend = when (this) {
+        NPU -> com.homeboy.llmkit.Backend.NPU
+        GPU -> com.homeboy.llmkit.Backend.GPU
+        CPU -> com.homeboy.llmkit.Backend.CPU
+    }
+
+    companion object {
+        /** Parse a stored override token ("NPU"/"GPU"/"CPU"); null/unknown → null. */
+        fun fromToken(token: String?): AiBackend? = when (token) {
+            "NPU" -> NPU
+            "GPU" -> GPU
+            "CPU" -> CPU
+            else -> null
+        }
+    }
 }

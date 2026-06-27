@@ -204,7 +204,10 @@ fun SettingsTab(onLogout: () -> Unit) {
             // AI section
             item { SettingsSectionHeader("AI") }
             item {
-                val embedReady = modelStates["minilm-l6-v2"] is com.homeboy.app.ai.ModelRepository.State.Ready
+                val embedReady = com.homeboy.app.ai.ModelRepository.allSpecs().any {
+                    it.purpose == com.homeboy.app.ai.ModelRepository.Purpose.EMBEDDING &&
+                        modelStates[it.id] is com.homeboy.app.ai.ModelRepository.State.Ready
+                }
                 ListItem(
                     leadingContent = { Icon(Icons.Default.AutoAwesome, null) },
                     headlineContent = { Text("AI Models") },

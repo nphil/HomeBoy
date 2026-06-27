@@ -20,4 +20,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "HomeBoy"
-include(":app")
+include(":app", ":llmkit")

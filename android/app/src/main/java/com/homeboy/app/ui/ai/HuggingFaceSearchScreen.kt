@@ -2,6 +2,8 @@ package com.homeboy.app.ui.ai
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,8 +58,8 @@ fun HuggingFaceSearchScreen(
         ModelRepository.Purpose.GENERATION -> "Language models"
     }
     val emptyMsg = when (purpose) {
-        ModelRepository.Purpose.EMBEDDING -> "No matching ONNX models found."
-        ModelRepository.Purpose.GENERATION -> "No matching language models found."
+        ModelRepository.Purpose.EMBEDDING -> "No matching GGUF embedding models found."
+        ModelRepository.Purpose.GENERATION -> "No matching GGUF language models found."
     }
 
     /** The download state of a result, looked up via the custom model it was added as. */
@@ -73,12 +75,11 @@ fun HuggingFaceSearchScreen(
             purpose = purpose,
             alreadyAdded = customModels.any { it.displayName == model.name },
             onAdd = { plan ->
-                if (purpose == ModelRepository.Purpose.GENERATION) {
-                    plan.firstOrNull()?.let { vm.addHfGenModel(model, it.remotePath) }
-                } else {
-                    val onnx = plan.firstOrNull { it.localName == "model.onnx" }?.remotePath
-                    val vocab = plan.firstOrNull { it.localName == "vocab.txt" }?.remotePath
-                    if (onnx != null && vocab != null) vm.addHfEmbeddingModel(model, onnx, vocab)
+                val gguf = plan.firstOrNull { it.localName == "model.gguf" }?.remotePath
+                    ?: plan.firstOrNull()?.remotePath
+                if (gguf != null) {
+                    if (purpose == ModelRepository.Purpose.GENERATION) vm.addHfGenModel(model, gguf)
+                    else vm.addHfEmbeddingModel(model, gguf)
                 }
                 detail = null
             },
@@ -144,7 +145,7 @@ fun HuggingFaceSearchScreen(
                 }
                 else -> LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
                     items(results, key = { it.id }) { model ->
-                        HfResultCard(model = model, state = stateOf(model), onClick = { detail = model })
+                        HfResultCard(model = model, purpose = purpose, state = stateOf(model), onClick = { detail = model })
                     }
                 }
             }
@@ -155,6 +156,7 @@ fun HuggingFaceSearchScreen(
 @Composable
 private fun HfResultCard(
     model: HuggingFaceRepository.HfModel,
+    purpose: ModelRepository.Purpose,
     state: ModelRepository.State?,
     onClick: () -> Unit
 ) {
@@ -175,7 +177,16 @@ private fun HfResultCard(
                 MetaStat(Icons.Default.Download, formatCount(model.downloads))
                 MetaStat(Icons.Default.Favorite, formatCount(model.likes))
             }
-            CompatBadges(model.compat)
+            CompatBadges(model.compat, purpose)
+            // Why this model isn't recommended (e.g. no Q4_0 → no NPU, unusual arch, too large).
+            model.compat.warning?.let { w ->
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(Icons.Default.Warning, null, Modifier.size(14.dp).padding(top = 1.dp),
+                        tint = MaterialTheme.colorScheme.error)
+                    Text(w, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.error)
+                }
+            }
             // Download status for a model that's already been added.
             when (state) {
                 is ModelRepository.State.Downloading -> {
@@ -207,13 +218,18 @@ private fun MetaStat(icon: androidx.compose.ui.graphics.vector.ImageVector, valu
     }
 }
 
-/** Small chips for every tier the model can run on, highlighting its best (fastest) one. */
+/**
+ * Tier chips, highlighting the fastest tier for the purpose: NPU for embeddings (prefill), CPU for
+ * generation. GPU isn't shown for embeddings (it's unreliable for embedding graphs).
+ */
 @Composable
-private fun CompatBadges(compat: HuggingFaceRepository.Compatibility) {
+private fun CompatBadges(compat: HuggingFaceRepository.Compatibility, purpose: ModelRepository.Purpose) {
+    val isEmbedding = purpose == ModelRepository.Purpose.EMBEDDING
+    val recommended = if (isEmbedding) AiBackend.NPU else AiBackend.CPU
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (compat.quantizedOnnx.isNotEmpty()) TierBadge(AiBackend.NPU, highlight = compat.best == AiBackend.NPU)
-        if (compat.floatOnnx.isNotEmpty() || compat.hasMediaPipe) TierBadge(AiBackend.GPU, highlight = compat.best == AiBackend.GPU)
-        if (compat.isRunnable) TierBadge(AiBackend.CPU, highlight = false)
+        if (compat.ggufNpu.isNotEmpty()) TierBadge(AiBackend.NPU, highlight = recommended == AiBackend.NPU)
+        if (compat.isRunnable && !isEmbedding) TierBadge(AiBackend.GPU, highlight = recommended == AiBackend.GPU)
+        if (compat.isRunnable) TierBadge(AiBackend.CPU, highlight = recommended == AiBackend.CPU)
     }
 }
 
@@ -246,17 +262,19 @@ private fun ModelDetailSheet(
 ) {
     val scope = rememberCoroutineScope()
     var files by remember(model.id) { mutableStateOf<List<HuggingFaceRepository.HfFile>?>(null) }
-    LaunchedEffect(model.id) { scope.launch { files = vm.hfFiles(model.id) } }
+    var card by remember(model.id) { mutableStateOf<String?>(null) }
+    var cardLoading by remember(model.id) { mutableStateOf(true) }
+    LaunchedEffect(model.id) {
+        scope.launch { files = vm.hfFiles(model.id) }
+        scope.launch { card = vm.hfModelCard(model.id); cardLoading = false }
+    }
 
     // Only the file(s) we'll actually download — not the whole repo — so size + count are real.
     val plan = files?.let { HuggingFaceRepository.planDownload(model, purpose, it) } ?: emptyList()
     val planBytes = plan.sumOf { it.size }
     val tooLarge = planBytes > 8L * 1024 * 1024 * 1024 // 8 GB safe ceiling on a 12 GB device
 
-    val isEmbedding = purpose == ModelRepository.Purpose.EMBEDDING
-    val formatOk = if (isEmbedding)
-        plan.any { it.localName == "model.onnx" } && plan.any { it.localName == "vocab.txt" }
-    else plan.any { it.localName == "model.task" }
+    val formatOk = plan.any { it.localName == "model.gguf" }
     val canAdd = formatOk && !tooLarge && !alreadyAdded
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -267,42 +285,48 @@ private fun ModelDetailSheet(
             Text(model.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             Text(model.id, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-            HorizontalDivider()
-
-            Text("How it would run", style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold)
-            RunsOnLine(model.compat)
-
-            HorizontalDivider()
-
-            Text("Download", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            when {
-                files == null -> Row(verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("Checking size…", style = MaterialTheme.typography.bodyMedium)
-                }
-                else -> Text(
-                    "${plan.size} model file(s) · ≈ ${formatBytes(planBytes)}",
-                    style = MaterialTheme.typography.bodyMedium
-                )
+            CompatBadges(model.compat, purpose)
+            model.compat.warning?.let {
+                Text("⚠ $it", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error)
             }
 
-            // Honest gating with the reason.
-            val warning = when {
+            HorizontalDivider()
+
+            // Model card pulled from HuggingFace — bounded + scrollable so it never eats the screen.
+            Text("About this model", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            when {
+                cardLoading -> Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    Text("Loading model card…", style = MaterialTheme.typography.bodyMedium)
+                }
+                card.isNullOrBlank() -> Text("No description provided on HuggingFace.",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else -> Box(
+                    Modifier.fillMaxWidth().heightIn(max = 240.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(card!!, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+
+            HorizontalDivider()
+
+            // Download size + gating.
+            val sizeText = if (files == null) "Checking size…"
+                else "${plan.size} file · ≈ ${formatBytes(planBytes)}"
+            Text(sizeText, style = MaterialTheme.typography.bodyMedium)
+            val gate = when {
                 files == null -> null
                 tooLarge -> "Too large for this device (≈ ${formatBytes(planBytes)}; ~8 GB safe max)."
-                isEmbedding && !formatOk ->
-                    "Missing a quantized ONNX + vocab.txt — can't run as an embedding model here."
-                !isEmbedding && !formatOk ->
-                    "No MediaPipe (.task) file — this model can't run with the on-device LLM engine."
+                !formatOk -> "No GGUF file — this model can't run with the on-device engine."
                 alreadyAdded -> "Already added."
                 else -> null
             }
-            warning?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error)
+            gate?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
             }
 
             Button(
@@ -315,34 +339,6 @@ private fun ModelDetailSheet(
                 Text(if (alreadyAdded) "Added" else "Download & add")
             }
         }
-    }
-}
-
-@Composable
-private fun RunsOnLine(compat: HuggingFaceRepository.Compatibility) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (compat.quantizedOnnx.isNotEmpty()) {
-            CompatExplain(AiBackend.NPU, "Quantized export — fastest, most power-efficient.")
-        }
-        if (compat.hasMediaPipe) {
-            CompatExplain(AiBackend.GPU, "MediaPipe bundle — runs on the Adreno GPU.")
-        } else if (compat.floatOnnx.isNotEmpty()) {
-            CompatExplain(AiBackend.GPU, "Float export — runs on the Adreno GPU.")
-        }
-        if (compat.isRunnable) {
-            CompatExplain(AiBackend.CPU, "Always works as a fallback.")
-        } else {
-            Text("No usable export — can't run on this device.",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
-    }
-}
-
-@Composable
-private fun CompatExplain(backend: AiBackend, detail: String) {
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        TierBadge(backend, highlight = true)
-        Text(detail, style = MaterialTheme.typography.bodySmall)
     }
 }
 
