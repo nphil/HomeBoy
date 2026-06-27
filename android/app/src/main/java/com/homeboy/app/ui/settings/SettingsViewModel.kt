@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ai.EmbeddingService
 import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.api.HBGroup
 import com.homeboy.app.api.HBUserInfo
@@ -27,6 +28,8 @@ class SettingsViewModel(
     val aiSearchEnabled = prefs.aiSearchEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val modelStates: StateFlow<Map<String, ModelRepository.State>> = ModelRepository.states
+    /** null = engine not built yet, true = running on NPU, false = CPU fallback. */
+    val npuActive: StateFlow<Boolean?> = EmbeddingService.npuActive
 
     init { ModelRepository.refreshStates(appContext) }
 

@@ -41,6 +41,7 @@ fun SettingsTab(onLogout: () -> Unit) {
     val snackbar by vm.snackbar.collectAsStateWithLifecycle()
     val aiSearchEnabled by vm.aiSearchEnabled.collectAsStateWithLifecycle()
     val modelStates by vm.modelStates.collectAsStateWithLifecycle()
+    val npuActive by vm.npuActive.collectAsStateWithLifecycle()
 
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
@@ -79,6 +80,7 @@ fun SettingsTab(onLogout: () -> Unit) {
         AiModelsSheet(
             states = modelStates,
             aiSearchEnabled = aiSearchEnabled,
+            npuActive = npuActive,
             onToggleAiSearch = { vm.setAiSearchEnabled(it) },
             onDownload = { vm.downloadModel(it) },
             onCancel = { vm.cancelModelDownload(it) },
@@ -236,6 +238,7 @@ fun SettingsTab(onLogout: () -> Unit) {
 private fun AiModelsSheet(
     states: Map<String, com.homeboy.app.ai.ModelRepository.State>,
     aiSearchEnabled: Boolean,
+    npuActive: Boolean?,
     onToggleAiSearch: (Boolean) -> Unit,
     onDownload: (String) -> Unit,
     onCancel: (String) -> Unit,
@@ -257,6 +260,28 @@ private fun AiModelsSheet(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
+            // Acceleration status — shows whether inference engaged the NPU or fell back to CPU.
+            if (aiSearchEnabled && npuActive != null) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    Modifier.padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        if (npuActive) Icons.Default.Bolt else Icons.Default.Memory,
+                        null, Modifier.size(16.dp),
+                        tint = if (npuActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        if (npuActive) "Acceleration: NPU (Hexagon)" else "Acceleration: CPU",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (npuActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
             Spacer(Modifier.height(8.dp))
 
             // Semantic search toggle — only meaningful once the embedding model is present.

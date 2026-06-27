@@ -3,6 +3,9 @@ package com.homeboy.app.ai
 import android.content.Context
 import com.homeboy.app.api.HBItem
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 
 /**
@@ -23,6 +26,13 @@ object EmbeddingService {
     /** Cached item vectors: id -> (contentHash, vector). */
     private val vectorCache = HashMap<String, Pair<Int, FloatArray>>()
 
+    /**
+     * Where inference is running once an engine has been built:
+     * true = NPU (QNN/Hexagon), false = CPU fallback, null = not built yet.
+     */
+    private val _npuActive = MutableStateFlow<Boolean?>(null)
+    val npuActive: StateFlow<Boolean?> = _npuActive.asStateFlow()
+
     /** True if a usable engine exists or can be built right now. */
     fun isAvailable(context: Context): Boolean = engineOrNull(context) != null
 
@@ -32,6 +42,7 @@ object EmbeddingService {
         runCatching { engine?.close() }
         engine = null
         initFailed = false
+        _npuActive.value = null
         vectorCache.clear()
     }
 
@@ -46,6 +57,7 @@ object EmbeddingService {
         val built = EmbeddingEngine.create(model, vocab)
         if (built == null) { initFailed = true; return null }
         engine = built
+        _npuActive.value = built.usingNpu
         return built
     }
 

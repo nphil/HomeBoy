@@ -96,44 +96,72 @@ class EmbeddingEngine private constructor(
          * UnsatisfiedLinkError so a device without the native ORT lib (e.g. a non-arm64
          * emulator) degrades to keyword search instead of crashing.
          *
-         * NOTE: the Maven ORT-QNN artifact bundles only libonnxruntime.so — it does NOT
-         * include the Qualcomm QNN backend (libQnnHtp.so). Until those backend libraries are
-         * added to jniLibs, the QNN provider fails to initialise and we run on CPU, which is
-         * perfectly fast for this small embedding model.
+         * The Qualcomm QNN backend libs (libQnnHtp.so + the Hexagon Vxx skel) ship in the
+         * APK via the transitive com.qualcomm.qti:qnn-runtime dependency, so the QNN EP can
+         * run the model on the NPU. NOTE: the HTP/NPU backend only accepts QUANTIZED (QDQ)
+         * models — for a float model QNN silently runs unsupported ops on CPU. We attempt QNN
+         * first and fall back to a pure CPU session.
+         *
+         * QNN graph compilation is slow on first load, so we enable context-binary caching:
+         * the compiled context is written next to the model as `<name>_ctx.onnx` and reused
+         * on subsequent launches for near-instant init.
          */
         fun create(modelFile: File, vocabFile: File): EmbeddingEngine? {
             return try {
                 if (!modelFile.exists() || !vocabFile.exists()) return null
                 val tokenizer = WordPieceTokenizer.fromVocabFile(vocabFile) ?: return null
                 val env = OrtEnvironment.getEnvironment()
+                val ctxFile = File(modelFile.parentFile, modelFile.nameWithoutExtension + "_ctx.onnx")
 
-                // 1. Try the QNN (Hexagon NPU) provider; 2. fall back to CPU.
-                val qnnSession = tryCreate(env, modelFile, qnn = true)
-                if (qnnSession != null) EmbeddingEngine(env, qnnSession, tokenizer, usingNpu = true)
-                else tryCreate(env, modelFile, qnn = false)
-                    ?.let { EmbeddingEngine(env, it, tokenizer, usingNpu = false) }
+                // 1a. Fast path: load a previously compiled QNN context (already on NPU).
+                if (ctxFile.exists() && ctxFile.length() > 0) {
+                    buildSession(env, ctxFile, qnn = true, genCtxPath = null)
+                        ?.let { return EmbeddingEngine(env, it, tokenizer, usingNpu = true) }
+                }
+                // 1b. Compile on the NPU from source, writing the context for next time.
+                buildSession(env, modelFile, qnn = true, genCtxPath = ctxFile.absolutePath)
+                    ?.let { return EmbeddingEngine(env, it, tokenizer, usingNpu = true) }
+                // 2. CPU fallback.
+                buildSession(env, modelFile, qnn = false, genCtxPath = null)
+                    ?.let { return EmbeddingEngine(env, it, tokenizer, usingNpu = false) }
+                null
             } catch (_: Throwable) {
                 null
             }
         }
 
         /**
-         * Create a session, optionally registering the QNN EP. The exact Java binding for QNN
-         * differs across ORT releases, so we register it reflectively and just fall back to CPU
-         * if it isn't available — keeping this code compilable and crash-free on any device.
+         * Create a session, optionally registering the QNN EP with HTP performance tuning and
+         * (when [genCtxPath] is set) context-binary generation. The exact Java binding for QNN
+         * differs across ORT releases, so we register it reflectively and fall back to CPU if
+         * it isn't available — keeping this compilable and crash-free on any device.
          */
-        private fun tryCreate(env: OrtEnvironment, modelFile: File, qnn: Boolean): OrtSession? = runCatching {
+        private fun buildSession(
+            env: OrtEnvironment,
+            modelFile: File,
+            qnn: Boolean,
+            genCtxPath: String?
+        ): OrtSession? = runCatching {
             val opts = OrtSession.SessionOptions()
             if (qnn) {
-                val registered = registerQnn(opts)
-                if (!registered) { opts.close(); return null }
+                if (!registerQnn(opts)) { opts.close(); return@runCatching null }
+                if (genCtxPath != null) {
+                    // Persist the compiled QNN context so later launches skip recompilation.
+                    runCatching { opts.addConfigEntry("ep.context_enable", "1") }
+                    runCatching { opts.addConfigEntry("ep.context_embed_mode", "1") }
+                    runCatching { opts.addConfigEntry("ep.context_file_path", genCtxPath) }
+                }
             }
             env.createSession(modelFile.absolutePath, opts)
         }.getOrNull()
 
-        /** Reflectively add the QNN EP (HTP/NPU backend). Returns false if unsupported. */
+        /** Reflectively add the QNN EP (HTP/NPU backend) with flagship-grade perf options. */
         private fun registerQnn(opts: OrtSession.SessionOptions): Boolean {
-            val providerOptions = mapOf("backend_path" to "libQnnHtp.so")
+            val providerOptions = hashMapOf(
+                "backend_path" to "libQnnHtp.so",
+                "htp_performance_mode" to "burst",
+                "htp_graph_finalization_optimization_mode" to "3"
+            )
             // Preferred: dedicated addQnn(Map) helper present in recent ORT builds.
             val viaAddQnn = runCatching {
                 opts.javaClass.getMethod("addQnn", Map::class.java).invoke(opts, providerOptions)
