@@ -8,6 +8,7 @@ import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.ai.AiBackend
 import com.homeboy.app.ai.EmbeddingService
 import com.homeboy.app.ai.HuggingFaceRepository
+import com.homeboy.app.ai.LlmEngineManager
 import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.api.HBGroup
 import com.homeboy.app.api.HBUserInfo
@@ -34,6 +35,8 @@ class SettingsViewModel(
     val modelStates: StateFlow<Map<String, ModelRepository.State>> = ModelRepository.states
     /** Which hardware tier semantic search runs on (NPU/GPU/CPU), or null until built. */
     val embedBackend: StateFlow<AiBackend?> = EmbeddingService.backend
+    /** Live language-model lifecycle for the management screen status row. */
+    val llmState: StateFlow<LlmEngineManager.State> = LlmEngineManager.state
     val customModels: StateFlow<List<ModelRepository.ModelSpec>> = ModelRepository.customModels
     val embedModelId = prefs.aiEmbedModelId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesRepository.DEFAULT_EMBED_MODEL_ID)
@@ -121,6 +124,18 @@ class SettingsViewModel(
         val modelUrl = HuggingFaceRepository.resolveUrl(model.id, onnxPath)
         val vocabUrl = HuggingFaceRepository.resolveUrl(model.id, vocabPath)
         val id = ModelRepository.addCustomModel(appContext, model.name, modelUrl, vocabUrl)
+        if (id == null) { _snackbar.value = "Couldn't add model"; return }
+        viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
+        ModelRepository.download(viewModelScope, appContext, id)
+        _snackbar.value = "Downloading ${model.name}"
+    }
+
+    /** Add a generative (MediaPipe `.task`) model discovered on HuggingFace and download it. */
+    fun addHfGenModel(model: HuggingFaceRepository.HfModel) {
+        val task = model.compat.mediaPipeFiles.firstOrNull()
+        if (task == null) { _snackbar.value = "No MediaPipe (.task) file in this model"; return }
+        val url = HuggingFaceRepository.resolveUrl(model.id, task)
+        val id = ModelRepository.addCustomGenModel(appContext, model.name, url)
         if (id == null) { _snackbar.value = "Couldn't add model"; return }
         viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
         ModelRepository.download(viewModelScope, appContext, id)

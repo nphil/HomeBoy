@@ -171,24 +171,45 @@ object ModelRepository {
 
     // ---- Custom models -----------------------------------------------------
 
-    /** A user-added model, persisted as JSON. Files are always saved as model.onnx + vocab.txt. */
+    /**
+     * A user-added model, persisted as JSON. Embedding models save model.onnx + vocab.txt;
+     * generation (MediaPipe) models save a single model.task. [purpose] defaults to EMBEDDING so
+     * entries written before generation support deserialize correctly.
+     */
     private data class CustomEntry(
         @com.google.gson.annotations.SerializedName("id") val id: String,
         @com.google.gson.annotations.SerializedName("name") val name: String,
         @com.google.gson.annotations.SerializedName("modelUrl") val modelUrl: String,
-        @com.google.gson.annotations.SerializedName("vocabUrl") val vocabUrl: String
+        @com.google.gson.annotations.SerializedName("vocabUrl") val vocabUrl: String,
+        @com.google.gson.annotations.SerializedName("purpose") val purpose: String = "EMBEDDING"
     )
 
-    private fun CustomEntry.toSpec() = ModelSpec(
-        id = id,
-        displayName = name,
-        description = "Custom model • ${modelUrl.substringAfter("huggingface.co/").substringBefore("/resolve")}",
-        purpose = Purpose.EMBEDDING,
-        approxBytes = 30_000_000,
-        files = listOf(ModelFile(modelUrl, "model.onnx"), ModelFile(vocabUrl, "vocab.txt")),
-        onnxFileName = "model.onnx",
-        vocabFileName = "vocab.txt"
-    )
+    private fun CustomEntry.toSpec(): ModelSpec {
+        val repoSlug = modelUrl.substringAfter("huggingface.co/").substringBefore("/resolve")
+        return if (purpose == "GENERATION") {
+            ModelSpec(
+                id = id,
+                displayName = name,
+                description = "Language model • $repoSlug",
+                purpose = Purpose.GENERATION,
+                approxBytes = 1_000_000_000,
+                files = listOf(ModelFile(modelUrl, "model.task")),
+                onnxFileName = "model.task",
+                vocabFileName = null
+            )
+        } else {
+            ModelSpec(
+                id = id,
+                displayName = name,
+                description = "Embedding model • $repoSlug",
+                purpose = Purpose.EMBEDDING,
+                approxBytes = 30_000_000,
+                files = listOf(ModelFile(modelUrl, "model.onnx"), ModelFile(vocabUrl, "vocab.txt")),
+                onnxFileName = "model.onnx",
+                vocabFileName = "vocab.txt"
+            )
+        }
+    }
 
     /** Load persisted custom models from the JSON blob produced by [serializeCustomModels]. */
     fun loadCustomModels(context: Context, json: String) {
@@ -203,7 +224,10 @@ object ModelRepository {
     /** Serialize current custom models so the caller can persist them. */
     fun serializeCustomModels(): String {
         val entries = _customModels.value.map {
-            CustomEntry(it.id, it.displayName, it.files[0].url, it.files.getOrNull(1)?.url ?: "")
+            CustomEntry(
+                it.id, it.displayName, it.files[0].url, it.files.getOrNull(1)?.url ?: "",
+                if (it.purpose == Purpose.GENERATION) "GENERATION" else "EMBEDDING"
+            )
         }
         return com.google.gson.Gson().toJson(entries)
     }
@@ -219,6 +243,21 @@ object ModelRepository {
         val id = "custom-" + kotlin.math.abs((m + v).hashCode()).toString(16)
         if (allSpecs().any { it.id == id }) return id // already present
         val entry = CustomEntry(id, name.ifBlank { "Custom model" }, m, v)
+        _customModels.value = _customModels.value + entry.toSpec()
+        refreshStates(context)
+        return id
+    }
+
+    /**
+     * Add a custom generative (MediaPipe `.task`) model from a HuggingFace URL. Returns the new
+     * id, or null if the URL is invalid. Caller should persist [serializeCustomModels] afterwards.
+     */
+    fun addCustomGenModel(context: Context, name: String, taskUrl: String): String? {
+        val m = taskUrl.trim()
+        if (!m.startsWith("http")) return null
+        val id = "customgen-" + kotlin.math.abs(m.hashCode()).toString(16)
+        if (allSpecs().any { it.id == id }) return id
+        val entry = CustomEntry(id, name.ifBlank { "Custom LLM" }, m, "", "GENERATION")
         _customModels.value = _customModels.value + entry.toSpec()
         refreshStates(context)
         return id
@@ -297,7 +336,11 @@ object ModelRepository {
         cancel(id)
         runCatching { modelDir(context, id).deleteRecursively() }
         setState(id, State.NotDownloaded)
-        if (spec(id)?.purpose == Purpose.EMBEDDING) EmbeddingService.invalidate()
+        when (spec(id)?.purpose) {
+            Purpose.EMBEDDING -> EmbeddingService.invalidate()
+            Purpose.GENERATION -> LlmEngineManager.unload()
+            else -> {}
+        }
     }
 
     private fun ModelFile.expectedOrZero(): Long = 0L // content-length resolved at runtime

@@ -50,17 +50,22 @@ object HuggingFaceRepository {
 
     // ---- Public model ------------------------------------------------------
 
-    /** How a model can run on this device, derived from its ONNX files. */
+    /** How a model can run on this device, derived from its files. */
     data class Compatibility(
-        /** Highest tier the model can engage, or null when it has no usable ONNX export. */
+        /** Highest tier the model can engage, or null when it has no usable export. */
         val best: AiBackend?,
         val quantizedOnnx: List<String>,
         val floatOnnx: List<String>,
+        /** MediaPipe LiteRT bundles (.task / .litertlm) for generative models. */
+        val mediaPipeFiles: List<String>,
         val hasVocab: Boolean,
         val hasTokenizerJson: Boolean,
         val hasGenaiConfig: Boolean
     ) {
         val hasOnnx: Boolean get() = quantizedOnnx.isNotEmpty() || floatOnnx.isNotEmpty()
+        /** MediaPipe runs on GPU or CPU (never the Hexagon NPU). */
+        val hasMediaPipe: Boolean get() = mediaPipeFiles.isNotEmpty()
+        val isRunnable: Boolean get() = hasOnnx || hasMediaPipe
     }
 
     data class HfModel(
@@ -87,17 +92,20 @@ object HuggingFaceRepository {
         purpose: ModelRepository.Purpose,
         token: String
     ): List<HfModel> = withContext(Dispatchers.IO) {
-        val pipeline = when (purpose) {
-            ModelRepository.Purpose.EMBEDDING -> "feature-extraction"
-            ModelRepository.Purpose.GENERATION -> "text-generation"
-        }
         val q = query.trim()
-        // `filter=onnx` (the ONNX tag) is applied broadly across ONNX repos; combined with the
-        // pipeline tag it scopes results to runnable models for this purpose. We still verify the
-        // actual file list per-result below, so a missed tag just means fewer noise hits.
+        // Embedding models: ONNX exports tagged `onnx`. Generation models: MediaPipe LiteRT
+        // bundles, which the `litert-community` org curates as .task/.litertlm files. We verify
+        // the actual file list per-result below, so a missed tag just means fewer noise hits.
         val url = buildString {
-            append("$API/models?filter=onnx&pipeline_tag=$pipeline")
-            append("&sort=downloads&limit=30&full=true")
+            when (purpose) {
+                ModelRepository.Purpose.EMBEDDING ->
+                    append("$API/models?filter=onnx&pipeline_tag=feature-extraction")
+                ModelRepository.Purpose.GENERATION -> {
+                    append("$API/models?pipeline_tag=text-generation")
+                    if (q.isEmpty()) append("&author=litert-community")
+                }
+            }
+            append("&sort=downloads&limit=40&full=true")
             if (q.isNotEmpty()) append("&search=${enc(q)}")
         }
         val json = get(url, token) ?: return@withContext emptyList()
@@ -109,8 +117,12 @@ object HuggingFaceRepository {
             val id = m.id ?: return@mapNotNull null
             val files = m.siblings?.mapNotNull { it.rfilename } ?: emptyList()
             val compat = classify(files)
-            // Only surface models we could actually run (have some ONNX export).
-            if (!compat.hasOnnx) return@mapNotNull null
+            // Only surface models we can actually run for this purpose.
+            val runnable = when (purpose) {
+                ModelRepository.Purpose.EMBEDDING -> compat.hasOnnx
+                ModelRepository.Purpose.GENERATION -> compat.hasMediaPipe
+            }
+            if (!runnable) return@mapNotNull null
             HfModel(
                 id = id,
                 author = id.substringBefore('/', ""),
@@ -146,9 +158,13 @@ object HuggingFaceRepository {
         val onnx = files.filter { it.endsWith(".onnx", ignoreCase = true) }
         val quant = onnx.filter { f -> QUANT_HINTS.any { f.lowercase().contains(it) } }
         val float = onnx - quant.toSet()
+        val mediaPipe = files.filter {
+            it.endsWith(".task", ignoreCase = true) || it.endsWith(".litertlm", ignoreCase = true)
+        }
         val best = when {
-            quant.isNotEmpty() -> AiBackend.NPU
-            float.isNotEmpty() -> AiBackend.GPU
+            quant.isNotEmpty() -> AiBackend.NPU          // quantized ONNX → Hexagon NPU
+            mediaPipe.isNotEmpty() -> AiBackend.GPU       // MediaPipe LiteRT → Adreno GPU
+            float.isNotEmpty() -> AiBackend.GPU           // float ONNX → GPU
             else -> null
         }
         fun has(name: String) = files.any { it.substringAfterLast('/').equals(name, ignoreCase = true) }
@@ -156,6 +172,7 @@ object HuggingFaceRepository {
             best = best,
             quantizedOnnx = quant,
             floatOnnx = float,
+            mediaPipeFiles = mediaPipe,
             hasVocab = has("vocab.txt"),
             hasTokenizerJson = has("tokenizer.json"),
             hasGenaiConfig = has("genai_config.json")

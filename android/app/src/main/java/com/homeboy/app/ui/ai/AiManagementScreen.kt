@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homeboy.app.ai.AiBackend
+import com.homeboy.app.ai.LlmEngineManager
 import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.ui.settings.SettingsViewModel
 
@@ -41,6 +42,7 @@ fun AiManagementScreen(
     val aiSearchEnabled by vm.aiSearchEnabled.collectAsStateWithLifecycle()
     val aiTagsEnabled by vm.aiTagsEnabled.collectAsStateWithLifecycle()
     val embedBackend by vm.embedBackend.collectAsStateWithLifecycle()
+    val llmState by vm.llmState.collectAsStateWithLifecycle()
     val hfToken by vm.hfToken.collectAsStateWithLifecycle()
     val unloadMinutes by vm.unloadMinutes.collectAsStateWithLifecycle()
 
@@ -148,6 +150,9 @@ fun AiManagementScreen(
                     }
                 )
             }
+            if (genReady) {
+                item { LlmStatusRow(llmState) }
+            }
             item {
                 MemoryTimeoutRow(
                     minutes = unloadMinutes,
@@ -215,6 +220,30 @@ private fun AccelerationRow(backend: AiBackend) {
             style = MaterialTheme.typography.labelMedium,
             color = tint
         )
+    }
+}
+
+@Composable
+private fun LlmStatusRow(state: LlmEngineManager.State) {
+    val (text, tint) = when (state) {
+        is LlmEngineManager.State.Loading -> "Loading model…" to MaterialTheme.colorScheme.onSurfaceVariant
+        is LlmEngineManager.State.Generating -> "Generating…" to MaterialTheme.colorScheme.primary
+        is LlmEngineManager.State.Ready -> "Loaded in memory · ${state.backend.label}" to MaterialTheme.colorScheme.primary
+        is LlmEngineManager.State.Error -> state.message to MaterialTheme.colorScheme.error
+        LlmEngineManager.State.Unloaded -> "Not loaded — loads on demand, frees memory when idle" to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val busy = state is LlmEngineManager.State.Loading || state is LlmEngineManager.State.Generating
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (busy) {
+            CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+        } else {
+            Icon(Icons.Default.Memory, null, Modifier.size(16.dp), tint = tint)
+        }
+        Text(text, style = MaterialTheme.typography.labelMedium, color = tint)
     }
 }
 

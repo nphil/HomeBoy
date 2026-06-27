@@ -74,6 +74,8 @@ android {
                 "**/libQnnHtpV81Skel.so", "**/libQnnHtpV81Stub.so",
                 "**/libQnnDsp.so", "**/libQnnDspV66Skel.so", "**/libQnnDspV66Stub.so"
             )
+            // ONNX Runtime and MediaPipe both bundle the shared C++ runtime; keep one.
+            pickFirsts += listOf("**/libc++_shared.so")
         }
     }
 }
@@ -100,5 +102,6 @@ dependencies {
     implementation(libs.datastore.preferences)
     implementation(libs.coroutines.android)
     implementation(libs.onnxruntime.android.qnn)
+    implementation(libs.mediapipe.tasks.genai)
     debugImplementation(libs.compose.ui.tooling)
 }

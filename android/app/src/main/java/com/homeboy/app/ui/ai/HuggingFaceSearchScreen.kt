@@ -59,8 +59,8 @@ fun HuggingFaceSearchScreen(
     val filtered = results.filter { m ->
         when (filter) {
             AiBackend.NPU -> m.compat.quantizedOnnx.isNotEmpty()
-            AiBackend.GPU -> m.compat.floatOnnx.isNotEmpty()
-            AiBackend.CPU -> m.compat.hasOnnx
+            AiBackend.GPU -> m.compat.floatOnnx.isNotEmpty() || m.compat.hasMediaPipe
+            AiBackend.CPU -> m.compat.isRunnable
             null -> true
         }
     }
@@ -71,7 +71,11 @@ fun HuggingFaceSearchScreen(
             model = model,
             purpose = purpose,
             alreadyAdded = customModels.any { it.displayName == model.name },
-            onAdd = { vm.addHfEmbeddingModel(model); detail = null },
+            onAdd = {
+                if (purpose == ModelRepository.Purpose.GENERATION) vm.addHfGenModel(model)
+                else vm.addHfEmbeddingModel(model)
+                detail = null
+            },
             onDismiss = { detail = null }
         )
     }
@@ -103,13 +107,16 @@ fun HuggingFaceSearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
-            // Hardware-tier filter.
+            // Hardware-tier filter. MediaPipe (generation) never uses the NPU, so that chip
+            // only appears for embedding models.
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 TierChip("All", filter == null) { vm.setHfFilter(null) }
-                TierChip("NPU", filter == AiBackend.NPU) { vm.setHfFilter(AiBackend.NPU) }
+                if (purpose == ModelRepository.Purpose.EMBEDDING) {
+                    TierChip("NPU", filter == AiBackend.NPU) { vm.setHfFilter(AiBackend.NPU) }
+                }
                 TierChip("GPU", filter == AiBackend.GPU) { vm.setHfFilter(AiBackend.GPU) }
                 TierChip("CPU", filter == AiBackend.CPU) { vm.setHfFilter(AiBackend.CPU) }
             }
@@ -185,8 +192,8 @@ private fun MetaStat(icon: androidx.compose.ui.graphics.vector.ImageVector, valu
 private fun CompatBadges(compat: HuggingFaceRepository.Compatibility) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         if (compat.quantizedOnnx.isNotEmpty()) TierBadge(AiBackend.NPU, highlight = compat.best == AiBackend.NPU)
-        if (compat.floatOnnx.isNotEmpty()) TierBadge(AiBackend.GPU, highlight = compat.best == AiBackend.GPU)
-        if (compat.hasOnnx) TierBadge(AiBackend.CPU, highlight = false)
+        if (compat.floatOnnx.isNotEmpty() || compat.hasMediaPipe) TierBadge(AiBackend.GPU, highlight = compat.best == AiBackend.GPU)
+        if (compat.isRunnable) TierBadge(AiBackend.CPU, highlight = false)
     }
 }
 
@@ -224,10 +231,11 @@ private fun ModelDetailSheet(
     val totalBytes = files?.sumOf { it.size } ?: 0L
     val tooLarge = totalBytes > 8L * 1024 * 1024 * 1024 // 8 GB safe ceiling on a 12 GB device
 
-    // Embedding models need a vocab.txt for the WordPiece tokenizer; generation download lands
-    // in a later update.
+    // Embedding models need a vocab.txt for the WordPiece tokenizer; generation models need a
+    // MediaPipe .task/.litertlm bundle.
     val isEmbedding = purpose == ModelRepository.Purpose.EMBEDDING
-    val canAdd = isEmbedding && model.compat.hasVocab && !tooLarge && !alreadyAdded
+    val formatOk = if (isEmbedding) model.compat.hasVocab else model.compat.hasMediaPipe
+    val canAdd = formatOk && !tooLarge && !alreadyAdded
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -254,8 +262,9 @@ private fun ModelDetailSheet(
                     Text("Checking size…", style = MaterialTheme.typography.bodyMedium)
                 }
                 else -> Text(
-                    "${model.files.count { it.endsWith(".onnx", true) }} ONNX file(s) · " +
-                        "≈ ${formatBytes(totalBytes)} total",
+                    "${model.files.count { f ->
+                        f.endsWith(".onnx", true) || f.endsWith(".task", true) || f.endsWith(".litertlm", true)
+                    }} model file(s) · ≈ ${formatBytes(totalBytes)} total",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
@@ -263,8 +272,10 @@ private fun ModelDetailSheet(
             // Honest gating with the reason.
             val warning = when {
                 tooLarge -> "Too large for this device (≈ ${formatBytes(totalBytes)}; ~8 GB safe max)."
-                !isEmbedding -> "Running language models on-device ships in an upcoming update."
-                !model.compat.hasVocab -> "Missing vocab.txt — this embedding model can't be tokenized here."
+                isEmbedding && !model.compat.hasVocab ->
+                    "Missing vocab.txt — this embedding model can't be tokenized here."
+                !isEmbedding && !model.compat.hasMediaPipe ->
+                    "No MediaPipe (.task) file — this model can't run with the on-device LLM engine."
                 alreadyAdded -> "Already added."
                 else -> null
             }
@@ -292,14 +303,15 @@ private fun RunsOnLine(compat: HuggingFaceRepository.Compatibility) {
         if (compat.quantizedOnnx.isNotEmpty()) {
             CompatExplain(AiBackend.NPU, "Quantized export — fastest, most power-efficient.")
         }
-        if (compat.floatOnnx.isNotEmpty()) {
+        if (compat.hasMediaPipe) {
+            CompatExplain(AiBackend.GPU, "MediaPipe bundle — runs on the Adreno GPU.")
+        } else if (compat.floatOnnx.isNotEmpty()) {
             CompatExplain(AiBackend.GPU, "Float export — runs on the Adreno GPU.")
         }
-        if (compat.hasOnnx) {
+        if (compat.isRunnable) {
             CompatExplain(AiBackend.CPU, "Always works as a fallback.")
-        }
-        if (!compat.hasOnnx) {
-            Text("No ONNX export — can't run on this device.",
+        } else {
+            Text("No usable export — can't run on this device.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
     }
