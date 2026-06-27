@@ -81,31 +81,40 @@ object HuggingFaceRepository {
 
     data class HfFile(val path: String, val size: Long)
 
+    /** A file we will actually download for a model, with its resolved size. */
+    data class PlannedFile(val remotePath: String, val localName: String, val size: Long)
+
+    /** Sort orders accepted by the HuggingFace models API. */
+    enum class Sort(val apiValue: String, val label: String) {
+        DOWNLOADS("downloads", "Downloads"),
+        TRENDING("trendingScore", "Trending"),
+        RECENT("lastModified", "Recent"),
+        LIKES("likes", "Likes")
+    }
+
     // ---- Search ------------------------------------------------------------
 
     /**
-     * Search ONNX models for [purpose]. Results carry their file list + computed [Compatibility]
-     * so the UI can badge each one and filter by hardware tier without extra round-trips.
+     * Search models for [purpose]. Embedding = ONNX exports; generation = MediaPipe LiteRT
+     * (.task/.litertlm) bundles, which live in the `litert-community` org — so generation search
+     * is always scoped there (even with a query) to return models we can actually run. Results
+     * carry their file list + computed [Compatibility] so the UI can badge each one.
      */
     suspend fun search(
         query: String,
         purpose: ModelRepository.Purpose,
-        token: String
+        token: String,
+        sort: Sort = Sort.DOWNLOADS
     ): List<HfModel> = withContext(Dispatchers.IO) {
         val q = query.trim()
-        // Embedding models: ONNX exports tagged `onnx`. Generation models: MediaPipe LiteRT
-        // bundles, which the `litert-community` org curates as .task/.litertlm files. We verify
-        // the actual file list per-result below, so a missed tag just means fewer noise hits.
         val url = buildString {
             when (purpose) {
                 ModelRepository.Purpose.EMBEDDING ->
                     append("$API/models?filter=onnx&pipeline_tag=feature-extraction")
-                ModelRepository.Purpose.GENERATION -> {
-                    append("$API/models?pipeline_tag=text-generation")
-                    if (q.isEmpty()) append("&author=litert-community")
-                }
+                ModelRepository.Purpose.GENERATION ->
+                    append("$API/models?pipeline_tag=text-generation&author=litert-community")
             }
-            append("&sort=downloads&limit=40&full=true")
+            append("&sort=${sort.apiValue}&direction=-1&limit=100&full=true")
             if (q.isNotEmpty()) append("&search=${enc(q)}")
         }
         val json = get(url, token) ?: return@withContext emptyList()
@@ -149,6 +158,46 @@ object HuggingFaceRepository {
 
     /** A direct download URL for a file within a repo. */
     fun resolveUrl(id: String, path: String): String = "$RESOLVE/$id/resolve/main/$path"
+
+    /**
+     * Decide exactly which file(s) to download for [model] given [purpose] and the repo [tree]
+     * (with sizes). Crucially this is NOT the whole repo — only the one bundle we run, so the
+     * displayed size and the actual download match. For models that ship several variants we
+     * pick the smallest (most device-friendly) one.
+     *
+     * - GENERATION → the single smallest MediaPipe `.task`/`.litertlm` bundle.
+     * - EMBEDDING  → the smallest ONNX (preferring a quantized export) + the repo's vocab.txt.
+     */
+    fun planDownload(
+        model: HfModel,
+        purpose: ModelRepository.Purpose,
+        tree: List<HfFile>
+    ): List<PlannedFile> {
+        fun sizeOf(path: String): Long = tree.firstOrNull { it.path == path }?.size ?: 0L
+        fun smallest(paths: List<String>): String? {
+            if (paths.isEmpty()) return null
+            val sized = paths.map { it to sizeOf(it) }
+            return sized.filter { it.second > 0 }.minByOrNull { it.second }?.first
+                ?: sized.first().first
+        }
+        return when (purpose) {
+            ModelRepository.Purpose.GENERATION -> {
+                val task = smallest(model.compat.mediaPipeFiles) ?: return emptyList()
+                listOf(PlannedFile(task, "model.task", sizeOf(task)))
+            }
+            ModelRepository.Purpose.EMBEDDING -> {
+                val onnxCandidates = model.compat.quantizedOnnx.ifEmpty { model.compat.floatOnnx }
+                val onnx = smallest(onnxCandidates) ?: return emptyList()
+                val vocab = model.files.firstOrNull {
+                    it.substringAfterLast('/').equals("vocab.txt", ignoreCase = true)
+                }
+                buildList {
+                    add(PlannedFile(onnx, "model.onnx", sizeOf(onnx)))
+                    if (vocab != null) add(PlannedFile(vocab, "vocab.txt", sizeOf(vocab)))
+                }
+            }
+        }
+    }
 
     // ---- Compatibility classification --------------------------------------
 

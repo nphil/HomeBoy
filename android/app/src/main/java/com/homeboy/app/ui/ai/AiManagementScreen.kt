@@ -151,7 +151,7 @@ fun AiManagementScreen(
                 )
             }
             if (genReady) {
-                item { LlmStatusRow(llmState) }
+                item { LlmStatusRow(llmState) { vm.unloadLlm() } }
             }
             item {
                 MemoryTimeoutRow(
@@ -224,7 +224,7 @@ private fun AccelerationRow(backend: AiBackend) {
 }
 
 @Composable
-private fun LlmStatusRow(state: LlmEngineManager.State) {
+private fun LlmStatusRow(state: LlmEngineManager.State, onUnload: () -> Unit) {
     val (text, tint) = when (state) {
         is LlmEngineManager.State.Loading -> "Loading model…" to MaterialTheme.colorScheme.onSurfaceVariant
         is LlmEngineManager.State.Generating -> "Generating…" to MaterialTheme.colorScheme.primary
@@ -233,8 +233,9 @@ private fun LlmStatusRow(state: LlmEngineManager.State) {
         LlmEngineManager.State.Unloaded -> "Not loaded — loads on demand, frees memory when idle" to MaterialTheme.colorScheme.onSurfaceVariant
     }
     val busy = state is LlmEngineManager.State.Loading || state is LlmEngineManager.State.Generating
+    val loaded = state is LlmEngineManager.State.Ready || busy
     Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -243,7 +244,8 @@ private fun LlmStatusRow(state: LlmEngineManager.State) {
         } else {
             Icon(Icons.Default.Memory, null, Modifier.size(16.dp), tint = tint)
         }
-        Text(text, style = MaterialTheme.typography.labelMedium, color = tint)
+        Text(text, style = MaterialTheme.typography.labelMedium, color = tint, modifier = Modifier.weight(1f))
+        if (loaded) TextButton(onClick = onUnload) { Text("Unload") }
     }
 }
 
@@ -292,6 +294,7 @@ private fun ModelRow(
     onDelete: () -> Unit
 ) {
     val isReady = state is ModelRepository.State.Ready
+    Column {
     ListItem(
         modifier = if (isReady) Modifier.clickable { onSetDefault() } else Modifier,
         leadingContent = {
@@ -331,6 +334,13 @@ private fun ModelRow(
             }
         }
     )
+    if (state is ModelRepository.State.Downloading) {
+        LinearProgressIndicator(
+            progress = { if (state.progress >= 0f) state.progress else 0f },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
+    }
+    }
 }
 
 @Composable

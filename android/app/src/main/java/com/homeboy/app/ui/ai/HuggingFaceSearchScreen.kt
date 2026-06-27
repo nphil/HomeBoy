@@ -38,31 +38,32 @@ fun HuggingFaceSearchScreen(
 ) {
     val results by vm.hfResults.collectAsStateWithLifecycle()
     val loading by vm.hfLoading.collectAsStateWithLifecycle()
-    val filter by vm.hfFilter.collectAsStateWithLifecycle()
+    val sort by vm.hfSort.collectAsStateWithLifecycle()
     val states by vm.modelStates.collectAsStateWithLifecycle()
     val customModels by vm.customModels.collectAsStateWithLifecycle()
 
     var query by remember { mutableStateOf("") }
     var detail by remember { mutableStateOf<HuggingFaceRepository.HfModel?>(null) }
 
-    // Run an initial popular-models search when the screen opens.
-    LaunchedEffect(purpose) {
-        vm.clearHfResults()
-        vm.searchHuggingFace("", purpose)
+    // (Re)search when the screen opens and whenever the sort order changes. Typing only
+    // searches on submit, so the query is read but isn't a trigger here.
+    LaunchedEffect(purpose, sort) {
+        vm.searchHuggingFace(query, purpose)
     }
 
     val title = when (purpose) {
         ModelRepository.Purpose.EMBEDDING -> "Embedding models"
         ModelRepository.Purpose.GENERATION -> "Language models"
     }
+    val emptyMsg = when (purpose) {
+        ModelRepository.Purpose.EMBEDDING -> "No matching ONNX models found."
+        ModelRepository.Purpose.GENERATION -> "No matching language models found."
+    }
 
-    val filtered = results.filter { m ->
-        when (filter) {
-            AiBackend.NPU -> m.compat.quantizedOnnx.isNotEmpty()
-            AiBackend.GPU -> m.compat.floatOnnx.isNotEmpty() || m.compat.hasMediaPipe
-            AiBackend.CPU -> m.compat.isRunnable
-            null -> true
-        }
+    /** The download state of a result, looked up via the custom model it was added as. */
+    fun stateOf(model: HuggingFaceRepository.HfModel): ModelRepository.State? {
+        val id = customModels.firstOrNull { it.displayName == model.name }?.id ?: return null
+        return states[id]
     }
 
     detail?.let { model ->
@@ -71,9 +72,14 @@ fun HuggingFaceSearchScreen(
             model = model,
             purpose = purpose,
             alreadyAdded = customModels.any { it.displayName == model.name },
-            onAdd = {
-                if (purpose == ModelRepository.Purpose.GENERATION) vm.addHfGenModel(model)
-                else vm.addHfEmbeddingModel(model)
+            onAdd = { plan ->
+                if (purpose == ModelRepository.Purpose.GENERATION) {
+                    plan.firstOrNull()?.let { vm.addHfGenModel(model, it.remotePath) }
+                } else {
+                    val onnx = plan.firstOrNull { it.localName == "model.onnx" }?.remotePath
+                    val vocab = plan.firstOrNull { it.localName == "vocab.txt" }?.remotePath
+                    if (onnx != null && vocab != null) vm.addHfEmbeddingModel(model, onnx, vocab)
+                }
                 detail = null
             },
             onDismiss = { detail = null }
@@ -107,18 +113,18 @@ fun HuggingFaceSearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
             )
 
-            // Hardware-tier filter. MediaPipe (generation) never uses the NPU, so that chip
-            // only appears for embedding models.
+            // Sort order (server-side).
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                TierChip("All", filter == null) { vm.setHfFilter(null) }
-                if (purpose == ModelRepository.Purpose.EMBEDDING) {
-                    TierChip("NPU", filter == AiBackend.NPU) { vm.setHfFilter(AiBackend.NPU) }
+                HuggingFaceRepository.Sort.entries.forEach { s ->
+                    FilterChip(
+                        selected = sort == s,
+                        onClick = { vm.setHfSort(s) },
+                        label = { Text(s.label) }
+                    )
                 }
-                TierChip("GPU", filter == AiBackend.GPU) { vm.setHfFilter(AiBackend.GPU) }
-                TierChip("CPU", filter == AiBackend.CPU) { vm.setHfFilter(AiBackend.CPU) }
             }
 
             Text(
@@ -132,16 +138,13 @@ fun HuggingFaceSearchScreen(
                 loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
-                filtered.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text(
-                        "No matching ONNX models found.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                results.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(emptyMsg, style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 else -> LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
-                    items(filtered, key = { it.id }) { model ->
-                        HfResultCard(model = model, onClick = { detail = model })
+                    items(results, key = { it.id }) { model ->
+                        HfResultCard(model = model, state = stateOf(model), onClick = { detail = model })
                     }
                 }
             }
@@ -150,12 +153,11 @@ fun HuggingFaceSearchScreen(
 }
 
 @Composable
-private fun TierChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    FilterChip(selected = selected, onClick = onClick, label = { Text(label) })
-}
-
-@Composable
-private fun HfResultCard(model: HuggingFaceRepository.HfModel, onClick: () -> Unit) {
+private fun HfResultCard(
+    model: HuggingFaceRepository.HfModel,
+    state: ModelRepository.State?,
+    onClick: () -> Unit
+) {
     Card(
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -174,6 +176,24 @@ private fun HfResultCard(model: HuggingFaceRepository.HfModel, onClick: () -> Un
                 MetaStat(Icons.Default.Favorite, formatCount(model.likes))
             }
             CompatBadges(model.compat)
+            // Download status for a model that's already been added.
+            when (state) {
+                is ModelRepository.State.Downloading -> {
+                    val p = state.progress
+                    LinearProgressIndicator(
+                        progress = { if (p >= 0f) p else 0f },
+                        modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                    )
+                    Text(if (p >= 0f) "Downloading ${(p * 100).toInt()}%" else "Downloading…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary)
+                }
+                is ModelRepository.State.Ready -> Text("Downloaded",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                is ModelRepository.State.Failed -> Text("Failed: ${state.message}",
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                else -> {}
+            }
         }
     }
 }
@@ -221,20 +241,22 @@ private fun ModelDetailSheet(
     model: HuggingFaceRepository.HfModel,
     purpose: ModelRepository.Purpose,
     alreadyAdded: Boolean,
-    onAdd: () -> Unit,
+    onAdd: (List<HuggingFaceRepository.PlannedFile>) -> Unit,
     onDismiss: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var files by remember(model.id) { mutableStateOf<List<HuggingFaceRepository.HfFile>?>(null) }
     LaunchedEffect(model.id) { scope.launch { files = vm.hfFiles(model.id) } }
 
-    val totalBytes = files?.sumOf { it.size } ?: 0L
-    val tooLarge = totalBytes > 8L * 1024 * 1024 * 1024 // 8 GB safe ceiling on a 12 GB device
+    // Only the file(s) we'll actually download — not the whole repo — so size + count are real.
+    val plan = files?.let { HuggingFaceRepository.planDownload(model, purpose, it) } ?: emptyList()
+    val planBytes = plan.sumOf { it.size }
+    val tooLarge = planBytes > 8L * 1024 * 1024 * 1024 // 8 GB safe ceiling on a 12 GB device
 
-    // Embedding models need a vocab.txt for the WordPiece tokenizer; generation models need a
-    // MediaPipe .task/.litertlm bundle.
     val isEmbedding = purpose == ModelRepository.Purpose.EMBEDDING
-    val formatOk = if (isEmbedding) model.compat.hasVocab else model.compat.hasMediaPipe
+    val formatOk = if (isEmbedding)
+        plan.any { it.localName == "model.onnx" } && plan.any { it.localName == "vocab.txt" }
+    else plan.any { it.localName == "model.task" }
     val canAdd = formatOk && !tooLarge && !alreadyAdded
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
@@ -262,19 +284,18 @@ private fun ModelDetailSheet(
                     Text("Checking size…", style = MaterialTheme.typography.bodyMedium)
                 }
                 else -> Text(
-                    "${model.files.count { f ->
-                        f.endsWith(".onnx", true) || f.endsWith(".task", true) || f.endsWith(".litertlm", true)
-                    }} model file(s) · ≈ ${formatBytes(totalBytes)} total",
+                    "${plan.size} model file(s) · ≈ ${formatBytes(planBytes)}",
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
 
             // Honest gating with the reason.
             val warning = when {
-                tooLarge -> "Too large for this device (≈ ${formatBytes(totalBytes)}; ~8 GB safe max)."
-                isEmbedding && !model.compat.hasVocab ->
-                    "Missing vocab.txt — this embedding model can't be tokenized here."
-                !isEmbedding && !model.compat.hasMediaPipe ->
+                files == null -> null
+                tooLarge -> "Too large for this device (≈ ${formatBytes(planBytes)}; ~8 GB safe max)."
+                isEmbedding && !formatOk ->
+                    "Missing a quantized ONNX + vocab.txt — can't run as an embedding model here."
+                !isEmbedding && !formatOk ->
                     "No MediaPipe (.task) file — this model can't run with the on-device LLM engine."
                 alreadyAdded -> "Already added."
                 else -> null
@@ -285,7 +306,7 @@ private fun ModelDetailSheet(
             }
 
             Button(
-                onClick = onAdd,
+                onClick = { onAdd(plan) },
                 enabled = canAdd,
                 modifier = Modifier.fillMaxWidth()
             ) {

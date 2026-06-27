@@ -83,18 +83,18 @@ class SettingsViewModel(
     private val _hfLoading = MutableStateFlow(false)
     val hfLoading: StateFlow<Boolean> = _hfLoading.asStateFlow()
 
-    /** Hardware-tier filter for HF results; null = show everything. */
-    private val _hfFilter = MutableStateFlow<AiBackend?>(null)
-    val hfFilter: StateFlow<AiBackend?> = _hfFilter.asStateFlow()
+    /** Sort order for HF results (downloads / trending / recent / likes). */
+    private val _hfSort = MutableStateFlow(HuggingFaceRepository.Sort.DOWNLOADS)
+    val hfSort: StateFlow<HuggingFaceRepository.Sort> = _hfSort.asStateFlow()
 
-    fun setHfFilter(backend: AiBackend?) { _hfFilter.value = backend }
+    fun setHfSort(sort: HuggingFaceRepository.Sort) { _hfSort.value = sort }
 
     fun searchHuggingFace(query: String, purpose: ModelRepository.Purpose) {
         viewModelScope.launch {
             _hfLoading.value = true
             try {
                 _hfResults.value =
-                    HuggingFaceRepository.search(query, purpose, prefs.getHfToken())
+                    HuggingFaceRepository.search(query, purpose, prefs.getHfToken(), _hfSort.value)
             } catch (_: Exception) {
                 _hfResults.value = emptyList()
             } finally {
@@ -103,6 +103,9 @@ class SettingsViewModel(
         }
     }
 
+    /** Manually unload the language model from memory (frees RAM immediately). */
+    fun unloadLlm() = LlmEngineManager.unload()
+
     fun clearHfResults() { _hfResults.value = emptyList() }
 
     /** File list (with sizes) for a model — used by the detail sheet to show total size. */
@@ -110,17 +113,10 @@ class SettingsViewModel(
         HuggingFaceRepository.files(id, prefs.getHfToken())
 
     /**
-     * Add an embedding model discovered on HuggingFace and start downloading it. Picks the
-     * best ONNX export (quantized → NPU-capable, else float) and the repo's vocab.txt.
+     * Add an embedding model discovered on HuggingFace and start downloading it. [onnxPath] and
+     * [vocabPath] are the exact files the detail sheet chose, so display and download agree.
      */
-    fun addHfEmbeddingModel(model: HuggingFaceRepository.HfModel) {
-        val onnxPath = model.compat.quantizedOnnx.firstOrNull()
-            ?: model.compat.floatOnnx.firstOrNull()
-        if (onnxPath == null) { _snackbar.value = "No ONNX file in this model"; return }
-        val vocabPath = model.files.firstOrNull {
-            it.substringAfterLast('/').equals("vocab.txt", ignoreCase = true)
-        }
-        if (vocabPath == null) { _snackbar.value = "This model has no vocab.txt"; return }
+    fun addHfEmbeddingModel(model: HuggingFaceRepository.HfModel, onnxPath: String, vocabPath: String) {
         val modelUrl = HuggingFaceRepository.resolveUrl(model.id, onnxPath)
         val vocabUrl = HuggingFaceRepository.resolveUrl(model.id, vocabPath)
         val id = ModelRepository.addCustomModel(appContext, model.name, modelUrl, vocabUrl)
@@ -130,11 +126,9 @@ class SettingsViewModel(
         _snackbar.value = "Downloading ${model.name}"
     }
 
-    /** Add a generative (MediaPipe `.task`) model discovered on HuggingFace and download it. */
-    fun addHfGenModel(model: HuggingFaceRepository.HfModel) {
-        val task = model.compat.mediaPipeFiles.firstOrNull()
-        if (task == null) { _snackbar.value = "No MediaPipe (.task) file in this model"; return }
-        val url = HuggingFaceRepository.resolveUrl(model.id, task)
+    /** Add a generative (MediaPipe `.task`) model; [taskPath] is the file the sheet chose. */
+    fun addHfGenModel(model: HuggingFaceRepository.HfModel, taskPath: String) {
+        val url = HuggingFaceRepository.resolveUrl(model.id, taskPath)
         val id = ModelRepository.addCustomGenModel(appContext, model.name, url)
         if (id == null) { _snackbar.value = "Couldn't add model"; return }
         viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
