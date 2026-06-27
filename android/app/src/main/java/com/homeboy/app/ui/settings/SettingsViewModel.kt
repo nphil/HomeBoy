@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ai.AiBackend
 import com.homeboy.app.ai.EmbeddingService
+import com.homeboy.app.ai.HuggingFaceRepository
 import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.api.HBGroup
 import com.homeboy.app.api.HBUserInfo
@@ -27,12 +29,20 @@ class SettingsViewModel(
     // ---- AI / on-device models --------------------------------------------
     val aiSearchEnabled = prefs.aiSearchEnabled
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+    val aiTagsEnabled = prefs.aiTagsEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
     val modelStates: StateFlow<Map<String, ModelRepository.State>> = ModelRepository.states
-    /** null = engine not built yet, true = running on NPU, false = CPU fallback. */
-    val npuActive: StateFlow<Boolean?> = EmbeddingService.npuActive
+    /** Which hardware tier semantic search runs on (NPU/GPU/CPU), or null until built. */
+    val embedBackend: StateFlow<AiBackend?> = EmbeddingService.backend
     val customModels: StateFlow<List<ModelRepository.ModelSpec>> = ModelRepository.customModels
     val embedModelId = prefs.aiEmbedModelId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesRepository.DEFAULT_EMBED_MODEL_ID)
+    val genModelId = prefs.aiGenModelId
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+    val hfToken = prefs.hfToken
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
+    val unloadMinutes = prefs.aiUnloadMinutes
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesRepository.DEFAULT_UNLOAD_MINUTES)
 
     init {
         // Restore any custom models, then reconcile download state with disk.
@@ -44,6 +54,77 @@ class SettingsViewModel(
 
     fun setAiSearchEnabled(enabled: Boolean) {
         viewModelScope.launch { prefs.setAiSearchEnabled(enabled) }
+    }
+
+    fun setAiTagsEnabled(enabled: Boolean) {
+        viewModelScope.launch { prefs.setAiTagsEnabled(enabled) }
+    }
+
+    fun setHfToken(token: String) {
+        viewModelScope.launch { prefs.setHfToken(token) }
+    }
+
+    fun setUnloadMinutes(minutes: Int) {
+        viewModelScope.launch { prefs.setAiUnloadMinutes(minutes) }
+    }
+
+    /** Pick which downloaded generative model is used for tag suggestions (null = none). */
+    fun setDefaultGenModel(id: String?) {
+        viewModelScope.launch { prefs.setAiGenModelId(id) }
+    }
+
+    // ---- HuggingFace in-app search -----------------------------------------
+    private val _hfResults = MutableStateFlow<List<HuggingFaceRepository.HfModel>>(emptyList())
+    val hfResults: StateFlow<List<HuggingFaceRepository.HfModel>> = _hfResults.asStateFlow()
+
+    private val _hfLoading = MutableStateFlow(false)
+    val hfLoading: StateFlow<Boolean> = _hfLoading.asStateFlow()
+
+    /** Hardware-tier filter for HF results; null = show everything. */
+    private val _hfFilter = MutableStateFlow<AiBackend?>(null)
+    val hfFilter: StateFlow<AiBackend?> = _hfFilter.asStateFlow()
+
+    fun setHfFilter(backend: AiBackend?) { _hfFilter.value = backend }
+
+    fun searchHuggingFace(query: String, purpose: ModelRepository.Purpose) {
+        viewModelScope.launch {
+            _hfLoading.value = true
+            try {
+                _hfResults.value =
+                    HuggingFaceRepository.search(query, purpose, prefs.getHfToken())
+            } catch (_: Exception) {
+                _hfResults.value = emptyList()
+            } finally {
+                _hfLoading.value = false
+            }
+        }
+    }
+
+    fun clearHfResults() { _hfResults.value = emptyList() }
+
+    /** File list (with sizes) for a model — used by the detail sheet to show total size. */
+    suspend fun hfFiles(id: String): List<HuggingFaceRepository.HfFile> =
+        HuggingFaceRepository.files(id, prefs.getHfToken())
+
+    /**
+     * Add an embedding model discovered on HuggingFace and start downloading it. Picks the
+     * best ONNX export (quantized → NPU-capable, else float) and the repo's vocab.txt.
+     */
+    fun addHfEmbeddingModel(model: HuggingFaceRepository.HfModel) {
+        val onnxPath = model.compat.quantizedOnnx.firstOrNull()
+            ?: model.compat.floatOnnx.firstOrNull()
+        if (onnxPath == null) { _snackbar.value = "No ONNX file in this model"; return }
+        val vocabPath = model.files.firstOrNull {
+            it.substringAfterLast('/').equals("vocab.txt", ignoreCase = true)
+        }
+        if (vocabPath == null) { _snackbar.value = "This model has no vocab.txt"; return }
+        val modelUrl = HuggingFaceRepository.resolveUrl(model.id, onnxPath)
+        val vocabUrl = HuggingFaceRepository.resolveUrl(model.id, vocabPath)
+        val id = ModelRepository.addCustomModel(appContext, model.name, modelUrl, vocabUrl)
+        if (id == null) { _snackbar.value = "Couldn't add model"; return }
+        viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
+        ModelRepository.download(viewModelScope, appContext, id)
+        _snackbar.value = "Downloading ${model.name}"
     }
 
     /** Pick which downloaded embedding model semantic search uses. */
@@ -71,8 +152,12 @@ class SettingsViewModel(
         } else {
             ModelRepository.delete(appContext, id)
         }
-        // If the active embedding model is gone, semantic search can't run — turn it off.
+        // If the active model is gone, the feature it powers can't run — turn it off.
         if (id == embedModelId.value) setAiSearchEnabled(false)
+        if (id == genModelId.value) {
+            setAiTagsEnabled(false)
+            setDefaultGenModel(null)
+        }
     }
 
     private val _userInfo = MutableStateFlow<HBUserInfo?>(null)

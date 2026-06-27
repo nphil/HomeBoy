@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -25,8 +23,18 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ai.ModelRepository
+import com.homeboy.app.ui.ai.AiManagementScreen
+import com.homeboy.app.ui.ai.HuggingFaceSearchScreen
 import com.homeboy.app.ui.theme.APP_THEMES
 import com.homeboy.app.ui.theme.THEME_MATERIAL_YOU
+
+/** Which settings sub-screen is currently shown. The Settings tab hosts its own light nav. */
+private sealed interface SettingsRoute {
+    data object Main : SettingsRoute
+    data object AiManagement : SettingsRoute
+    data class HfSearch(val purpose: ModelRepository.Purpose) : SettingsRoute
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,16 +51,36 @@ fun SettingsTab(onLogout: () -> Unit) {
     val snackbar by vm.snackbar.collectAsStateWithLifecycle()
     val aiSearchEnabled by vm.aiSearchEnabled.collectAsStateWithLifecycle()
     val modelStates by vm.modelStates.collectAsStateWithLifecycle()
-    val npuActive by vm.npuActive.collectAsStateWithLifecycle()
 
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showThemePicker by remember { mutableStateOf(false) }
     var showGroupPicker by remember { mutableStateOf(false) }
-    var showAiModels by remember { mutableStateOf(false) }
+    var route by remember { mutableStateOf<SettingsRoute>(SettingsRoute.Main) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(snackbar) {
         snackbar?.let { snackbarHostState.showSnackbar(it); vm.clearSnackbar() }
+    }
+
+    // Full-screen AI sub-navigation, hosted within the Settings tab.
+    when (val r = route) {
+        is SettingsRoute.AiManagement -> {
+            AiManagementScreen(
+                vm = vm,
+                onBack = { route = SettingsRoute.Main },
+                onBrowse = { purpose -> route = SettingsRoute.HfSearch(purpose) }
+            )
+            return
+        }
+        is SettingsRoute.HfSearch -> {
+            HuggingFaceSearchScreen(
+                vm = vm,
+                purpose = r.purpose,
+                onBack = { route = SettingsRoute.AiManagement }
+            )
+            return
+        }
+        SettingsRoute.Main -> Unit
     }
 
     if (showLogoutDialog) {
@@ -75,25 +103,6 @@ fun SettingsTab(onLogout: () -> Unit) {
             currentIndex = themeIndex,
             onSelect = { vm.setTheme(it) },
             onDismiss = { showThemePicker = false }
-        )
-    }
-
-    if (showAiModels) {
-        val customModels by vm.customModels.collectAsStateWithLifecycle()
-        val embedModelId by vm.embedModelId.collectAsStateWithLifecycle()
-        AiModelsSheet(
-            states = modelStates,
-            customModels = customModels,
-            embedModelId = embedModelId,
-            aiSearchEnabled = aiSearchEnabled,
-            npuActive = npuActive,
-            onToggleAiSearch = { vm.setAiSearchEnabled(it) },
-            onSetDefault = { vm.setDefaultEmbedModel(it) },
-            onDownload = { vm.downloadModel(it) },
-            onCancel = { vm.cancelModelDownload(it) },
-            onDelete = { vm.deleteModel(it) },
-            onAddCustom = { name, modelUrl, vocabUrl -> vm.addCustomModel(name, modelUrl, vocabUrl) },
-            onDismiss = { showAiModels = false }
         )
     }
 
@@ -206,7 +215,7 @@ fun SettingsTab(onLogout: () -> Unit) {
                         )
                     },
                     trailingContent = { Icon(Icons.Default.ChevronRight, null) },
-                    modifier = Modifier.clickable { showAiModels = true }
+                    modifier = Modifier.clickable { route = SettingsRoute.AiManagement }
                 )
                 HorizontalDivider(Modifier.padding(horizontal = 16.dp))
             }
@@ -239,210 +248,6 @@ fun SettingsTab(onLogout: () -> Unit) {
             item { Spacer(Modifier.height(32.dp)) }
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun AiModelsSheet(
-    states: Map<String, com.homeboy.app.ai.ModelRepository.State>,
-    customModels: List<com.homeboy.app.ai.ModelRepository.ModelSpec>,
-    embedModelId: String,
-    aiSearchEnabled: Boolean,
-    npuActive: Boolean?,
-    onToggleAiSearch: (Boolean) -> Unit,
-    onSetDefault: (String) -> Unit,
-    onDownload: (String) -> Unit,
-    onCancel: (String) -> Unit,
-    onDelete: (String) -> Unit,
-    onAddCustom: (String, String, String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    val repo = com.homeboy.app.ai.ModelRepository
-    val allModels = repo.CATALOG + customModels
-    val embedReady = states[embedModelId] is com.homeboy.app.ai.ModelRepository.State.Ready
-    var showAddDialog by remember { mutableStateOf(false) }
-
-    if (showAddDialog) {
-        AddCustomModelDialog(
-            onAdd = { name, modelUrl, vocabUrl -> onAddCustom(name, modelUrl, vocabUrl); showAddDialog = false },
-            onDismiss = { showAddDialog = false }
-        )
-    }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Text(
-                "AI Models", style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(16.dp)
-            )
-            Text(
-                "Models run entirely on your device. Nothing is sent to a server.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-            // Acceleration status — shows whether inference engaged the NPU or fell back to CPU.
-            if (aiSearchEnabled && npuActive != null) {
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier.padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(
-                        if (npuActive) Icons.Default.Bolt else Icons.Default.Memory,
-                        null, Modifier.size(16.dp),
-                        tint = if (npuActive) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        if (npuActive) "Acceleration: NPU (Hexagon)" else "Acceleration: CPU",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (npuActive) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-
-            // Semantic search toggle — only meaningful once the active model is present.
-            ListItem(
-                leadingContent = { Icon(Icons.Default.Search, null) },
-                headlineContent = { Text("Semantic search") },
-                supportingContent = {
-                    Text(
-                        if (embedReady) "Find items by meaning, not just keywords"
-                        else "Download a model below to enable"
-                    )
-                },
-                trailingContent = {
-                    Switch(
-                        checked = aiSearchEnabled && embedReady,
-                        enabled = embedReady,
-                        onCheckedChange = onToggleAiSearch
-                    )
-                }
-            )
-            HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-
-            Text(
-                "Models  ·  tap a downloaded model to make it the default",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 4.dp)
-            )
-
-            allModels.forEach { spec ->
-                val state = states[spec.id] ?: com.homeboy.app.ai.ModelRepository.State.NotDownloaded
-                val isReady = state is com.homeboy.app.ai.ModelRepository.State.Ready
-                val isDefault = spec.id == embedModelId
-                ListItem(
-                    modifier = if (isReady) Modifier.clickable { onSetDefault(spec.id) } else Modifier,
-                    leadingContent = {
-                        if (isReady) {
-                            RadioButton(selected = isDefault, onClick = { onSetDefault(spec.id) })
-                        } else {
-                            Icon(Icons.Default.Search, null)
-                        }
-                    },
-                    headlineContent = { Text(spec.displayName) },
-                    supportingContent = {
-                        val sub = when (state) {
-                            is com.homeboy.app.ai.ModelRepository.State.Downloading ->
-                                if (state.progress >= 0f) "Downloading ${(state.progress * 100).toInt()}%"
-                                else "Downloading…"
-                            is com.homeboy.app.ai.ModelRepository.State.Ready ->
-                                if (isDefault) "Default · ready" else "Ready"
-                            is com.homeboy.app.ai.ModelRepository.State.Failed -> "Failed: ${state.message}"
-                            else -> spec.description
-                        }
-                        Text(sub)
-                    },
-                    trailingContent = {
-                        when (state) {
-                            is com.homeboy.app.ai.ModelRepository.State.Downloading -> {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    CircularProgressIndicator(
-                                        progress = { if (state.progress >= 0f) state.progress else 0f },
-                                        modifier = Modifier.size(22.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                    IconButton(onClick = { onCancel(spec.id) }) {
-                                        Icon(Icons.Default.Close, "Cancel")
-                                    }
-                                }
-                            }
-                            is com.homeboy.app.ai.ModelRepository.State.Ready -> {
-                                IconButton(onClick = { onDelete(spec.id) }) {
-                                    Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error)
-                                }
-                            }
-                            else -> {
-                                IconButton(onClick = { onDownload(spec.id) }) {
-                                    Icon(Icons.Default.Download, "Download")
-                                }
-                            }
-                        }
-                    }
-                )
-                HorizontalDivider(Modifier.padding(horizontal = 16.dp))
-            }
-
-            // Add a custom HuggingFace ONNX model.
-            ListItem(
-                leadingContent = { Icon(Icons.Default.Add, null) },
-                headlineContent = { Text("Add custom model") },
-                supportingContent = { Text("Paste a HuggingFace ONNX model + vocab URL") },
-                modifier = Modifier.clickable { showAddDialog = true }
-            )
-        }
-    }
-}
-
-@Composable
-private fun AddCustomModelDialog(
-    onAdd: (name: String, modelUrl: String, vocabUrl: String) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var modelUrl by remember { mutableStateOf("") }
-    var vocabUrl by remember { mutableStateOf("") }
-    val valid = modelUrl.startsWith("http") && vocabUrl.startsWith("http")
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Add custom model") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    "Must be a quantized (QDQ) ONNX BERT-style embedding model to run on the NPU; " +
-                        "other ONNX models fall back to CPU.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                OutlinedTextField(
-                    value = name, onValueChange = { name = it },
-                    label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = modelUrl, onValueChange = { modelUrl = it },
-                    label = { Text("model.onnx URL") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = vocabUrl, onValueChange = { vocabUrl = it },
-                    label = { Text("vocab.txt URL") }, singleLine = true, modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(enabled = valid, onClick = { onAdd(name, modelUrl, vocabUrl) }) { Text("Add") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
 }
 
 @Composable

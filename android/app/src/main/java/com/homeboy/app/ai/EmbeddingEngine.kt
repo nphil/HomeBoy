@@ -10,9 +10,9 @@ import kotlin.math.sqrt
 /**
  * Runs a BERT-family sentence-embedding model (all-MiniLM-L6-v2) under ONNX Runtime.
  *
- * Tries the Qualcomm QNN Execution Provider first (direct Hexagon NPU path on Snapdragon),
- * then falls back to the CPU provider, so it works everywhere and simply runs faster on a
- * Snapdragon 8 Elite. Produces L2-normalized vectors so cosine similarity is a plain dot product.
+ * Tries the Qualcomm QNN Execution Provider on the Hexagon NPU first, then the Adreno GPU,
+ * then the CPU provider — so it works everywhere and simply runs faster on a Snapdragon 8
+ * Elite. Produces L2-normalized vectors so cosine similarity is a plain dot product.
  *
  * Thread-safety: [embed] is synchronized; create one instance and reuse it.
  */
@@ -20,7 +20,8 @@ class EmbeddingEngine private constructor(
     private val env: OrtEnvironment,
     private val session: OrtSession,
     private val tokenizer: WordPieceTokenizer,
-    val usingNpu: Boolean
+    /** Which hardware tier the session actually engaged. */
+    val backend: AiBackend
 ) {
     private val inputNames: Set<String> = session.inputNames
 
@@ -96,15 +97,15 @@ class EmbeddingEngine private constructor(
          * UnsatisfiedLinkError so a device without the native ORT lib (e.g. a non-arm64
          * emulator) degrades to keyword search instead of crashing.
          *
-         * The Qualcomm QNN backend libs (libQnnHtp.so + the Hexagon Vxx skel) ship in the
-         * APK via the transitive com.qualcomm.qti:qnn-runtime dependency, so the QNN EP can
-         * run the model on the NPU. NOTE: the HTP/NPU backend only accepts QUANTIZED (QDQ)
-         * models — for a float model QNN silently runs unsupported ops on CPU. We attempt QNN
-         * first and fall back to a pure CPU session.
+         * The Qualcomm QNN backend libs (libQnnHtp.so + Hexagon skel, libQnnGpu.so) ship in the
+         * APK via the transitive com.qualcomm.qti:qnn-runtime dependency, so the QNN EP can run
+         * the model on the NPU or the Adreno GPU. NOTE: the HTP/NPU backend only accepts
+         * QUANTIZED (QDQ) models — a float model can't load there and is tried on the GPU next.
+         * The GPU backend runs FP16/FP32 graphs. CPU is the universal last resort.
          *
-         * QNN graph compilation is slow on first load, so we enable context-binary caching:
-         * the compiled context is written next to the model as `<name>_ctx.onnx` and reused
-         * on subsequent launches for near-instant init.
+         * QNN graph compilation is slow on first load, so for the NPU path we enable
+         * context-binary caching: the compiled context is written next to the model as
+         * `<name>_ctx.onnx` and reused on subsequent launches for near-instant init.
          */
         fun create(modelFile: File, vocabFile: File): EmbeddingEngine? {
             return try {
@@ -115,15 +116,18 @@ class EmbeddingEngine private constructor(
 
                 // 1a. Fast path: load a previously compiled QNN context (already on NPU).
                 if (ctxFile.exists() && ctxFile.length() > 0) {
-                    buildSession(env, ctxFile, qnn = true, genCtxPath = null)
-                        ?.let { return EmbeddingEngine(env, it, tokenizer, usingNpu = true) }
+                    buildSession(env, ctxFile, "libQnnHtp.so", genCtxPath = null)
+                        ?.let { return EmbeddingEngine(env, it, tokenizer, AiBackend.NPU) }
                 }
                 // 1b. Compile on the NPU from source, writing the context for next time.
-                buildSession(env, modelFile, qnn = true, genCtxPath = ctxFile.absolutePath)
-                    ?.let { return EmbeddingEngine(env, it, tokenizer, usingNpu = true) }
-                // 2. CPU fallback.
-                buildSession(env, modelFile, qnn = false, genCtxPath = null)
-                    ?.let { return EmbeddingEngine(env, it, tokenizer, usingNpu = false) }
+                buildSession(env, modelFile, "libQnnHtp.so", genCtxPath = ctxFile.absolutePath)
+                    ?.let { return EmbeddingEngine(env, it, tokenizer, AiBackend.NPU) }
+                // 2. GPU (Adreno) — runs float models the NPU rejects.
+                buildSession(env, modelFile, "libQnnGpu.so", genCtxPath = null)
+                    ?.let { return EmbeddingEngine(env, it, tokenizer, AiBackend.GPU) }
+                // 3. CPU fallback.
+                buildSession(env, modelFile, qnnBackend = null, genCtxPath = null)
+                    ?.let { return EmbeddingEngine(env, it, tokenizer, AiBackend.CPU) }
                 null
             } catch (_: Throwable) {
                 null
@@ -131,20 +135,20 @@ class EmbeddingEngine private constructor(
         }
 
         /**
-         * Create a session, optionally registering the QNN EP with HTP performance tuning and
-         * (when [genCtxPath] is set) context-binary generation. The exact Java binding for QNN
-         * differs across ORT releases, so we register it reflectively and fall back to CPU if
-         * it isn't available — keeping this compilable and crash-free on any device.
+         * Create a session. When [qnnBackend] is non-null the QNN EP is registered against that
+         * backend lib (libQnnHtp.so = NPU, libQnnGpu.so = GPU); when null it's a plain CPU
+         * session. The exact Java binding for QNN differs across ORT releases, so we register it
+         * reflectively and return null if it isn't available — keeping this crash-free anywhere.
          */
         private fun buildSession(
             env: OrtEnvironment,
             modelFile: File,
-            qnn: Boolean,
+            qnnBackend: String?,
             genCtxPath: String?
         ): OrtSession? = runCatching {
             val opts = OrtSession.SessionOptions()
-            if (qnn) {
-                if (!registerQnn(opts)) { opts.close(); return@runCatching null }
+            if (qnnBackend != null) {
+                if (!registerQnn(opts, qnnBackend)) { opts.close(); return@runCatching null }
                 if (genCtxPath != null) {
                     // Persist the compiled QNN context so later launches skip recompilation.
                     runCatching { opts.addConfigEntry("ep.context_enable", "1") }
@@ -155,13 +159,14 @@ class EmbeddingEngine private constructor(
             env.createSession(modelFile.absolutePath, opts)
         }.getOrNull()
 
-        /** Reflectively add the QNN EP (HTP/NPU backend) with flagship-grade perf options. */
-        private fun registerQnn(opts: OrtSession.SessionOptions): Boolean {
-            val providerOptions = hashMapOf(
-                "backend_path" to "libQnnHtp.so",
-                "htp_performance_mode" to "burst",
-                "htp_graph_finalization_optimization_mode" to "3"
-            )
+        /** Reflectively add the QNN EP against [backendPath] (HTP=NPU, GPU lib=GPU). */
+        private fun registerQnn(opts: OrtSession.SessionOptions, backendPath: String): Boolean {
+            val providerOptions = hashMapOf("backend_path" to backendPath)
+            // HTP-only perf knobs; harmless to include for the GPU backend (ignored there).
+            if (backendPath.contains("Htp")) {
+                providerOptions["htp_performance_mode"] = "burst"
+                providerOptions["htp_graph_finalization_optimization_mode"] = "3"
+            }
             // Preferred: dedicated addQnn(Map) helper present in recent ORT builds.
             val viaAddQnn = runCatching {
                 opts.javaClass.getMethod("addQnn", Map::class.java).invoke(opts, providerOptions)

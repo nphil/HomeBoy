@@ -33,7 +33,11 @@ class PreferencesRepository(private val context: Context) {
         val KEY_AI_GEN_MODEL_ID = stringPreferencesKey("ai_gen_model_id")
         val KEY_AI_EMBED_MODEL_ID = stringPreferencesKey("ai_embed_model_id")
         val KEY_AI_CUSTOM_MODELS = stringPreferencesKey("ai_custom_models")
+        val KEY_HF_TOKEN = stringPreferencesKey("hf_token")
+        val KEY_AI_TAGS_ENABLED = booleanPreferencesKey("ai_tags_enabled")
+        val KEY_AI_UNLOAD_MINUTES = intPreferencesKey("ai_unload_minutes")
         const val DEFAULT_EMBED_MODEL_ID = "minilm-l6-v2"
+        const val DEFAULT_UNLOAD_MINUTES = 5
     }
 
     /** Whether semantic (embedding-based) search is enabled. Off until a model is downloaded. */
@@ -55,6 +59,22 @@ class PreferencesRepository(private val context: Context) {
     val aiCustomModelsJson: Flow<String> = context.dataStore.data.map { it[KEY_AI_CUSTOM_MODELS] ?: "" }
     suspend fun setAiCustomModelsJson(json: String) =
         context.dataStore.edit { it[KEY_AI_CUSTOM_MODELS] = json }
+
+    /** HuggingFace access token (optional) — higher rate limits + gated-model downloads. */
+    val hfToken: Flow<String> = context.dataStore.data.map { it[KEY_HF_TOKEN] ?: "" }
+    suspend fun setHfToken(t: String) = context.dataStore.edit {
+        if (t.isBlank()) it.remove(KEY_HF_TOKEN) else it[KEY_HF_TOKEN] = t.trim()
+    }
+    suspend fun getHfToken(): String = hfToken.first()
+
+    /** Whether AI tag suggestions (generative LLM) are enabled in the Add/Edit Item screen. */
+    val aiTagsEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_AI_TAGS_ENABLED] ?: false }
+    suspend fun setAiTagsEnabled(v: Boolean) = context.dataStore.edit { it[KEY_AI_TAGS_ENABLED] = v }
+
+    /** Minutes of idle time before an LLM is unloaded from memory (0 = keep loaded). */
+    val aiUnloadMinutes: Flow<Int> =
+        context.dataStore.data.map { it[KEY_AI_UNLOAD_MINUTES] ?: DEFAULT_UNLOAD_MINUTES }
+    suspend fun setAiUnloadMinutes(m: Int) = context.dataStore.edit { it[KEY_AI_UNLOAD_MINUTES] = m }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: "" }
     val token: Flow<String> = context.dataStore.data.map { it[KEY_TOKEN] ?: "" }

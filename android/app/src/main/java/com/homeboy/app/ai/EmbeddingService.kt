@@ -38,11 +38,10 @@ object EmbeddingService {
     private val vectorCache = HashMap<String, Pair<Int, FloatArray>>()
 
     /**
-     * Where inference is running once an engine has been built:
-     * true = NPU (QNN/Hexagon), false = CPU fallback, null = not built yet.
+     * Which hardware tier the active engine is running on, or null until one is built.
      */
-    private val _npuActive = MutableStateFlow<Boolean?>(null)
-    val npuActive: StateFlow<Boolean?> = _npuActive.asStateFlow()
+    private val _backend = MutableStateFlow<AiBackend?>(null)
+    val backend: StateFlow<AiBackend?> = _backend.asStateFlow()
 
     /** True if a usable engine exists or can be built right now. */
     fun isAvailable(context: Context): Boolean = engineOrNull(context) != null
@@ -53,7 +52,7 @@ object EmbeddingService {
         runCatching { engine?.close() }
         engine = null
         initFailed = false
-        _npuActive.value = null
+        _backend.value = null
         vectorCache.clear()
     }
 
@@ -69,7 +68,7 @@ object EmbeddingService {
         val built = EmbeddingEngine.create(model, vocab)
         if (built == null) { initFailed = true; return null }
         engine = built
-        _npuActive.value = built.usingNpu
+        _backend.value = built.backend
         return built
     }
 

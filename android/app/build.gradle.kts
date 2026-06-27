@@ -61,8 +61,9 @@ android {
     // The transitive com.qualcomm.qti:qnn-runtime ships HTP backends for every Hexagon
     // generation (V68–V81) plus DSP/GPU backends — ~200 MB of native libs. We only target
     // the Snapdragon 8 Elite (Hexagon V79), so keep libQnnHtp.so + the V79 skel/stub +
-    // System + Prepare (needed for on-device graph compile) and drop the rest. Other SoCs
-    // simply fall back to CPU. This roughly halves the packaged native-lib size.
+    // System + Prepare (needed for on-device graph compile) and drop the other Hexagon
+    // generations. We DO keep libQnnGpu.so so float models that the NPU can't run fall back
+    // to the Adreno GPU instead of all the way to CPU. Other SoCs simply use CPU.
     packaging {
         jniLibs {
             excludes += listOf(
@@ -71,7 +72,6 @@ android {
                 "**/libQnnHtpV73Skel.so", "**/libQnnHtpV73Stub.so",
                 "**/libQnnHtpV75Skel.so", "**/libQnnHtpV75Stub.so",
                 "**/libQnnHtpV81Skel.so", "**/libQnnHtpV81Stub.so",
-                "**/libQnnGpu.so",
                 "**/libQnnDsp.so", "**/libQnnDspV66Skel.so", "**/libQnnDspV66Stub.so"
             )
         }
