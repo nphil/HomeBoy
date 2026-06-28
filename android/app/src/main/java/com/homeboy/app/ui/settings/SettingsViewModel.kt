@@ -37,6 +37,10 @@ class SettingsViewModel(
     val embedBackend: StateFlow<AiBackend?> = EmbeddingService.backend
     /** Live language-model lifecycle for the management screen status row. */
     val llmState: StateFlow<LlmEngineManager.State> = LlmEngineManager.state
+    /** Backend that actually engaged the last time a generation model was loaded (survives unload). */
+    val llmLastBackend: StateFlow<AiBackend?> = LlmEngineManager.lastBackend
+    /** Model id that [llmLastBackend] applies to (survives unload). */
+    val llmLastModelId: StateFlow<String?> = LlmEngineManager.lastModelId
     val customModels: StateFlow<List<ModelRepository.ModelSpec>> = ModelRepository.customModels
     val embedModelId = prefs.aiEmbedModelId
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PreferencesRepository.DEFAULT_EMBED_MODEL_ID)

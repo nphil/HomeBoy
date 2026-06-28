@@ -43,6 +43,8 @@ fun AiManagementScreen(
     val aiTagsEnabled by vm.aiTagsEnabled.collectAsStateWithLifecycle()
     val embedBackend by vm.embedBackend.collectAsStateWithLifecycle()
     val llmState by vm.llmState.collectAsStateWithLifecycle()
+    val llmLastBackend by vm.llmLastBackend.collectAsStateWithLifecycle()
+    val llmLastModelId by vm.llmLastModelId.collectAsStateWithLifecycle()
     val hfToken by vm.hfToken.collectAsStateWithLifecycle()
     val unloadMinutes by vm.unloadMinutes.collectAsStateWithLifecycle()
     val backends by vm.modelBackends.collectAsStateWithLifecycle()
@@ -99,7 +101,10 @@ fun AiManagementScreen(
                     state = states[spec.id] ?: ModelRepository.State.NotDownloaded,
                     isDefault = spec.id == embedModelId,
                     override = AiBackend.fromToken(backends[spec.id]),
-                    liveBackend = if (spec.id == embedModelId && aiSearchEnabled) embedBackend else null,
+                    // Show the actual engaged backend whenever the engine is built (not gated on
+                    // aiSearchEnabled) so the chip always reflects truth, not the requested tier.
+                    liveBackend = if (spec.id == embedModelId) embedBackend else null,
+                    lastUsedBackend = null, // embedBackend already persists across idle; no extra tracking needed
                     deviceBackends = vm.deviceBackends,
                     onSetDefault = { vm.setDefaultEmbedModel(spec.id) },
                     onSetBackend = { vm.setModelBackend(spec.id, it) },
@@ -141,6 +146,7 @@ fun AiManagementScreen(
                     isDefault = spec.id == genModelId,
                     override = AiBackend.fromToken(backends[spec.id]),
                     liveBackend = if (spec.id == genLoadedId) genLiveBackend else null,
+                    lastUsedBackend = if (spec.id == llmLastModelId) llmLastBackend else null,
                     deviceBackends = vm.deviceBackends,
                     onSetDefault = { vm.setDefaultGenModel(spec.id) },
                     onSetBackend = { vm.setModelBackend(spec.id, it) },
@@ -188,24 +194,63 @@ private fun availability(
     }
 }
 
-/** A compact, tappable chip showing where a model runs, with a dropdown to override it. */
+/**
+ * Tappable chip showing where a model actually ran, with a dropdown to override it.
+ *
+ * Three visual states:
+ * - **Active** ([liveBackend] != null) — model loaded in memory right now → primaryContainer,
+ *   bold label, live indicator dot.
+ * - **Last used** ([lastUsedBackend] != null, not live) — model unloaded but we know what tier
+ *   it engaged → secondaryContainer, "(last)" suffix so it's honest, not a guess.
+ * - **Target** (no runtime data) — model never run or engine invalidated → dim, shows the
+ *   requested/auto tier as a hint only.
+ */
 @Composable
 private fun BackendChip(
     purpose: ModelRepository.Purpose,
     override: AiBackend?,
     liveBackend: AiBackend?,
+    lastUsedBackend: AiBackend?,
     device: Set<AiBackend>,
     onSetBackend: (AiBackend?) -> Unit
 ) {
     var open by remember { mutableStateOf(false) }
     val target = override ?: defaultBackend(purpose)
-    val shown = liveBackend ?: target
-    val live = liveBackend != null
+
+    val isLive = liveBackend != null
+    val isLastUsed = !isLive && lastUsedBackend != null
+    val shown = liveBackend ?: lastUsedBackend ?: target
+
+    val chipColor = when {
+        isLive -> MaterialTheme.colorScheme.primaryContainer
+        isLastUsed -> MaterialTheme.colorScheme.secondaryContainer
+        else -> MaterialTheme.colorScheme.surfaceContainerHighest
+    }
+    val contentColor = when {
+        isLive -> MaterialTheme.colorScheme.onPrimaryContainer
+        isLastUsed -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val label = when {
+        isLive -> shown.shortLabel
+        isLastUsed -> "${shown.shortLabel} (last used)"
+        else -> shown.shortLabel
+    }
+
+    // In the Auto dropdown item, tell the user what the smart default actually is and, when we
+    // know what tier engaged last, call that out so "Auto" isn't a mystery.
+    val autoSuffix = when {
+        lastUsedBackend != null || liveBackend != null -> {
+            val known = liveBackend ?: lastUsedBackend!!
+            if (known == defaultBackend(purpose)) " · ${known.shortLabel}"
+            else " · ${defaultBackend(purpose).shortLabel} (last: ${known.shortLabel})"
+        }
+        else -> " · ${defaultBackend(purpose).shortLabel}"
+    }
 
     Box {
         Surface(
-            color = if (live) MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceContainerHighest,
+            color = chipColor,
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.clickable { open = true }
         ) {
@@ -214,15 +259,12 @@ private fun BackendChip(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(shown.icon(), null, Modifier.size(14.dp),
-                    tint = if (live) MaterialTheme.colorScheme.onPrimaryContainer
-                           else MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(shown.icon(), null, Modifier.size(14.dp), tint = contentColor)
                 Text(
-                    shown.shortLabel,
+                    label,
                     style = MaterialTheme.typography.labelMedium,
-                    fontWeight = if (live) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (live) MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant
+                    fontWeight = if (isLive) FontWeight.SemiBold else FontWeight.Normal,
+                    color = contentColor
                 )
                 Icon(Icons.Default.ArrowDropDown, null, Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -232,9 +274,9 @@ private fun BackendChip(
             Text("Run on", style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 16.dp, top = 8.dp, bottom = 4.dp))
-            // Auto (recommended) resets to the smart default.
+            // Auto resets to the smart default; shows what tier that is + the last-used hint.
             DropdownMenuItem(
-                text = { Text("Auto · ${defaultBackend(purpose).shortLabel}") },
+                text = { Text("Auto$autoSuffix") },
                 onClick = { onSetBackend(null); open = false },
                 leadingIcon = { Icon(Icons.Default.AutoMode, null, Modifier.size(18.dp)) },
                 trailingIcon = if (override == null) {
@@ -272,6 +314,7 @@ private fun ModelRow(
     isDefault: Boolean,
     override: AiBackend?,
     liveBackend: AiBackend?,
+    lastUsedBackend: AiBackend?,
     deviceBackends: Set<AiBackend>,
     onSetDefault: () -> Unit,
     onSetBackend: (AiBackend?) -> Unit,
@@ -307,6 +350,7 @@ private fun ModelRow(
                             purpose = spec.purpose,
                             override = override,
                             liveBackend = liveBackend,
+                            lastUsedBackend = lastUsedBackend,
                             device = deviceBackends,
                             onSetBackend = onSetBackend
                         )

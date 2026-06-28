@@ -58,12 +58,12 @@ object ModelRepository {
         ModelSpec(
             id = "nomic-embed-v1.5",
             displayName = "Nomic Embed v1.5 (semantic search)",
-            description = "Sentence embeddings for smarter search. Runs on NPU/CPU. ~274 MB.",
+            description = "Sentence embeddings for smarter search. Q8_0 — runs on NPU/CPU. ~145 MB.",
             purpose = Purpose.EMBEDDING,
-            approxBytes = 274_000_000,
+            approxBytes = 145_000_000,
             files = listOf(
                 ModelFile(
-                    "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.f16.gguf",
+                    "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
                     "model.gguf"
                 )
             )

@@ -41,6 +41,20 @@ object LlmEngineManager {
     private val _state = MutableStateFlow<State>(State.Unloaded)
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /**
+     * The backend that actually engaged the last time any model was loaded — persists across
+     * unloads so the UI can show "last ran on CPU" even when the model is idle.
+     */
+    private val _lastBackend = MutableStateFlow<AiBackend?>(null)
+    val lastBackend: StateFlow<AiBackend?> = _lastBackend.asStateFlow()
+
+    /**
+     * The model id that [lastBackend] applies to — kept so the UI can attribute the last backend
+     * to the right row when multiple generation models are installed.
+     */
+    private val _lastModelId = MutableStateFlow<String?>(null)
+    val lastModelId: StateFlow<String?> = _lastModelId.asStateFlow()
+
     private val mutex = Mutex()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -76,6 +90,8 @@ object LlmEngineManager {
             handle = built.first
             backend = built.second
             loadedModelId = modelId
+            _lastBackend.value = backend
+            _lastModelId.value = modelId
             _state.value = State.Ready(modelId, backend)
             true
         }
