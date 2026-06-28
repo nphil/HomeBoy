@@ -4,6 +4,14 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.30 — 2026-06-28
+
+### AI & Models
+- **Better tag suggestions**: the prompt now asks the model to generate tags for the *item itself* rather than picking from your existing tag library. Previously a small model would force-fit unrelated existing tags (e.g. tagging "black pepper" as "Pesticides") instead of suggesting the obvious new ones ("Spices", "Cooking"). New tags now reliably appear with a `+` to create them.
+- **Existing-tag matching moved fully into code** and made plural/case-insensitive, so a generated "Spices" still takes precedence over an existing "Spice" (shown without a `+`). Existing tags keep their stored spelling.
+
+---
+
 ## v1.0.29 — 2026-06-28
 
 ### AI & Models

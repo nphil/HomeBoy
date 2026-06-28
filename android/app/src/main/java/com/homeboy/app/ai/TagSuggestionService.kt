@@ -43,11 +43,15 @@ object TagSuggestionService {
         LlmEngineManager.scheduleUnload(unloadMinutes)
 
         val names = parse(raw)
-        val existingByLower = existingTags.associateBy { it.name.lowercase() }
+        // Reconcile the model's suggestions against the library HERE, not in the prompt: a
+        // suggestion that maps to an existing tag is shown as already-existing (no "+"), the rest
+        // are offered as new tags to create. Matching is plural/case-insensitive so a generated
+        // "Spices" still takes precedence over an existing "Spice".
+        val existingBySingular = existingTags.associateBy { singular(it.name) }
         val matched = LinkedHashSet<HBTag>()
         val novel = LinkedHashSet<String>()
         for (n in names) {
-            val tag = existingByLower[n.lowercase()]
+            val tag = existingBySingular[singular(n)]
             // Existing tags keep their stored casing; new tags get title-cased for display.
             if (tag != null) matched.add(tag) else novel.add(titleCase(n))
         }
@@ -59,10 +63,14 @@ object TagSuggestionService {
     /**
      * Returns (systemPrompt, userMessage) for a chat-template-aware model call.
      *
-     * The system prompt carries the task definition. Qwen3/3.5 models accept `/no_think` in the
-     * system message to suppress chain-of-thought output when thinking mode is on (it is off by
-     * default for non-Thinking variants, but the guard costs nothing). The user message contains
-     * only the item data so the model answers with just the tags.
+     * Design note: the model's ONE job is to generate the best tags for the item itself. We
+     * deliberately do NOT ask it to pick from the existing-tag list — small instruct models
+     * (Qwen3 1.7B) read "reuse an existing tag whenever one fits" as "classify into this list" and
+     * will force-fit unrelated tags (tagging "black pepper" as "Pesticides") instead of inventing
+     * the obvious "Spices"/"Cooking". Existing-vs-novel is reconciled in code afterwards (see
+     * [suggest]); the library is passed here only as a soft spelling hint so a generated tag aligns
+     * to an existing one's wording. A worked example anchors the output format, and `/no_think`
+     * suppresses Qwen3 chain-of-thought.
      */
     private fun buildMessages(
         name: String,
@@ -72,15 +80,18 @@ object TagSuggestionService {
         val tagList = existingTags.take(40).joinToString(", ") { it.name }
         val system = buildString {
             append("/no_think\n")
-            append("You label home-inventory items with short tags. ")
-            append("Reply with ONLY a comma-separated list of 3 to 5 short tags and nothing else.")
+            append("You suggest organizing tags for an item in a home inventory. ")
+            append("Reply with ONLY a comma-separated list of 4 to 6 short tags (1-2 words each) and nothing else. ")
+            append("Pick tags that genuinely describe the item — its kind, category, use, or where it is kept. ")
+            append("Always invent tags that fit the item; never force an unrelated tag just to reuse one. ")
+            append("Example — \"cordless drill\": Tools, Power Tools, Garage, Hardware, DIY.")
             if (tagList.isNotBlank()) {
-                append("\nReuse these existing tags whenever one fits — only invent a new tag when none of them match: ")
+                append("\nIf a tag you choose means the same as one already in the library, copy its exact spelling: ")
                 append(tagList).append('.')
             }
         }
         val user = buildString {
-            append("Item name: ").append(name)
+            append("Item: ").append(name)
             if (description.isNotBlank()) append("\nDescription: ").append(description)
             append("\nTags:")
         }
@@ -123,4 +134,20 @@ object TagSuggestionService {
                 word.replaceFirstChar { it.uppercase() }
             else word
         }
+
+    /**
+     * Fold a tag name to a match key: lowercase, trimmed, collapsed spaces, with a simple plural
+     * suffix removed so "Spices" matches an existing "Spice" and "Batteries" matches "Battery".
+     * Sibilant "-es" plurals (boxes, glasses) aren't folded — rare among inventory tags, and the
+     * worst case is just offering a near-duplicate as a new tag rather than a wrong match.
+     */
+    private fun singular(s: String): String {
+        val n = s.lowercase().trim().replace(Regex("\\s+"), " ")
+        return when {
+            n.endsWith("ies") && n.length > 4 -> n.dropLast(3) + "y"
+            n.endsWith("ss") -> n
+            n.endsWith("s") && n.length > 3 -> n.dropLast(1)
+            else -> n
+        }
+    }
 }
