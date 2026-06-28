@@ -82,27 +82,27 @@ object ModelRepository {
             )
         ),
         ModelSpec(
-            id = "bge-base-en-v1.5",
-            displayName = "BGE Base EN v1.5 (semantic search)",
-            description = "Higher-accuracy sentence embeddings. Q8_0 — runs on NPU/CPU. ~110 MB.",
+            id = "bge-large-en-v1.5",
+            displayName = "BGE Large EN v1.5 (semantic search)",
+            description = "Highest-accuracy English embeddings. Q8_0 — runs on NPU/CPU. ~358 MB.",
             purpose = Purpose.EMBEDDING,
-            approxBytes = 110_000_000,
+            approxBytes = 358_235_712,
             files = listOf(
                 ModelFile(
-                    "https://huggingface.co/CompendiumLabs/bge-base-en-v1.5-gguf/resolve/main/bge-base-en-v1.5-q8_0.gguf",
+                    "https://huggingface.co/CompendiumLabs/bge-large-en-v1.5-gguf/resolve/main/bge-large-en-v1.5-q8_0.gguf",
                     "model.gguf"
                 )
             )
         ),
         ModelSpec(
-            id = "qwen3.5-1.7b-instruct",
-            displayName = "Qwen3.5 1.7B Instruct (tag suggestions)",
-            description = "Compact instruct model for tag suggestions. Q4_K_M — runs on CPU. ~1.1 GB.",
+            id = "qwen3-1.7b-instruct",
+            displayName = "Qwen3 1.7B (tag suggestions)",
+            description = "Compact Qwen3 model for tag suggestions. Q4_K_M — runs on CPU. ~1.3 GB.",
             purpose = Purpose.GENERATION,
-            approxBytes = 1_100_000_000,
+            approxBytes = 1_282_439_584,
             files = listOf(
                 ModelFile(
-                    "https://huggingface.co/bartowski/Qwen3.5-1.7B-GGUF/resolve/main/Qwen3.5-1.7B-Q4_K_M.gguf",
+                    "https://huggingface.co/bartowski/Qwen_Qwen3-1.7B-GGUF/resolve/main/Qwen_Qwen3-1.7B-Q4_K_M.gguf",
                     "model.gguf"
                 )
             )

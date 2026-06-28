@@ -212,20 +212,22 @@ Java_com_homeboy_llmkit_LlmKit_nativeGenerateChat(JNIEnv *env, jobject, jlong ha
     if (!sys_str.empty()) msgs.push_back({"system", sys_str.c_str()});
     msgs.push_back({"user", usr_str.c_str()});
 
-    // Apply the model's built-in chat template (embedded in GGUF metadata). add_ass=true appends
-    // the assistant turn prefix so the model generates a completion rather than echoing the prompt.
+    // Apply the model's built-in chat template (embedded in GGUF metadata). The pinned llama.cpp
+    // takes the template *string* (not the model) — fetch it from the model, then apply. add_ass=true
+    // appends the assistant turn prefix so the model generates a completion rather than echoing.
+    const char *tmpl = llama_model_chat_template(eng->model, /*name=*/nullptr);
     std::string formatted(8192, '\0');
-    int32_t n = llama_chat_apply_template(vocab, /*tmpl=*/nullptr,
-                                          msgs.data(), msgs.size(),
-                                          /*add_ass=*/true,
-                                          formatted.data(), (int32_t)formatted.size());
+    int32_t n = tmpl ? llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
+                                                 /*add_ass=*/true,
+                                                 formatted.data(), (int32_t)formatted.size())
+                     : -1;
     if (n < 0) {
-        // No chat template in this GGUF — fall back to raw concatenation.
+        // No chat template in this GGUF (or apply failed) — fall back to raw concatenation.
         formatted = (sys_str.empty() ? "" : sys_str + "\n") + usr_str;
         LOGI("no chat template found, using raw concatenation");
     } else if (n > (int32_t)formatted.size()) {
         formatted.assign(static_cast<size_t>(n + 1), '\0');
-        llama_chat_apply_template(vocab, nullptr, msgs.data(), msgs.size(),
+        llama_chat_apply_template(tmpl, msgs.data(), msgs.size(),
                                   true, formatted.data(), n + 1);
         formatted.resize(n);
     } else {
