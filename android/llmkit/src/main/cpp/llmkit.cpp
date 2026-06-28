@@ -197,6 +197,74 @@ Java_com_homeboy_llmkit_LlmKit_nativeEngagedBackend(JNIEnv *, jobject, jlong han
 }
 
 JNIEXPORT jstring JNICALL
+Java_com_homeboy_llmkit_LlmKit_nativeGenerateChat(JNIEnv *env, jobject, jlong handle,
+                                                  jstring jsystem, jstring juser,
+                                                  jint max_tokens, jfloat temperature, jint top_k) {
+    Engine *eng = as_engine(handle);
+    if (eng == nullptr || eng->ctx == nullptr) return env->NewStringUTF("");
+
+    const llama_vocab *vocab = llama_model_get_vocab(eng->model);
+    const std::string sys_str = jstr(env, jsystem);
+    const std::string usr_str = jstr(env, juser);
+
+    // Build the chat messages. Pointers into local std::strings are valid for this call's scope.
+    std::vector<llama_chat_message> msgs;
+    if (!sys_str.empty()) msgs.push_back({"system", sys_str.c_str()});
+    msgs.push_back({"user", usr_str.c_str()});
+
+    // Apply the model's built-in chat template (embedded in GGUF metadata). add_ass=true appends
+    // the assistant turn prefix so the model generates a completion rather than echoing the prompt.
+    std::string formatted(8192, '\0');
+    int32_t n = llama_chat_apply_template(vocab, /*tmpl=*/nullptr,
+                                          msgs.data(), msgs.size(),
+                                          /*add_ass=*/true,
+                                          formatted.data(), (int32_t)formatted.size());
+    if (n < 0) {
+        // No chat template in this GGUF — fall back to raw concatenation.
+        formatted = (sys_str.empty() ? "" : sys_str + "\n") + usr_str;
+        LOGI("no chat template found, using raw concatenation");
+    } else if (n > (int32_t)formatted.size()) {
+        formatted.assign(static_cast<size_t>(n + 1), '\0');
+        llama_chat_apply_template(vocab, nullptr, msgs.data(), msgs.size(),
+                                  true, formatted.data(), n + 1);
+        formatted.resize(n);
+    } else {
+        formatted.resize(n);
+    }
+    LOGI("chat: %zu tokens after template", formatted.size());
+
+    // From here identical to nativeGenerate, but add_bos=false — the template already emitted it.
+    llama_memory_clear(llama_get_memory(eng->ctx), true);
+
+    std::vector<llama_token> tokens = tokenize(vocab, formatted, /*add_bos=*/false);
+    if (tokens.empty()) return env->NewStringUTF("");
+
+    llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int>(tokens.size()));
+    if (llama_decode(eng->ctx, batch) != 0) {
+        LOGE("decode failed on chat prompt");
+        return env->NewStringUTF("");
+    }
+
+    llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(top_k > 0 ? top_k : 40));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature > 0.f ? temperature : 0.7f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    std::string out;
+    llama_token tok = 0;
+    for (int i = 0; i < max_tokens; ++i) {
+        tok = llama_sampler_sample(smpl, eng->ctx, -1);
+        if (llama_vocab_is_eog(vocab, tok)) break;
+        out += token_to_piece(vocab, tok);
+        llama_batch step = llama_batch_get_one(&tok, 1);
+        if (llama_decode(eng->ctx, step) != 0) break;
+    }
+
+    llama_sampler_free(smpl);
+    return env->NewStringUTF(out.c_str());
+}
+
+JNIEXPORT jstring JNICALL
 Java_com_homeboy_llmkit_LlmKit_nativeGenerate(JNIEnv *env, jobject, jlong handle, jstring jprompt,
                                               jint max_tokens, jfloat temperature, jint top_k) {
     Engine *eng = as_engine(handle);

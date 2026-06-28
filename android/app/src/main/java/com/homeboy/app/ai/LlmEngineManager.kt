@@ -103,7 +103,26 @@ object LlmEngineManager {
         _state.value = State.Generating
         val out = withContext(Dispatchers.IO) {
             runCatching {
-                LlmKit.generate(handle, prompt, maxTokens = 64, temperature = 0.4f, topK = 20)
+                LlmKit.generate(handle, prompt, maxTokens = 128, temperature = 0.4f, topK = 20)
+            }.getOrNull()?.takeIf { it.isNotBlank() }
+        }
+        _state.value = State.Ready(loadedModelId ?: "", backend)
+        out
+    }
+
+    /**
+     * Generate a chat completion via the model's built-in chat template. Correctly wraps the
+     * conversation in the model's special tokens (ChatML for Qwen3.5, Llama-3, Gemma, etc.)
+     * and adds the assistant turn prefix so the model completes rather than continues the
+     * system/user text. Use this for all instruct models instead of [generate].
+     */
+    suspend fun generateChat(system: String, user: String): String? = mutex.withLock {
+        if (handle == 0L) return null
+        cancelUnload()
+        _state.value = State.Generating
+        val out = withContext(Dispatchers.IO) {
+            runCatching {
+                LlmKit.generateChat(handle, system, user, maxTokens = 128, temperature = 0.4f, topK = 20)
             }.getOrNull()?.takeIf { it.isNotBlank() }
         }
         _state.value = State.Ready(loadedModelId ?: "", backend)

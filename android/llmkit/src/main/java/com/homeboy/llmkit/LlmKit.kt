@@ -85,6 +85,31 @@ object LlmKit {
         topK: Int = 40,
     ): String = nativeGenerate(handle, prompt, maxTokens, temperature, topK)
 
+    /**
+     * Generate a chat completion using the model's built-in chat template (read from GGUF
+     * metadata via llama_chat_apply_template). Automatically wraps [system] and [user] in the
+     * correct special tokens (ChatML for Qwen, Llama-3 format for Llama, etc.) and adds the
+     * assistant turn prefix so the model completes rather than echoes.
+     *
+     * Falls back to a naive concatenation if the native library hasn't been rebuilt yet (the
+     * new JNI symbol won't exist until the next PC build), so the app stays usable in the
+     * meantime — just without proper token formatting.
+     */
+    fun generateChat(
+        handle: Long,
+        system: String,
+        user: String,
+        maxTokens: Int = 128,
+        temperature: Float = 0.7f,
+        topK: Int = 40,
+    ): String = try {
+        nativeGenerateChat(handle, system, user, maxTokens, temperature, topK)
+    } catch (_: UnsatisfiedLinkError) {
+        // Native lib predates this symbol — degrade gracefully until PC rebuild.
+        val fallback = if (system.isBlank()) user else "$system\n$user"
+        nativeGenerate(handle, fallback, maxTokens, temperature, topK)
+    }
+
     /** Embed [text]. Returns a mean-pooled, L2-normalized vector. */
     fun embed(handle: Long, text: String): FloatArray = nativeEmbed(handle, text)
 
@@ -106,6 +131,7 @@ object LlmKit {
     private external fun nativeLoadModel(path: String, nGpuLayers: Int, backendHint: Int, embeddings: Boolean): Long
     private external fun nativeEngagedBackend(handle: Long): Int
     private external fun nativeGenerate(handle: Long, prompt: String, maxTokens: Int, temperature: Float, topK: Int): String
+    private external fun nativeGenerateChat(handle: Long, system: String, user: String, maxTokens: Int, temperature: Float, topK: Int): String
     private external fun nativeEmbed(handle: Long, text: String): FloatArray
     private external fun nativeProbeBackends(): Array<String>
     private external fun nativeFree(handle: Long)

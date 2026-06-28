@@ -34,7 +34,9 @@ object TagSuggestionService {
     ): Suggestions? {
         if (name.isBlank()) return null
         if (!LlmEngineManager.ensureLoaded(context, modelId, modelFile, preferred)) return null
-        val raw = LlmEngineManager.generate(buildPrompt(name, description, existingTags)) ?: run {
+
+        val (system, user) = buildMessages(name, description, existingTags)
+        val raw = LlmEngineManager.generateChat(system, user) ?: run {
             LlmEngineManager.scheduleUnload(unloadMinutes)
             return null
         }
@@ -54,24 +56,42 @@ object TagSuggestionService {
         return Suggestions(matched.toList(), novel.toList(), modelName, backend)
     }
 
-    private fun buildPrompt(name: String, description: String, existingTags: List<HBTag>): String {
+    /**
+     * Returns (systemPrompt, userMessage) for a chat-template-aware model call.
+     *
+     * The system prompt carries the task definition. Qwen3/3.5 models accept `/no_think` in the
+     * system message to suppress chain-of-thought output when thinking mode is on (it is off by
+     * default for non-Thinking variants, but the guard costs nothing). The user message contains
+     * only the item data so the model answers with just the tags.
+     */
+    private fun buildMessages(
+        name: String,
+        description: String,
+        existingTags: List<HBTag>
+    ): Pair<String, String> {
         val tagList = existingTags.take(40).joinToString(", ") { it.name }
-        return buildString {
+        val system = buildString {
+            append("/no_think\n")
             append("You label home-inventory items with short tags. ")
-            append("Reply with ONLY a comma-separated list of 3 to 5 short tags and nothing else.\n")
+            append("Reply with ONLY a comma-separated list of 3 to 5 short tags and nothing else.")
             if (tagList.isNotBlank()) {
-                append("Reuse these existing tags whenever one fits — only invent a new tag when none of them match: ")
-                append(tagList).append(".\n")
+                append("\nReuse these existing tags whenever one fits — only invent a new tag when none of them match: ")
+                append(tagList).append('.')
             }
-            append("Item name: ").append(name).append('\n')
-            if (description.isNotBlank()) append("Description: ").append(description).append('\n')
-            append("Tags:")
         }
+        val user = buildString {
+            append("Item name: ").append(name)
+            if (description.isNotBlank()) append("\nDescription: ").append(description)
+            append("\nTags:")
+        }
+        return system to user
     }
 
     /** Pull a clean tag list out of the model's free-form reply. */
     private fun parse(raw: String): List<String> {
-        val body = if (raw.contains("Tags:")) raw.substringAfterLast("Tags:") else raw
+        // Strip <think>...</think> blocks produced by reasoning models that ignore /no_think.
+        val stripped = stripThinking(raw)
+        val body = if (stripped.contains("Tags:")) stripped.substringAfterLast("Tags:") else stripped
         val firstLine = body.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }
             ?: return emptyList()
         return firstLine.split(',', ';')
@@ -79,6 +99,18 @@ object TagSuggestionService {
             .filter { it.length in 2..30 && it.split(' ').size <= 3 }
             .distinctBy { it.lowercase() }
             .take(6)
+    }
+
+    private fun stripThinking(raw: String): String {
+        var s = raw
+        while (true) {
+            val start = s.indexOf("<think>")
+            if (start < 0) break
+            val end = s.indexOf("</think>", start)
+            s = if (end < 0) s.substring(0, start)
+                else s.substring(0, start) + s.substring(end + 8)
+        }
+        return s.trim()
     }
 
     /**

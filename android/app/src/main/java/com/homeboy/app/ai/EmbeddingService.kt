@@ -93,12 +93,32 @@ object EmbeddingService {
     private fun itemText(item: HBItem): String =
         (item.name + " " + (item.description ?: "")).trim()
 
+    /**
+     * Query-time instruction prefix required by each model family. Without it, retrieval models
+     * treat the query as a document and similarity degrades significantly for synonym matching.
+     */
+    private fun queryPrefix(modelId: String): String = when {
+        modelId.startsWith("nomic-embed") -> "search_query: "
+        modelId.startsWith("bge-") -> "Represent this sentence for searching relevant passages: "
+        else -> ""
+    }
+
+    /**
+     * Document-time instruction prefix. Only nomic requires one; bge and custom models use
+     * symmetric encoding (no prefix on the document side).
+     */
+    private fun docPrefix(modelId: String): String = when {
+        modelId.startsWith("nomic-embed") -> "search_document: "
+        else -> ""
+    }
+
     @Synchronized
     private fun vectorFor(eng: EmbeddingEngine, item: HBItem): FloatArray? {
         val text = itemText(item)
         val hash = text.hashCode()
         vectorCache[item.id]?.let { (h, v) -> if (h == hash) return v }
-        val v = eng.embed(text) ?: return null
+        val prefix = docPrefix(selectedModelId)
+        val v = eng.embed(prefix + text) ?: return null
         vectorCache[item.id] = hash to v
         return v
     }
@@ -112,7 +132,8 @@ object EmbeddingService {
         val eng = engineOrNull(context) ?: return null
         if (query.isBlank() || items.isEmpty()) return null
         return withContext(Dispatchers.Default) {
-            val q = eng.embed(query) ?: return@withContext null
+            val prefix = queryPrefix(selectedModelId)
+            val q = eng.embed(prefix + query) ?: return@withContext null
             val needle = query.trim()
             items
                 .map { item ->

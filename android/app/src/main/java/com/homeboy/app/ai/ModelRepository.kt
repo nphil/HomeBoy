@@ -69,14 +69,40 @@ object ModelRepository {
             )
         ),
         ModelSpec(
-            id = "llama-3.2-1b-instruct",
-            displayName = "Llama 3.2 1B Instruct (tag suggestions)",
-            description = "Compact instruct model for tag suggestions. Q4_0, runs on NPU/GPU/CPU. ~770 MB.",
-            purpose = Purpose.GENERATION,
-            approxBytes = 770_000_000,
+            id = "bge-small-en-v1.5",
+            displayName = "BGE Small EN v1.5 (semantic search)",
+            description = "Lightweight sentence embeddings. Q8_0 — runs on NPU/CPU. ~35 MB.",
+            purpose = Purpose.EMBEDDING,
+            approxBytes = 35_000_000,
             files = listOf(
                 ModelFile(
-                    "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_0.gguf",
+                    "https://huggingface.co/CompendiumLabs/bge-small-en-v1.5-gguf/resolve/main/bge-small-en-v1.5-q8_0.gguf",
+                    "model.gguf"
+                )
+            )
+        ),
+        ModelSpec(
+            id = "bge-base-en-v1.5",
+            displayName = "BGE Base EN v1.5 (semantic search)",
+            description = "Higher-accuracy sentence embeddings. Q8_0 — runs on NPU/CPU. ~110 MB.",
+            purpose = Purpose.EMBEDDING,
+            approxBytes = 110_000_000,
+            files = listOf(
+                ModelFile(
+                    "https://huggingface.co/CompendiumLabs/bge-base-en-v1.5-gguf/resolve/main/bge-base-en-v1.5-q8_0.gguf",
+                    "model.gguf"
+                )
+            )
+        ),
+        ModelSpec(
+            id = "qwen3.5-1.7b-instruct",
+            displayName = "Qwen3.5 1.7B Instruct (tag suggestions)",
+            description = "Compact instruct model for tag suggestions. Q4_K_M — runs on CPU. ~1.1 GB.",
+            purpose = Purpose.GENERATION,
+            approxBytes = 1_100_000_000,
+            files = listOf(
+                ModelFile(
+                    "https://huggingface.co/bartowski/Qwen3.5-1.7B-GGUF/resolve/main/Qwen3.5-1.7B-Q4_K_M.gguf",
                     "model.gguf"
                 )
             )
