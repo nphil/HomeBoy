@@ -40,8 +40,7 @@ actor EmbeddingService {
     // Tuning. The 1.15 NLEmbedding distance is locked by CLAUDE.md; the contextual
     // cosine floor / cap below are independent and tunable on-device.
     private let contextualFloor: Float = 0.25
-    private let ggufMargin: Float = 0.07   // nomic/BGE: keep items within this cosine of the best
-    private let maxResults = 30
+    private let maxResults = 20
 
     func setProvider(_ p: EmbedProvider) {
         guard p != provider else { return }
@@ -246,12 +245,18 @@ actor EmbeddingService {
             scored.append((item, dot(qVec, vec)))
         }
         scored.sort { $0.1 > $1.1 }
-        guard let best = scored.first?.1 else { return [] }
-        // nomic/BGE have a high baseline similarity, so an absolute floor lets everything
-        // through (search appears to "do nothing"). Use a RELATIVE cutoff: keep only items
-        // close to the best match.
-        let cutoff = best - ggufMargin
-        return scored.prefix(maxResults).filter { $0.1 >= cutoff }.map { $0.0 }
+        guard !scored.isEmpty else { return [] }
+        // nomic/BGE have a high, query-dependent similarity baseline, so thresholds relative
+        // to the single best match are unstable (one strong hit excludes other good ones; a
+        // flat query keeps everything). Instead keep items clearly above the AVERAGE for this
+        // query (mean + 0.75·σ), with a small floor so a few results always show.
+        let sims = scored.map { $0.1 }
+        let mean = sims.reduce(0, +) / Float(sims.count)
+        let variance = sims.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(sims.count)
+        let cutoff = mean + 0.75 * variance.squareRoot()
+        var kept = scored.filter { $0.1 >= cutoff }
+        if kept.count < 3 { kept = Array(scored.prefix(min(5, scored.count))) }
+        return Array(kept.prefix(maxResults).map { $0.0 })
     }
 
     /// On-device self-test: embed known pairs and report cosine similarities so we can see
