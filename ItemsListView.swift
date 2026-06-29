@@ -871,13 +871,15 @@ struct ItemsListView: View {
             }
         }
 
-        // Rank via the shared, provider-aware EmbeddingService (default: NLContextualEmbedding;
-        // falls back to NLEmbedding's 1.15 path when contextual assets aren't ready).
-        let service = ai.embedding
+        // Smart search runs only when a literal search found nothing. Debounce so we
+        // don't fire an LLM call on every keystroke.
+        let manager = ai
         let query = newQuery.trimmingCharacters(in: .whitespaces)
         let items = baseItems
         semanticSearchTask = Task {
-            let results = await service.rank(query: query, items: items)
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            if Task.isCancelled { return }
+            let results = await manager.semanticSearch(query: query, items: items)
             if !Task.isCancelled {
                 await MainActor.run { self.semanticResults = results }
             }

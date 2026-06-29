@@ -11,7 +11,7 @@ struct AIManagementView: View {
     private var appleLLMAvailable: Bool { SystemLanguageModel.default.isAvailable }
 
     // Apple-only providers in Phase 1; GGUF appears once downloads land.
-    private let embedChoices: [EmbedProvider] = [.appleContextual, .appleNL]
+    private let embedChoices: [EmbedProvider] = [.appleLLM, .appleContextual, .appleNL]
 
     var body: some View {
         Form {

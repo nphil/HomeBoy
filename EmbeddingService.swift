@@ -46,7 +46,8 @@ actor EmbeddingService {
         switch provider {
         case .appleNL:
             return rankNL(query: trimmed.lowercased(), items: items)
-        case .appleContextual, .gguf:
+        case .appleContextual, .appleLLM, .gguf:
+            // Embedding fallback path (also used when the LLM provider can't run).
             // GGUF lands in Phase 2; until then the on-device vector path is contextual.
             if let ranked = rankVector(query: trimmed, items: items) { return ranked }
             // Assets not ready yet → fall back so search still works this session.
@@ -81,8 +82,12 @@ actor EmbeddingService {
     }
 
     private func itemText(_ item: HBItem) -> String {
-        if let d = item.description, !d.isEmpty { return item.name + ". " + d }
-        return item.name
+        var parts = [item.name]
+        if let d = item.description, !d.isEmpty { parts.append(d) }
+        if let labels = item.effectiveLabels, !labels.isEmpty {
+            parts.append(labels.map { $0.name }.joined(separator: " "))
+        }
+        return parts.joined(separator: ". ")
     }
 
     /// Mean-pool the contextual token vectors into one L2-normalized sentence vector.
