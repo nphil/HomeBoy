@@ -15,9 +15,9 @@ enum EmbedProvider: String, CaseIterable, Identifiable, Sendable {
     var displayName: String {
         switch self {
         case .appleLLM:        return "Smart (Apple Intelligence)"
-        case .appleContextual: return "Fast (embeddings)"
+        case .appleContextual: return "Apple on-device (fast)"
         case .appleNL:         return "Basic"
-        case .gguf:            return "Hybrid (downloaded + AI)"
+        case .gguf:            return "Downloaded embedder (like Android)"
         }
     }
 
@@ -26,7 +26,7 @@ enum EmbedProvider: String, CaseIterable, Identifiable, Sendable {
         case .appleLLM:        return "Understands what products are — finds “Round Up” for “pesticide”. Slower; needs Apple Intelligence."
         case .appleContextual: return "Neural-Engine embeddings · fast, but limited world knowledge"
         case .appleNL:         return "Lightweight word match · always available"
-        case .gguf:            return "Downloaded embedder shortlist + Apple Intelligence rerank — fast and accurate"
+        case .gguf:            return "Pure nomic / BGE embedding search, same as the Android app (runs on CPU)"
         }
     }
 }
@@ -166,52 +166,15 @@ final class AIModelManager: ObservableObject {
     func semanticSearch(query: String, items: [HBItem]) async -> [HBItem] {
         switch embedProvider {
         case .gguf:
-            // Hybrid. When Apple Intelligence is available it should drive the *ranking*
-            // (it has the world knowledge); the embedder only narrows very large catalogs
-            // so the LLM call stays fast. A raw embedder shortlist ranks by surface
-            // similarity and gives nonsense like "aquarium sand" for "lubricant".
-            if SystemLanguageModel.default.isAvailable {
-                if items.count <= 300 {
-                    // Up to a few hundred items: let the LLM read everything (the high-quality
-                    // "Smart" path). No embedder — avoids surface-similarity nonsense entirely.
-                    if let m = await llmSearch(query: query, items: items) { return m }
-                    return await embedding.rank(query: query, items: items)  // LLM errored → embedder
-                }
-                // Very large: embedder narrows the field, then the LLM ranks the top 40.
-                let shortlist = Array(await embedding.rank(query: query, items: items).prefix(40))
-                if let m = await llmMatchChunk(query: query, items: shortlist), !m.isEmpty { return m }
-                return shortlist
-            }
-            // No Apple Intelligence → embedder shortlist, optionally reranked by a downloaded model.
-            let shortlist = Array(await embedding.rank(query: query, items: items).prefix(25))
-            if let m = await ggufRerank(query: query, items: shortlist), !m.isEmpty { return m }
-            return shortlist
+            // Pure on-device embedding search with the downloaded model (nomic / BGE),
+            // exactly like the Android app — the embedder ranks directly, no LLM in the loop.
+            return await embedding.rank(query: query, items: items)
         case .appleLLM:
             if let matched = await llmSearch(query: query, items: items) { return matched }
             return await embedding.rank(query: query, items: items)
         case .appleContextual, .appleNL:
             return await embedding.rank(query: query, items: items)
         }
-    }
-
-    private func ggufRerank(query: String, items: [HBItem]) async -> [HBItem]? {
-        guard genModelId != nil else { return nil }
-        let list = items.enumerated()
-            .map { "\($0.offset + 1). \($0.element.name.prefix(60))" }
-            .joined(separator: "\n")
-        let system = "/no_think\nYou search a home inventory. Reply with ONLY the matching item numbers, comma-separated, most relevant first; or 'none'."
-        let user = "Search: \(query)\nItems:\n\(list)"
-        guard let raw = await GenerationEngine.shared.generate(
-            system: system, user: user, maxTokens: 64, temperature: 0.2, topK: 20) else { return nil }
-        return parseMatches(stripThink(raw), items: items)
-    }
-
-    private func stripThink(_ s: String) -> String {
-        guard let start = s.range(of: "<think>") else { return s }
-        if let end = s.range(of: "</think>", range: start.upperBound..<s.endIndex) {
-            return String(s[..<start.lowerBound]) + String(s[end.upperBound...])
-        }
-        return String(s[..<start.lowerBound])
     }
 
     // MARK: - GGUF configuration + model management
