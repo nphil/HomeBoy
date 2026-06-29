@@ -20,6 +20,13 @@ actor EmbeddingService {
     private var contextualLoaded = false
     private var assetRequestStarted = false
 
+    // GGUF embedder (lazy; llama.cpp / Metal or CPU). Configured by AIModelManager.
+    private var ggufModelId: String?
+    private var ggufPath: String?
+    private var ggufBackend: LlamaBackend = .cpu
+    private var ggufHandle: UInt64?
+    private var ggufTriedLoad = false
+
     // Per-item vector cache for the contextual/gguf path: id -> (contentHash, normalized vector).
     // In-memory only (String.hashValue is per-process); rebuilt as needed.
     private var vectorCache: [String: (hash: Int, vec: [Float])] = [:]
@@ -27,13 +34,34 @@ actor EmbeddingService {
     // Tuning. The 1.15 NLEmbedding distance is locked by CLAUDE.md; the contextual
     // cosine floor / cap below are independent and tunable on-device.
     private let contextualFloor: Float = 0.25
-    private let maxResults = 25
+    private let ggufFloor: Float = 0.15   // lenient — GGUF rank is a hybrid shortlist
+    private let maxResults = 30
 
     func setProvider(_ p: EmbedProvider) {
         guard p != provider else { return }
         provider = p
         vectorCache.removeAll()
     }
+
+    /// Point the GGUF path at a downloaded embedder (path nil = none). Embedders default
+    /// to CPU — small + fast on A19, and avoids the Metal BERT NaN issue seen on some GPUs.
+    func setGGUF(modelId: String?, path: String?, backend: LlamaBackend) {
+        if modelId != ggufModelId || path != ggufPath || backend != ggufBackend {
+            if let h = ggufHandle { LlmKit.free(h); ggufHandle = nil }
+            ggufModelId = modelId
+            ggufPath = path
+            ggufBackend = backend
+            ggufTriedLoad = false
+            vectorCache.removeAll()
+        }
+    }
+
+    func unloadGGUF() {
+        if let h = ggufHandle { LlmKit.free(h); ggufHandle = nil }
+        ggufTriedLoad = false
+    }
+
+    var ggufReady: Bool { ggufHandle != nil }
 
     func clearCache() { vectorCache.removeAll() }
 
@@ -46,11 +74,14 @@ actor EmbeddingService {
         switch provider {
         case .appleNL:
             return rankNL(query: trimmed.lowercased(), items: items)
-        case .appleContextual, .appleLLM, .gguf:
-            // Embedding fallback path (also used when the LLM provider can't run).
-            // GGUF lands in Phase 2; until then the on-device vector path is contextual.
+        case .gguf:
+            if let ranked = rankGGUF(query: trimmed, items: items) { return ranked }
+            // Embedder not ready → fall back so search still works.
             if let ranked = rankVector(query: trimmed, items: items) { return ranked }
-            // Assets not ready yet → fall back so search still works this session.
+            return rankNL(query: trimmed.lowercased(), items: items)
+        case .appleContextual, .appleLLM:
+            // Embedding path (also the fallback when the LLM provider can't run).
+            if let ranked = rankVector(query: trimmed, items: items) { return ranked }
             return rankNL(query: trimmed.lowercased(), items: items)
         }
     }
@@ -138,6 +169,65 @@ actor EmbeddingService {
         var s: Float = 0
         for i in 0..<a.count { s += a[i] * b[i] }
         return s
+    }
+
+    // MARK: - GGUF embedder path (llama.cpp / Metal or CPU)
+
+    private func rankGGUF(query: String, items: [HBItem]) -> [HBItem]? {
+        guard let h = ensureGGUF() else { return nil }
+        guard let qVec = ggufVector(handle: h, text: query, isQuery: true) else { return nil }
+        var scored: [(HBItem, Float)] = []
+        scored.reserveCapacity(items.count)
+        for item in items {
+            if Task.isCancelled { return [] }
+            let text = itemText(item)
+            let key = ("gguf:" + text).hashValue   // namespace cache so it doesn't collide with contextual
+            let vec: [Float]
+            if let cached = vectorCache[item.id], cached.hash == key {
+                vec = cached.vec
+            } else if let v = ggufVector(handle: h, text: text, isQuery: false) {
+                vectorCache[item.id] = (key, v)
+                vec = v
+            } else {
+                continue
+            }
+            let sim = dot(qVec, vec)
+            if sim >= ggufFloor { scored.append((item, sim)) }
+        }
+        scored.sort { $0.1 > $1.1 }
+        return Array(scored.prefix(maxResults).map { $0.0 })
+    }
+
+    private func ggufVector(handle: UInt64, text: String, isQuery: Bool) -> [Float]? {
+        let v = LlmKit.embed(handle, text: ggufPrefix(isQuery: isQuery) + text)
+        return v.isEmpty ? nil : v
+    }
+
+    /// Asymmetric retrieval prefixes (degrade quality badly if omitted for nomic/BGE).
+    private func ggufPrefix(isQuery: Bool) -> String {
+        let id = (ggufModelId ?? "").lowercased()
+        if id.contains("nomic") { return isQuery ? "search_query: " : "search_document: " }
+        if id.contains("bge") { return isQuery ? "Represent this sentence for searching relevant passages: " : "" }
+        return ""
+    }
+
+    private func ensureGGUF() -> UInt64? {
+        if let h = ggufHandle { return h }
+        if ggufTriedLoad { return nil }
+        ggufTriedLoad = true
+        guard let path = ggufPath, FileManager.default.fileExists(atPath: path) else { return nil }
+        // Try the requested backend, then CPU. Reject NaN output (BERT graphs can NaN on Metal).
+        let order: [LlamaBackend] = (ggufBackend == .cpu) ? [.cpu] : [ggufBackend, .cpu]
+        for backend in order {
+            guard let h = LlmKit.loadModel(path: path, embeddings: true, backend: backend) else { continue }
+            let probe = LlmKit.embed(h, text: "ok")
+            if !probe.isEmpty, !probe.contains(where: { $0.isNaN }) {
+                ggufHandle = h
+                return h
+            }
+            LlmKit.free(h)
+        }
+        return nil
     }
 
     // MARK: - Legacy NLEmbedding path (threshold 1.15 — locked by CLAUDE.md)

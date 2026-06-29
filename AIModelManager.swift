@@ -17,7 +17,7 @@ enum EmbedProvider: String, CaseIterable, Identifiable, Sendable {
         case .appleLLM:        return "Smart (Apple Intelligence)"
         case .appleContextual: return "Fast (embeddings)"
         case .appleNL:         return "Basic"
-        case .gguf:            return "Downloaded model"
+        case .gguf:            return "Hybrid (downloaded + AI)"
         }
     }
 
@@ -26,7 +26,7 @@ enum EmbedProvider: String, CaseIterable, Identifiable, Sendable {
         case .appleLLM:        return "Understands what products are — finds “Round Up” for “pesticide”. Slower; needs Apple Intelligence."
         case .appleContextual: return "Neural-Engine embeddings · fast, but limited world knowledge"
         case .appleNL:         return "Lightweight word match · always available"
-        case .gguf:            return "nomic / BGE GGUF via llama.cpp (Metal)"
+        case .gguf:            return "Downloaded embedder shortlist + Apple Intelligence rerank — fast and accurate"
         }
     }
 }
@@ -72,22 +72,54 @@ final class AIModelManager: ObservableObject {
             defaults.set(embedProvider.rawValue, forKey: Keys.embedProvider)
             let p = embedProvider
             Task { await embedding.setProvider(p) }
+            configureEmbedder()
         }
     }
     @Published var llmProvider: LLMProvider {
         didSet { defaults.set(llmProvider.rawValue, forKey: Keys.llmProvider) }
     }
 
+    // GGUF model selection (Phase 2).
+    @Published var embedModelId: String {
+        didSet { defaults.set(embedModelId, forKey: Keys.embedModelId); configureEmbedder() }
+    }
+    @Published var genModelId: String? {
+        didSet {
+            if let genModelId { defaults.set(genModelId, forKey: Keys.genModelId) }
+            else { defaults.removeObject(forKey: Keys.genModelId) }
+            configureGenerator()
+        }
+    }
+    @Published var unloadMinutes: Int {
+        didSet { defaults.set(unloadMinutes, forKey: Keys.unloadMinutes); configureGenerator() }
+    }
+    @Published var hfToken: String {
+        didSet { defaults.set(hfToken, forKey: Keys.hfToken) }
+    }
+    @Published var customModels: [ModelSpec] {
+        didSet { persistCustomModels() }
+    }
+    @Published var modelBackends: [String: String] {
+        didSet { persistModelBackends(); configureEmbedder(); configureGenerator() }
+    }
+
     let embedding = EmbeddingService()
     let tagging = TagSuggestionService()
 
     private let defaults = UserDefaults.standard
+    private var cancellables = Set<AnyCancellable>()
 
     private enum Keys {
         static let searchEnabled = "ai_search_enabled"
         static let tagsEnabled   = "ai_tags_enabled"
         static let embedProvider = "ai_embed_provider"
         static let llmProvider   = "ai_llm_provider"
+        static let embedModelId  = "ai_embed_model_id"
+        static let genModelId    = "ai_gen_model_id"
+        static let unloadMinutes = "ai_unload_minutes"
+        static let hfToken       = "hf_token"
+        static let customModels  = "ai_custom_models"
+        static let modelBackends = "ai_model_backends"
     }
 
     init() {
@@ -96,10 +128,24 @@ final class AIModelManager: ObservableObject {
         tagsEnabled   = d.object(forKey: Keys.tagsEnabled) as? Bool ?? true
         embedProvider = d.string(forKey: Keys.embedProvider).flatMap(EmbedProvider.init(rawValue:)) ?? .appleLLM
         llmProvider   = d.string(forKey: Keys.llmProvider).flatMap(LLMProvider.init(rawValue:)) ?? .apple
+        embedModelId  = d.string(forKey: Keys.embedModelId) ?? "nomic-embed-v1.5"
+        genModelId    = d.string(forKey: Keys.genModelId)
+        unloadMinutes = d.object(forKey: Keys.unloadMinutes) as? Int ?? 5
+        hfToken       = d.string(forKey: Keys.hfToken) ?? ""
+        customModels  = Self.loadCustomModels(d)
+        modelBackends = Self.loadModelBackends(d)
 
-        // Property observers don't fire during init — push the initial provider manually.
+        // Property observers don't fire during init — push the initial config manually.
         let p = embedProvider
         Task { await embedding.setProvider(p) }
+        configureEmbedder()
+        configureGenerator()
+
+        // Re-point the engines whenever a download finishes (a model becomes ready).
+        ModelDownloadManager.shared.$states
+            .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
+            .sink { [weak self] _ in self?.configureEmbedder(); self?.configureGenerator() }
+            .store(in: &cancellables)
     }
 
     // MARK: - Semantic search
@@ -109,12 +155,96 @@ final class AIModelManager: ObservableObject {
     /// embedding ranker if Apple Intelligence is unavailable or errors.
     func semanticSearch(query: String, items: [HBItem]) async -> [HBItem] {
         switch embedProvider {
+        case .gguf:
+            // Hybrid: a fast GGUF-embedder shortlist, then an LLM rerank for world knowledge.
+            // The embedder does the heavy lifting once (cached); the LLM only sees ~30 items,
+            // so this stays fast regardless of inventory size.
+            let shortlist = await embedding.rank(query: query, items: items)
+            let top = Array(shortlist.prefix(30))
+            if top.count <= 1 { return top }
+            if let reranked = await llmRerank(query: query, items: top) { return reranked }
+            return top
         case .appleLLM:
             if let matched = await llmSearch(query: query, items: items) { return matched }
             return await embedding.rank(query: query, items: items)
-        case .appleContextual, .appleNL, .gguf:
+        case .appleContextual, .appleNL:
             return await embedding.rank(query: query, items: items)
         }
+    }
+
+    private func llmRerank(query: String, items: [HBItem]) async -> [HBItem]? {
+        guard SystemLanguageModel.default.isAvailable else { return nil }
+        return await llmMatchChunk(query: query, items: items)
+    }
+
+    // MARK: - GGUF configuration + model management
+
+    func allModels(_ purpose: ModelPurpose) -> [ModelSpec] {
+        ModelCatalog.builtIn(purpose) + customModels.filter { $0.purpose == purpose }
+    }
+
+    func backend(for id: String) -> LlamaBackend {
+        LlamaBackend(rawValue: modelBackends[id] ?? "") ?? .auto
+    }
+
+    func setBackend(_ backend: LlamaBackend, for id: String) {
+        modelBackends[id] = backend.rawValue
+    }
+
+    func download(_ spec: ModelSpec) {
+        ModelDownloadManager.shared.download(spec, hfToken: hfToken)
+    }
+
+    func addCustomModel(_ spec: ModelSpec) {
+        if !customModels.contains(where: { $0.id == spec.id }) { customModels.append(spec) }
+        download(spec)
+    }
+
+    func deleteModel(_ id: String) {
+        ModelDownloadManager.shared.delete(id)
+        customModels.removeAll { $0.id == id }
+        if embedModelId == id { embedModelId = "nomic-embed-v1.5" }
+        if genModelId == id { genModelId = nil }
+        configureEmbedder()
+        configureGenerator()
+    }
+
+    func configureEmbedder() {
+        guard embedProvider == .gguf else {
+            Task { await embedding.setGGUF(modelId: nil, path: nil, backend: .cpu) }
+            return
+        }
+        let id = embedModelId
+        let path = ModelDownloadManager.shared.isReady(id) ? ModelDownloadManager.modelPath(id).path : nil
+        let b = backend(for: id)
+        Task { await embedding.setGGUF(modelId: id, path: path, backend: b) }
+    }
+
+    func configureGenerator() {
+        let id = genModelId
+        var path: String?
+        if let id, ModelDownloadManager.shared.isReady(id) { path = ModelDownloadManager.modelPath(id).path }
+        let b = id.map { backend(for: $0) } ?? .gpu
+        let minutes = unloadMinutes
+        Task { await GenerationEngine.shared.configure(modelId: id, path: path, backend: b, unloadMinutes: minutes) }
+    }
+
+    private func persistCustomModels() {
+        if let data = try? JSONEncoder().encode(customModels) { defaults.set(data, forKey: Keys.customModels) }
+    }
+
+    private func persistModelBackends() {
+        if let data = try? JSONEncoder().encode(modelBackends) { defaults.set(data, forKey: Keys.modelBackends) }
+    }
+
+    private static func loadCustomModels(_ d: UserDefaults) -> [ModelSpec] {
+        guard let data = d.data(forKey: Keys.customModels) else { return [] }
+        return (try? JSONDecoder().decode([ModelSpec].self, from: data)) ?? []
+    }
+
+    private static func loadModelBackends(_ d: UserDefaults) -> [String: String] {
+        guard let data = d.data(forKey: Keys.modelBackends) else { return [:] }
+        return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
     }
 
     /// Ask the on-device LLM which items match the query. Returns nil if the model

@@ -31,7 +31,7 @@ final class TagSuggestionService {
         case .apple:
             return await suggestApple(name: trimmed, description: description, existing: existing)
         case .gguf:
-            return nil // Phase 2 (llama.cpp / GGUF)
+            return await suggestGGUF(name: trimmed, description: description, existing: existing)
         }
     }
 
@@ -39,27 +39,44 @@ final class TagSuggestionService {
 
     private func suggestApple(name: String, description: String, existing: [HBTag]) async -> TagSuggestions? {
         guard SystemLanguageModel.default.isAvailable else { return nil }
+        do {
+            let session = LanguageModelSession()
+            let response = try await session.respond(
+                to: tagInstructions(noThink: false) + "\n\n" + tagUser(name: name, description: description))
+            return reconcile(raw: "\(response.content)", existing: existing)
+        } catch {
+            return nil
+        }
+    }
 
-        // We deliberately do NOT feed the existing tag list as the choice set — the model
-        // would force-fit unrelated tags. It suggests freely; we reconcile in code.
-        let instructions = """
+    // MARK: - GGUF (llama.cpp) via the shared GenerationEngine
+
+    private func suggestGGUF(name: String, description: String, existing: [HBTag]) async -> TagSuggestions? {
+        // /no_think suppresses Qwen3 reasoning; reconcile() also strips any <think> that leaks.
+        guard let raw = await GenerationEngine.shared.generate(
+            system: tagInstructions(noThink: true),
+            user: tagUser(name: name, description: description)) else { return nil }
+        return reconcile(raw: raw, existing: existing)
+    }
+
+    // We deliberately do NOT feed the existing tag list as the choice set — the model
+    // would force-fit unrelated tags. It suggests freely; we reconcile in code.
+    private func tagInstructions(noThink: Bool) -> String {
+        let base = """
         You label home-inventory items with short tags. Reply with ONLY a comma-separated \
         list of 3 to 6 tags, each 1 or 2 words, and nothing else. Pick tags that genuinely \
         describe the item — its kind, category, use, or where it is kept. \
         Example: for "cordless drill" reply: Tools, Power Tools, Garage, Hardware, DIY
         """
+        return noThink ? "/no_think\n" + base : base
+    }
+
+    private func tagUser(name: String, description: String) -> String {
         var user = "Item: \(name)"
         let desc = description.trimmingCharacters(in: .whitespacesAndNewlines)
         if !desc.isEmpty { user += "\nDescription: \(desc)" }
         user += "\nTags:"
-
-        do {
-            let session = LanguageModelSession()
-            let response = try await session.respond(to: instructions + "\n\n" + user)
-            return reconcile(raw: "\(response.content)", existing: existing)
-        } catch {
-            return nil
-        }
+        return user
     }
 
     // MARK: - Reconciliation (ported from Android)
