@@ -298,15 +298,16 @@ actor EmbeddingService {
         if ggufTriedLoad { return nil }
         ggufTriedLoad = true
         guard let path = ggufPath, FileManager.default.fileExists(atPath: path) else { return nil }
-        // BERT embedding graphs are unreliable on the Metal GPU (garbage / non-deterministic
-        // vectors — not NaN, so they slip past a simple check), which yields nonsensical and
-        // *inconsistent* search results. So the default (.auto) runs on CPU; an explicit GPU
-        // choice is tried but must pass a strict probe (finite + deterministic) or fall to CPU.
+        // Metal embedding graphs CAN misbehave on some GPUs (garbage / non-deterministic
+        // vectors that slip past a NaN check), so every GPU load must pass a strict probe
+        // (finite + deterministic) or fall back to CPU. On healthy GPUs (e.g. A19) Metal is
+        // correct AND much faster — especially for larger embedders — so .auto prefers it;
+        // the probe is the safety net.
         let order: [LlamaBackend]
         switch ggufBackend {
         case .cpu:  order = [.cpu]
         case .gpu:  order = [.gpu, .cpu]
-        case .auto: order = [.cpu]
+        case .auto: order = [.gpu, .cpu]
         }
         for backend in order {
             guard let h = LlmKit.loadModel(path: path, embeddings: true, backend: backend) else { continue }
