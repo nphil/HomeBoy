@@ -26,6 +26,12 @@ actor EmbeddingService {
     private var ggufBackend: LlamaBackend = .cpu
     private var ggufHandle: UInt64?
     private var ggufTriedLoad = false
+    private var ggufEngaged: LlamaBackend?
+    private var ggufLastBackend: LlamaBackend?
+    private var ggufUnloadAt: Date?
+    private var ggufUnloadMinutes = 0
+    private var ggufUseToken = 0
+    private var reporter: (@Sendable (EngineStatus) -> Void)?
 
     // Per-item vector cache for the contextual/gguf path: id -> (contentHash, normalized vector).
     // In-memory only (String.hashValue is per-process); rebuilt as needed.
@@ -45,23 +51,68 @@ actor EmbeddingService {
 
     /// Point the GGUF path at a downloaded embedder (path nil = none). Embedders default
     /// to CPU — small + fast on A19, and avoids the Metal BERT NaN issue seen on some GPUs.
+    func setReporter(_ r: @escaping @Sendable (EngineStatus) -> Void) {
+        reporter = r
+        reportStatus()
+    }
+
+    func setUnloadMinutes(_ m: Int) { ggufUnloadMinutes = m }
+
     func setGGUF(modelId: String?, path: String?, backend: LlamaBackend) {
         if modelId != ggufModelId || path != ggufPath || backend != ggufBackend {
-            if let h = ggufHandle { LlmKit.free(h); ggufHandle = nil }
+            if let h = ggufHandle {
+                LlmKit.free(h); ggufHandle = nil
+                if let e = ggufEngaged { ggufLastBackend = e }
+                ggufEngaged = nil; ggufUnloadAt = nil
+            }
             ggufModelId = modelId
             ggufPath = path
             ggufBackend = backend
             ggufTriedLoad = false
             vectorCache.removeAll()
+            reportStatus()
         }
     }
 
     func unloadGGUF() {
         if let h = ggufHandle { LlmKit.free(h); ggufHandle = nil }
+        if let e = ggufEngaged { ggufLastBackend = e }
+        ggufEngaged = nil
+        ggufUnloadAt = nil
         ggufTriedLoad = false
+        reportStatus()
     }
 
     var ggufReady: Bool { ggufHandle != nil }
+
+    private func reportStatus() {
+        reporter?(EngineStatus(modelId: ggufModelId,
+                               loaded: ggufHandle != nil,
+                               backend: ggufHandle != nil ? ggufEngaged : nil,
+                               lastBackend: ggufEngaged ?? ggufLastBackend,
+                               unloadAt: ggufHandle != nil ? ggufUnloadAt : nil))
+    }
+
+    /// Reset the idle-unload countdown after the embedder is used.
+    private func touchGGUF() {
+        guard ggufUnloadMinutes > 0 else { ggufUnloadAt = nil; return }
+        ggufUseToken += 1
+        ggufUnloadAt = Date().addingTimeInterval(Double(ggufUnloadMinutes) * 60)
+        scheduleGGUFUnload(token: ggufUseToken)
+        reportStatus()
+    }
+
+    private func scheduleGGUFUnload(token: Int) {
+        let minutes = ggufUnloadMinutes
+        Task {
+            try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
+            await self.unloadGGUFIfIdle(token)
+        }
+    }
+
+    private func unloadGGUFIfIdle(_ token: Int) {
+        if token == ggufUseToken { unloadGGUF() }
+    }
 
     func clearCache() { vectorCache.removeAll() }
 
@@ -175,6 +226,7 @@ actor EmbeddingService {
 
     private func rankGGUF(query: String, items: [HBItem]) -> [HBItem]? {
         guard let h = ensureGGUF() else { return nil }
+        touchGGUF()
         guard let qVec = ggufVector(handle: h, text: query, isQuery: true) else { return nil }
         var scored: [(HBItem, Float)] = []
         scored.reserveCapacity(items.count)
@@ -223,6 +275,8 @@ actor EmbeddingService {
             let probe = LlmKit.embed(h, text: "ok")
             if !probe.isEmpty, !probe.contains(where: { $0.isNaN }) {
                 ggufHandle = h
+                ggufEngaged = (backend == .auto) ? .gpu : backend
+                reportStatus()
                 return h
             }
             LlmKit.free(h)

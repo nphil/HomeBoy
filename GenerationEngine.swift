@@ -5,7 +5,7 @@ import Foundation
 /// idle period to free the ~1 GB of RAM a generation model uses.
 ///
 /// Singleton so the (env-decoupled) Add-Item screen and AIModelManager share one
-/// resident model. Configured by `AIModelManager`.
+/// resident model. Configured by `AIModelManager`, which also observes `status`.
 actor GenerationEngine {
     static let shared = GenerationEngine()
 
@@ -15,6 +15,16 @@ actor GenerationEngine {
     private var backend: LlamaBackend = .gpu   // generation prefers the Metal GPU on iOS
     private var unloadMinutes = 5
     private var useToken = 0
+
+    private var engaged: LlamaBackend?
+    private var lastBackend: LlamaBackend?
+    private var unloadAt: Date?
+    private var reporter: (@Sendable (EngineStatus) -> Void)?
+
+    func setReporter(_ r: @escaping @Sendable (EngineStatus) -> Void) {
+        reporter = r
+        report()
+    }
 
     /// Point the engine at a downloaded generation model. Unloads any previous model
     /// when the selection changes.
@@ -26,6 +36,7 @@ actor GenerationEngine {
             self.backend = backend
         }
         self.unloadMinutes = unloadMinutes
+        report()
     }
 
     var isReady: Bool { handle != nil }
@@ -38,12 +49,22 @@ actor GenerationEngine {
         let token = useToken
         let out = LlmKit.chat(h, system: system, user: user,
                               maxTokens: maxTokens, temperature: temperature, topK: topK)
-        scheduleUnload(token: token)
+        if unloadMinutes > 0 {
+            unloadAt = Date().addingTimeInterval(Double(unloadMinutes) * 60)
+            scheduleUnload(token: token)
+        } else {
+            unloadAt = nil
+        }
+        report()
         return out
     }
 
     func unload() {
         if let h = handle { LlmKit.free(h); handle = nil }
+        if let e = engaged { lastBackend = e }
+        engaged = nil
+        unloadAt = nil
+        report()
     }
 
     private func ensureLoaded() -> UInt64? {
@@ -53,6 +74,7 @@ actor GenerationEngine {
         for b in order {
             if let h = LlmKit.loadModel(path: path, embeddings: false, backend: b) {
                 handle = h
+                engaged = (b == .auto) ? .gpu : b
                 return h
             }
         }
@@ -60,7 +82,6 @@ actor GenerationEngine {
     }
 
     private func scheduleUnload(token: Int) {
-        guard unloadMinutes > 0 else { return }
         let minutes = unloadMinutes
         Task {
             try? await Task.sleep(nanoseconds: UInt64(minutes) * 60 * 1_000_000_000)
@@ -70,5 +91,13 @@ actor GenerationEngine {
 
     private func unloadIfIdle(_ token: Int) {
         if token == useToken { unload() }   // no newer use since → free it
+    }
+
+    private func report() {
+        reporter?(EngineStatus(modelId: modelId,
+                               loaded: handle != nil,
+                               backend: handle != nil ? engaged : nil,
+                               lastBackend: engaged ?? lastBackend,
+                               unloadAt: handle != nil ? unloadAt : nil))
     }
 }

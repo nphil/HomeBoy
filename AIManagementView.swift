@@ -145,6 +145,13 @@ struct AIManagementView: View {
 
     private var noteSection: some View {
         Section {
+            HStack {
+                Text("Apple Intelligence").font(.caption)
+                Spacer()
+                Text(appleLLMAvailable ? "Available" : "Unavailable")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(appleLLMAvailable ? .green : .orange)
+            }
             Text("On iPhone, downloaded GGUF models run on the GPU (Metal). Apple’s Foundation Models and contextual embeddings use the Neural Engine (ANE).")
                 .font(.caption).foregroundStyle(.secondary)
         }
@@ -186,6 +193,7 @@ private struct ModelRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(spec.displayName).font(.callout.weight(.medium))
                 statusLine(state)
+                loadedStatus()
                 if case .ready = state { BackendChip(modelId: spec.id) }
             }
             Spacer()
@@ -219,6 +227,31 @@ private struct ModelRow: View {
                 .foregroundStyle(isSelected ? theme.current.accentColor : .secondary)
         case .failed(let msg):
             Text("Failed: \(msg)").font(.caption2).foregroundStyle(.red)
+        }
+    }
+
+    /// Live "Loaded · GPU/CPU · unloads in m:ss" badge when this model is resident.
+    @ViewBuilder
+    private func loadedStatus() -> some View {
+        let status = spec.purpose == .embedding ? ai.embedderStatus : ai.generatorStatus
+        if status.modelId == spec.id {
+            if status.loaded {
+                HStack(spacing: 4) {
+                    Circle().fill(.green).frame(width: 6, height: 6)
+                    Text("Loaded" + (status.backend.map { " · \($0.displayName)" } ?? ""))
+                    if let unloadAt = status.unloadAt {
+                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                            let remaining = Int(unloadAt.timeIntervalSince(ctx.date))
+                            if remaining > 0 {
+                                Text("· unloads in \(remaining / 60):\(String(format: "%02d", remaining % 60))")
+                            }
+                        }
+                    }
+                }
+                .font(.caption2).foregroundStyle(.green)
+            } else if let last = status.lastBackend {
+                Text("Idle · was on \(last.displayName)").font(.caption2).foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -19,6 +19,15 @@ enum LlamaBackend: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// Live status of an on-device engine, surfaced to the AI & Models screen.
+struct EngineStatus: Sendable, Equatable {
+    var modelId: String?            // which model is (or was) loaded
+    var loaded = false              // resident in memory right now
+    var backend: LlamaBackend?      // backend engaged while loaded
+    var lastBackend: LlamaBackend?  // last backend used (shown after unload: "was on GPU")
+    var unloadAt: Date?             // when it will auto-unload (for the countdown)
+}
+
 /// Swift facade over the Objective-C++ `LlamaBridge`. Handles are opaque `UInt64`
 /// values; the caller owns the lifecycle (load → use → free). Every call blocks, so
 /// invoke from an actor/background task, never the main thread.

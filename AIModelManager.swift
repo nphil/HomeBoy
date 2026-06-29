@@ -106,6 +106,12 @@ final class AIModelManager: ObservableObject {
     let embedding = EmbeddingService()
     let tagging = TagSuggestionService()
 
+    // Live engine status for the AI & Models screen (loaded / backend / unload countdown).
+    @Published var embedderStatus = EngineStatus()
+    @Published var generatorStatus = EngineStatus()
+
+    var appleIntelligenceReady: Bool { SystemLanguageModel.default.isAvailable }
+
     private let defaults = UserDefaults.standard
     private var cancellables = Set<AnyCancellable>()
 
@@ -141,6 +147,10 @@ final class AIModelManager: ObservableObject {
         configureEmbedder()
         configureGenerator()
 
+        // Surface live engine status (loaded / backend / unload countdown) to the UI.
+        Task { await embedding.setReporter { [weak self] s in Task { @MainActor in self?.embedderStatus = s } } }
+        Task { await GenerationEngine.shared.setReporter { [weak self] s in Task { @MainActor in self?.generatorStatus = s } } }
+
         // Re-point the engines whenever a download finishes (a model becomes ready).
         ModelDownloadManager.shared.$states
             .debounce(for: .milliseconds(300), scheduler: RunLoop.main)
@@ -173,8 +183,31 @@ final class AIModelManager: ObservableObject {
     }
 
     private func llmRerank(query: String, items: [HBItem]) async -> [HBItem]? {
-        guard SystemLanguageModel.default.isAvailable else { return nil }
-        return await llmMatchChunk(query: query, items: items)
+        // Prefer Apple Intelligence (fast); fall back to a downloaded GGUF model if it's off.
+        if SystemLanguageModel.default.isAvailable, let m = await llmMatchChunk(query: query, items: items) {
+            return m
+        }
+        return await ggufRerank(query: query, items: items)
+    }
+
+    private func ggufRerank(query: String, items: [HBItem]) async -> [HBItem]? {
+        guard genModelId != nil else { return nil }
+        let list = items.enumerated()
+            .map { "\($0.offset + 1). \($0.element.name.prefix(60))" }
+            .joined(separator: "\n")
+        let system = "/no_think\nYou search a home inventory. Reply with ONLY the matching item numbers, comma-separated, most relevant first; or 'none'."
+        let user = "Search: \(query)\nItems:\n\(list)"
+        guard let raw = await GenerationEngine.shared.generate(
+            system: system, user: user, maxTokens: 64, temperature: 0.2, topK: 20) else { return nil }
+        return parseMatches(stripThink(raw), items: items)
+    }
+
+    private func stripThink(_ s: String) -> String {
+        guard let start = s.range(of: "<think>") else { return s }
+        if let end = s.range(of: "</think>", range: start.upperBound..<s.endIndex) {
+            return String(s[..<start.lowerBound]) + String(s[end.upperBound...])
+        }
+        return String(s[..<start.lowerBound])
     }
 
     // MARK: - GGUF configuration + model management
@@ -210,14 +243,15 @@ final class AIModelManager: ObservableObject {
     }
 
     func configureEmbedder() {
+        let minutes = unloadMinutes
         guard embedProvider == .gguf else {
-            Task { await embedding.setGGUF(modelId: nil, path: nil, backend: .cpu) }
+            Task { await embedding.setUnloadMinutes(minutes); await embedding.setGGUF(modelId: nil, path: nil, backend: .cpu) }
             return
         }
         let id = embedModelId
         let path = ModelDownloadManager.shared.isReady(id) ? ModelDownloadManager.modelPath(id).path : nil
         let b = backend(for: id)
-        Task { await embedding.setGGUF(modelId: id, path: path, backend: b) }
+        Task { await embedding.setUnloadMinutes(minutes); await embedding.setGGUF(modelId: id, path: path, backend: b) }
     }
 
     func configureGenerator() {
