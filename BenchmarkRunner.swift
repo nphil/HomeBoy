@@ -112,16 +112,23 @@ actor BenchmarkRunner {
     }
 
     private func loadErrorMessage() -> String {
-        let log = LlmKit.recentLog()
-        let interesting = log.split(whereSeparator: \.isNewline).map(String.init).filter {
-            let lo = $0.lowercased()
-            return lo.contains("error") || lo.contains("fail") || lo.contains("unknown")
-                || lo.contains("unsupported") || lo.contains("not found") || lo.contains("missing")
-                || lo.contains("cannot") || lo.contains("invalid")
+        let lines = LlmKit.recentLog()
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        // Prefer the SPECIFIC diagnostic over the generic "failed to load model" trailer.
+        let specific = ["unknown model architecture", "unsupported", "architecture", "tensor",
+                        "error loading model", "wrong number", "not found", "missing", "split",
+                        "shard", "n_expert", "vocab", "incompatible", "expected"]
+        let hits = lines.filter { l in
+            let lo = l.lowercased()
+            return specific.contains { lo.contains($0) } && !lo.hasSuffix("failed to load model")
         }
-        if let last = interesting.last, !last.isEmpty { return last.trimmingCharacters(in: .whitespaces) }
-        if !log.isEmpty { return String(log.suffix(220)).trimmingCharacters(in: .whitespacesAndNewlines) }
-        return "Failed to load — likely an unsupported architecture, a partial/sharded GGUF (only one shard downloaded), or out of memory."
+        if let best = hits.last { return best }
+        if let any = lines.last(where: { $0.lowercased().contains("error") || $0.lowercased().contains("fail") }) {
+            return any
+        }
+        return "Failed to load — likely an unsupported architecture, the wrong GGUF file (e.g. an mmproj projector or one shard of a split model), or out of memory."
     }
 
     private func stripThink(_ s: String) -> String {

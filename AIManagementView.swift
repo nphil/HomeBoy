@@ -341,7 +341,9 @@ private struct HuggingFaceSearchView: View {
     @State private var addingId: String?
     @State private var searchTask: Task<Void, Never>?
     @State private var sort: HFSort = .downloads
-    @State private var sizes: [String: Int64] = [:]
+    @State private var expanded: String?
+    @State private var filesByRepo: [String: [HFTreeEntry]] = [:]
+    @State private var loadingFiles: String?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -394,42 +396,90 @@ private struct HuggingFaceSearchView: View {
     @ViewBuilder
     private func resultRow(_ m: HFModel) -> some View {
         let compat = HuggingFaceRepository.classifyRepo(m.id)
-        Button { add(m) } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(m.name).font(.callout.weight(.medium)).lineLimit(1)
-                    Spacer()
-                    if addingId == m.id {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "plus.circle").foregroundStyle(theme.current.accentColor)
+        VStack(alignment: .leading, spacing: 8) {
+            Button { toggle(m) } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(m.name).font(.callout.weight(.medium)).lineLimit(1)
+                        Spacer()
+                        Image(systemName: expanded == m.id ? "chevron.up" : "chevron.down")
+                            .font(.caption2).foregroundStyle(.secondary)
                     }
-                }
-                Text(m.author).font(.caption2).foregroundStyle(.secondary)
-                if let w = compat.warning {
-                    Label(w, systemImage: "exclamationmark.triangle")
-                        .font(.caption2).foregroundStyle(.orange)
-                }
-                HStack(spacing: 8) {
-                    if let size = sizes[m.id] {
-                        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                            .font(.caption2.weight(.semibold)).foregroundStyle(theme.current.accentColor)
+                    Text(m.author).font(.caption2).foregroundStyle(.secondary)
+                    if let w = compat.warning {
+                        Label(w, systemImage: "exclamationmark.triangle")
+                            .font(.caption2).foregroundStyle(.orange)
                     }
                     if let d = m.downloads {
                         Text("\(d) downloads").font(.caption2).foregroundStyle(.secondary)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+            .buttonStyle(.plain)
+
+            if expanded == m.id {
+                Divider()
+                fileList(m)
+            }
         }
-        .buttonStyle(.plain)
-        .task(id: m.id) {
-            guard sizes[m.id] == nil else { return }
-            let token = ai.hfToken
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
+    }
+
+    @ViewBuilder
+    private func fileList(_ m: HFModel) -> some View {
+        if loadingFiles == m.id {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Loading files…").font(.caption2).foregroundStyle(.secondary)
+            }
+        } else {
+            let files = filesByRepo[m.id] ?? []
+            if files.isEmpty {
+                Text("No usable GGUF files in this repo.").font(.caption2).foregroundStyle(.secondary)
+            } else {
+                Text("Pick a quant to download:").font(.caption2).foregroundStyle(.secondary)
+                ForEach(files) { f in
+                    Button { add(m, file: f) } label: {
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(fileLabel(f.path)).font(.caption.weight(.medium)).lineLimit(1)
+                                if isShard(f.path) {
+                                    Text("split file — may not load on its own")
+                                        .font(.caption2).foregroundStyle(.orange)
+                                }
+                            }
+                            Spacer()
+                            if let s = f.sizeText {
+                                Text(s).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                            if addingId == f.path {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "arrow.down.circle").foregroundStyle(theme.current.accentColor)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    private func toggle(_ m: HFModel) {
+        if expanded == m.id { expanded = nil; return }
+        expanded = m.id
+        guard filesByRepo[m.id] == nil else { return }
+        loadingFiles = m.id
+        let token = ai.hfToken
+        Task {
             let repo = HuggingFaceRepository(token: token.isEmpty ? nil : token)
-            if let s = await repo.smallestGGUFSize(m.id) { sizes[m.id] = s }
+            let files = await repo.files(m.id)
+            filesByRepo[m.id] = files
+            loadingFiles = nil
         }
     }
 
@@ -449,19 +499,19 @@ private struct HuggingFaceSearchView: View {
         }
     }
 
-    private func add(_ m: HFModel) {
+    private func add(_ m: HFModel, file: HFTreeEntry) {
         guard addingId == nil else { return }
-        addingId = m.id
-        let p = purpose
-        let token = ai.hfToken
-        Task {
-            let repo = HuggingFaceRepository(token: token.isEmpty ? nil : token)
-            let files = await repo.files(m.id)
-            guard let file = files.first else { addingId = nil; return }
-            let spec = HuggingFaceRepository.customSpec(repoId: m.id, file: file, purpose: p)
-            ai.addCustomModel(spec)
-            addingId = nil
-            dismiss()
-        }
+        addingId = file.path
+        ai.addCustomModel(HuggingFaceRepository.customSpec(repoId: m.id, file: file, purpose: purpose))
+        addingId = nil
+        dismiss()
+    }
+
+    private func fileLabel(_ path: String) -> String {
+        (path as NSString).lastPathComponent
+    }
+
+    private func isShard(_ path: String) -> Bool {
+        path.lowercased().contains("-of-")
     }
 }

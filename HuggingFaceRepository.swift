@@ -87,8 +87,12 @@ struct HuggingFaceRepository: Sendable {
         guard let url = URL(string: "https://huggingface.co/api/models/\(repoId)/tree/main?recursive=true"),
               let data = try? await get(url) else { return [] }
         let all = (try? JSONDecoder().decode([HFTreeEntry].self, from: data)) ?? []
-        return all.filter { $0.path.lowercased().hasSuffix(".gguf") }
-            .sorted { ($0.size ?? 0) < ($1.size ?? 0) }
+        return all.filter {
+            let p = $0.path.lowercased()
+            // Exclude mmproj projectors (multimodal vision/audio adapters, not the LLM itself).
+            return p.hasSuffix(".gguf") && !p.contains("mmproj")
+        }
+        .sorted { ($0.size ?? 0) < ($1.size ?? 0) }
     }
 
     // MARK: Model card
