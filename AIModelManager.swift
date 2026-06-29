@@ -166,28 +166,31 @@ final class AIModelManager: ObservableObject {
     func semanticSearch(query: String, items: [HBItem]) async -> [HBItem] {
         switch embedProvider {
         case .gguf:
-            // Hybrid: a fast GGUF-embedder shortlist, then an LLM rerank for world knowledge.
-            // The embedder does the heavy lifting once (cached); the LLM only sees ~30 items,
-            // so this stays fast regardless of inventory size.
-            let shortlist = await embedding.rank(query: query, items: items)
-            let top = Array(shortlist.prefix(30))
-            if top.count <= 1 { return top }
-            if let reranked = await llmRerank(query: query, items: top) { return reranked }
-            return top
+            // Hybrid. When Apple Intelligence is available it should drive the *ranking*
+            // (it has the world knowledge); the embedder only narrows very large catalogs
+            // so the LLM call stays fast. A raw embedder shortlist ranks by surface
+            // similarity and gives nonsense like "aquarium sand" for "lubricant".
+            if SystemLanguageModel.default.isAvailable {
+                if items.count <= 100 {
+                    // Small/medium: let the LLM read everything (matches "Smart" quality).
+                    if let m = await llmSearch(query: query, items: items) { return m }
+                    return await embedding.rank(query: query, items: items)  // LLM errored → embedder
+                }
+                // Large: embedder narrows the field, then the LLM ranks the top 40.
+                let shortlist = Array(await embedding.rank(query: query, items: items).prefix(40))
+                if let m = await llmMatchChunk(query: query, items: shortlist), !m.isEmpty { return m }
+                return shortlist
+            }
+            // No Apple Intelligence → embedder shortlist, optionally reranked by a downloaded model.
+            let shortlist = Array(await embedding.rank(query: query, items: items).prefix(25))
+            if let m = await ggufRerank(query: query, items: shortlist), !m.isEmpty { return m }
+            return shortlist
         case .appleLLM:
             if let matched = await llmSearch(query: query, items: items) { return matched }
             return await embedding.rank(query: query, items: items)
         case .appleContextual, .appleNL:
             return await embedding.rank(query: query, items: items)
         }
-    }
-
-    private func llmRerank(query: String, items: [HBItem]) async -> [HBItem]? {
-        // Prefer Apple Intelligence (fast); fall back to a downloaded GGUF model if it's off.
-        if SystemLanguageModel.default.isAvailable, let m = await llmMatchChunk(query: query, items: items) {
-            return m
-        }
-        return await ggufRerank(query: query, items: items)
     }
 
     private func ggufRerank(query: String, items: [HBItem]) async -> [HBItem]? {

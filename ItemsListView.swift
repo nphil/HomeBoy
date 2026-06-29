@@ -95,6 +95,7 @@ struct ItemsListView: View {
     @State private var indexLetter: String? = nil
     @State private var semanticResults: [HBItem]? = nil
     @State private var semanticSearchTask: Task<Void, Never>? = nil
+    @State private var isSemanticSearching = false
     @State private var isSearchActive = false
 
     @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
@@ -394,8 +395,11 @@ struct ItemsListView: View {
         } else {
             ZStack(alignment: .top) {
                 if filteredItems.isEmpty {
-                    noResultsState
-                        .padding(.top, showFilters ? 50 : 0)
+                    if isSemanticSearching {
+                        searchingState.padding(.top, showFilters ? 50 : 0)
+                    } else {
+                        noResultsState.padding(.top, showFilters ? 50 : 0)
+                    }
                 } else {
                     switch viewMode {
                     case .list: listView
@@ -847,6 +851,7 @@ struct ItemsListView: View {
         if q.isEmpty || !ai.searchEnabled {
             semanticSearchTask?.cancel()
             semanticResults = nil
+            isSemanticSearching = false
             return
         }
 
@@ -858,6 +863,7 @@ struct ItemsListView: View {
         if !textMatches.isEmpty || q.count < 3 {
             semanticSearchTask?.cancel()
             semanticResults = nil
+            isSemanticSearching = false
             return
         }
 
@@ -876,14 +882,29 @@ struct ItemsListView: View {
         let manager = ai
         let query = newQuery.trimmingCharacters(in: .whitespaces)
         let items = baseItems
+        isSemanticSearching = true
         semanticSearchTask = Task {
-            try? await Task.sleep(nanoseconds: 500_000_000)
+            try? await Task.sleep(nanoseconds: 350_000_000)
             if Task.isCancelled { return }
             let results = await manager.semanticSearch(query: query, items: items)
             if !Task.isCancelled {
-                await MainActor.run { self.semanticResults = results }
+                await MainActor.run {
+                    self.semanticResults = results
+                    self.isSemanticSearching = false
+                }
             }
         }
+    }
+
+    private var searchingState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            ProgressView()
+            Text("Searching with AI…")
+                .font(.callout).foregroundStyle(.secondary)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 
