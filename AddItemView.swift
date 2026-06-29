@@ -29,8 +29,11 @@ struct AddItemView: View {
     // Tag suggestions
     @State private var availableTags: [HBTag] = []
     @State private var suggestedTagIds: [String] = []
+    @State private var novelSuggestions: [String] = []
     @State private var isSuggestingTags = false
     @State private var suggestionTask: Task<Void, Never>? = nil
+    @AppStorage("ai_tags_enabled") private var aiTagsEnabled = true
+    @AppStorage("ai_llm_provider") private var aiLLMProvider: LLMProvider = .apple
 
     // Sheet flags
     @State private var showLocationPicker = false
@@ -641,7 +644,7 @@ struct AddItemView: View {
     @ViewBuilder
     private var tagSuggestionRow: some View {
         let chips = availableTags.filter { suggestedTagIds.contains($0.id) && !selectedTagIds.contains($0.id) }
-        if isSuggestingTags || !chips.isEmpty {
+        if isSuggestingTags || !chips.isEmpty || !novelSuggestions.isEmpty {
             HStack(spacing: 8) {
                 Image(systemName: "sparkles")
                     .font(.caption2).foregroundStyle(theme.current.accentColor)
@@ -666,6 +669,23 @@ struct AddItemView: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                            // Novel suggestions — not in the library yet; tap to create + select.
+                            ForEach(novelSuggestions, id: \.self) { name in
+                                Button {
+                                    Task { await createNovelTag(name) }
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "plus").font(.caption2.weight(.semibold))
+                                        Text(name).font(.caption.weight(.medium))
+                                    }
+                                    .padding(.horizontal, 10).padding(.vertical, 5)
+                                    .background(Capsule().fill(theme.current.accentColor.opacity(0.12)))
+                                    .overlay(Capsule().stroke(theme.current.accentColor.opacity(0.45),
+                                                               style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                                    .foregroundStyle(theme.current.accentColor)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                 }
@@ -686,10 +706,12 @@ struct AddItemView: View {
         if let tags = try? await client.listTags() { availableTags = tags }
     }
 
+    @MainActor
     private func scheduleSuggestion(for itemName: String) {
         suggestionTask?.cancel()
         suggestedTagIds = []
-        guard itemName.count >= 4, !availableTags.isEmpty else { return }
+        novelSuggestions = []
+        guard aiTagsEnabled, itemName.trimmingCharacters(in: .whitespaces).count >= 4 else { return }
         suggestionTask = Task {
             try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled else { return }
@@ -697,29 +719,31 @@ struct AddItemView: View {
         }
     }
 
+    @MainActor
     private func suggestTags(for itemName: String) async {
-        guard SystemLanguageModel.default.isAvailable else { return }
-        let tagList = availableTags.map(\.name).joined(separator: ", ")
-        let prompt = "Home inventory item: '\(itemName)'. Available tags: \(tagList). List the 1–3 most relevant tag names, comma-separated. Reply with only tag names or 'none'."
-        await MainActor.run { isSuggestingTags = true }
-        do {
-            let session = LanguageModelSession()
-            let response = try await session.respond(to: prompt)
-            let names = "\(response.content)"
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { $0 != "none" }
-            let matched = availableTags.filter { names.contains($0.name.lowercased()) }.map(\.id)
-            await MainActor.run { suggestedTagIds = matched; isSuggestingTags = false }
-        } catch {
-            await MainActor.run { isSuggestingTags = false }
+        isSuggestingTags = true
+        let result = await TagSuggestionService().suggest(
+            name: itemName,
+            description: description,
+            existing: availableTags,
+            provider: aiLLMProvider
+        )
+        guard !Task.isCancelled else { isSuggestingTags = false; return }
+        if let result {
+            // Don't re-suggest tags the user has already selected.
+            suggestedTagIds = result.matchedIds.filter { !selectedTagIds.contains($0) }
+            novelSuggestions = result.novel
+        } else {
+            suggestedTagIds = []
+            novelSuggestions = []
         }
+        isSuggestingTags = false
     }
 
     private func resetForm() {
         name = ""; quantity = 1; description = ""
         photos = []; pickerItems = []
-        suggestedTagIds = []; suggestionTask?.cancel()
+        suggestedTagIds = []; novelSuggestions = []; suggestionTask?.cancel()
         if !lockTags { selectedTagIds = [] }
         if !lockLocation && !isComponent { selectedLocationId = nil }
         if isComponent { selectedLocationId = parentLocationId }
@@ -982,6 +1006,18 @@ struct AddItemView: View {
             }
         } catch {}
         await MainActor.run { isCreatingTag = false }
+    }
+
+    /// Create a novel AI-suggested tag on the server, then select it.
+    @MainActor
+    private func createNovelTag(_ name: String) async {
+        guard let client = store.client else { return }
+        do {
+            let tag = try await client.createTag(name: name)
+            availableTags.append(tag)
+            selectedTagIds.insert(tag.id)
+            novelSuggestions.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
+        } catch {}
     }
 }
 

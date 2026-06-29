@@ -63,7 +63,8 @@ enum SortOption: String, CaseIterable, Identifiable {
 struct ItemsListView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
-    
+    @EnvironmentObject var ai: AIModelManager
+
     @Binding var globalSearchQuery: String
 
     @State private var allItems: [HBItem] = []
@@ -843,22 +844,23 @@ struct ItemsListView: View {
 
     private func updateSemanticSearch(for newQuery: String) {
         let q = newQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        if q.isEmpty {
+        if q.isEmpty || !ai.searchEnabled {
             semanticSearchTask?.cancel()
             semanticResults = nil
             return
         }
-        
+
         let textMatches = allItems.filter {
             $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
         }
-        
+
+        // Semantic search only kicks in when a literal search returns nothing.
         if !textMatches.isEmpty || q.count < 3 {
             semanticSearchTask?.cancel()
             semanticResults = nil
             return
         }
-        
+
         semanticSearchTask?.cancel()
         var baseItems = allItems
         if let locId = filterLocationId { baseItems = baseItems.filter { $0.effectiveLocation?.id == locId } }
@@ -868,37 +870,14 @@ struct ItemsListView: View {
                 return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
             }
         }
-        
-        semanticSearchTask = Task.detached(priority: .userInitiated) {
-            guard let sentEmbedding = NLEmbedding.sentenceEmbedding(for: .english),
-                  let wordEmbedding = NLEmbedding.wordEmbedding(for: .english) else { return }
-            
-            let tokenizer = NLTokenizer(unit: .word)
-            tokenizer.string = q
-            let queryWords = tokenizer.tokens(for: q.startIndex..<q.endIndex).map { String(q[$0]) }
-            
-            let results = baseItems.compactMap { item -> (HBItem, Double)? in
-                if Task.isCancelled { return nil }
-                let name = item.name.lowercased()
-                let d1 = sentEmbedding.distance(between: q, and: name, distanceType: .cosine)
-                
-                tokenizer.string = name
-                let targetWords = tokenizer.tokens(for: name.startIndex..<name.endIndex).map { String(name[$0]) }
-                
-                var minWordDist = 2.0
-                for qw in queryWords {
-                    for tw in targetWords {
-                        let wd = wordEmbedding.distance(between: qw, and: tw, distanceType: .cosine)
-                        if wd < minWordDist { minWordDist = wd }
-                    }
-                }
-                
-                let dist = min(d1, minWordDist)
-                return dist < 1.15 ? (item, dist) : nil
-            }
-            .sorted { $0.1 < $1.1 }
-            .map { $0.0 }
-            
+
+        // Rank via the shared, provider-aware EmbeddingService (default: NLContextualEmbedding;
+        // falls back to NLEmbedding's 1.15 path when contextual assets aren't ready).
+        let service = ai.embedding
+        let query = newQuery.trimmingCharacters(in: .whitespaces)
+        let items = baseItems
+        semanticSearchTask = Task {
+            let results = await service.rank(query: query, items: items)
             if !Task.isCancelled {
                 await MainActor.run { self.semanticResults = results }
             }

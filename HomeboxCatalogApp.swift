@@ -6,6 +6,7 @@ import UserNotifications
 struct HomeboxCatalogApp: App {
     @StateObject private var store = HomeboxStore()
     @StateObject private var theme = ThemeManager()
+    @StateObject private var ai = AIModelManager()
 
     init() {
         UNUserNotificationCenter.current().delegate = NotificationManager.shared
@@ -28,6 +29,7 @@ struct HomeboxCatalogApp: App {
             ContentView()
                 .environmentObject(store)
                 .environmentObject(theme)
+                .environmentObject(ai)
                 .tint(theme.current.accentColor)
                 .preferredColorScheme(theme.current.preferredColorScheme)
                 .background(theme.current.backgroundColor.ignoresSafeArea())
@@ -38,6 +40,7 @@ struct HomeboxCatalogApp: App {
 struct ContentView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
+    @EnvironmentObject var ai: AIModelManager
     @State private var selectedTab = 0
     @State private var globalSearchQuery = ""
     @State private var showSettingsSheet = false
@@ -99,6 +102,7 @@ struct ContentView: View {
                 SettingsView()
                     .environmentObject(store)
                     .environmentObject(theme)
+                    .environmentObject(ai)
             }
         } else {
             OnboardingView()

@@ -4,6 +4,7 @@ import UIKit
 struct SettingsView: View {
     @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
+    @EnvironmentObject var ai: AIModelManager
 
     @State private var password: String = ""
     @State private var isLoggingIn = false
@@ -88,6 +89,19 @@ struct SettingsView: View {
                     }
                     .tint(theme.current.accentColor)
                     Text("When on, a QR button appears on the Items tab. Scan a Homebox asset QR label to jump straight to that item.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section("Intelligence") {
+                    NavigationLink {
+                        AIManagementView()
+                            .environmentObject(store)
+                            .environmentObject(theme)
+                            .environmentObject(ai)
+                    } label: {
+                        Label("AI & Models", systemImage: "sparkles")
+                    }
+                    Text("On-device semantic search and AI tag suggestions. Runs privately on your iPhone.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
