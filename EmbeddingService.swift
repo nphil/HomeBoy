@@ -259,6 +259,31 @@ actor EmbeddingService {
         return Array(kept.prefix(maxResults).map { $0.0 })
     }
 
+    /// Benchmark a query against the user's actual items — returns the FULL ranking with
+    /// cosine scores (no threshold) so a human can judge quality and where the cutoff lands.
+    func benchmarkItems(query: String, items: [HBItem]) -> [(item: HBItem, score: Float)]? {
+        guard let h = ensureGGUF() else { return nil }
+        guard let qv = ggufVector(handle: h, text: query, isQuery: true) else { return nil }
+        var scored: [(HBItem, Float)] = []
+        for item in items {
+            guard let v = ggufVector(handle: h, text: itemText(item), isQuery: false) else { continue }
+            scored.append((item, dot(qv, v)))
+        }
+        return scored.sorted { $0.1 > $1.1 }.map { (item: $0.0, score: $0.1) }
+    }
+
+    /// Benchmark a query against arbitrary candidate strings, with cosine scores.
+    func benchmarkTexts(query: String, candidates: [String]) -> [(text: String, score: Float)]? {
+        guard let h = ensureGGUF() else { return nil }
+        guard let qv = ggufVector(handle: h, text: query, isQuery: true) else { return nil }
+        var scored: [(String, Float)] = []
+        for c in candidates where !c.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let v = ggufVector(handle: h, text: c, isQuery: false) else { continue }
+            scored.append((c, dot(qv, v)))
+        }
+        return scored.sorted { $0.1 > $1.1 }.map { (text: $0.0, score: $0.1) }
+    }
+
     /// On-device self-test: embed known pairs and report cosine similarities so we can see
     /// whether the embedder is actually discriminating on this device.
     func runDiagnostics() -> String {

@@ -6,11 +6,10 @@ import FoundationModels
 struct AIManagementView: View {
     @EnvironmentObject var ai: AIModelManager
     @EnvironmentObject var theme: ThemeManager
+    @EnvironmentObject var store: HomeboxStore
 
     @State private var browsePurpose: ModelPurpose?
     @State private var showToken = false
-    @State private var diagResult: String?
-    @State private var runningDiag = false
 
     private var appleLLMAvailable: Bool { SystemLanguageModel.default.isAvailable }
     private let searchChoices: [EmbedProvider] = [.appleLLM, .gguf, .appleContextual, .appleNL]
@@ -22,6 +21,7 @@ struct AIManagementView: View {
             if ai.searchEnabled && ai.embedProvider == .gguf { embedderModelsSection }
             tagSection
             if ai.tagsEnabled && ai.llmProvider == .gguf { genModelsSection }
+            benchmarkSection
             tokenSection
             noteSection
         }
@@ -72,23 +72,25 @@ struct AIManagementView: View {
             Button { browsePurpose = .embedding } label: {
                 Label("Browse Hugging Face", systemImage: "magnifyingglass")
             }
-            Button {
-                runningDiag = true; diagResult = nil
-                Task { let r = await ai.embedding.runDiagnostics(); diagResult = r; runningDiag = false }
-            } label: {
-                Label(runningDiag ? "Testing…" : "Test embedder", systemImage: "stethoscope")
-            }
-            .disabled(runningDiag)
-            if let diagResult {
-                Text(diagResult)
-                    .font(.caption2.monospaced())
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-            }
         } header: {
             Text("Embedding model")
         } footer: {
-            Text("Pure on-device embedding search (nomic / BGE), same as the Android app. Runs on CPU.")
+            Text("Pure on-device embedding search (nomic / BGE), same as the Android app. BGE‑large gives the best quality.")
+        }
+    }
+
+    private var benchmarkSection: some View {
+        Section {
+            NavigationLink {
+                AIBenchmarkView()
+                    .environmentObject(ai)
+                    .environmentObject(theme)
+                    .environmentObject(store)
+            } label: {
+                Label("Benchmarking", systemImage: "chart.bar.xaxis")
+            }
+        } footer: {
+            Text("Test the embedder and tag generator against your own items or custom text.")
         }
     }
 
@@ -338,6 +340,8 @@ private struct HuggingFaceSearchView: View {
     @State private var searching = false
     @State private var addingId: String?
     @State private var searchTask: Task<Void, Never>?
+    @State private var sort: HFSort = .downloads
+    @State private var sizes: [String: Int64] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -363,6 +367,13 @@ private struct HuggingFaceSearchView: View {
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(Capsule().fill(.ultraThinMaterial))
             .padding(.horizontal)
+
+            Picker("Sort", selection: $sort) {
+                ForEach(HFSort.allCases) { s in Text(s.label).tag(s) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal).padding(.top, 8)
+            .onChange(of: sort) { _, _ in runSearch() }
 
             if searching {
                 ProgressView().padding(.top, 20)
@@ -399,8 +410,14 @@ private struct HuggingFaceSearchView: View {
                     Label(w, systemImage: "exclamationmark.triangle")
                         .font(.caption2).foregroundStyle(.orange)
                 }
-                if let d = m.downloads {
-                    Text("\(d) downloads").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    if let size = sizes[m.id] {
+                        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                            .font(.caption2.weight(.semibold)).foregroundStyle(theme.current.accentColor)
+                    }
+                    if let d = m.downloads {
+                        Text("\(d) downloads").font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -408,6 +425,12 @@ private struct HuggingFaceSearchView: View {
             .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
         }
         .buttonStyle(.plain)
+        .task(id: m.id) {
+            guard sizes[m.id] == nil else { return }
+            let token = ai.hfToken
+            let repo = HuggingFaceRepository(token: token.isEmpty ? nil : token)
+            if let s = await repo.smallestGGUFSize(m.id) { sizes[m.id] = s }
+        }
     }
 
     private func runSearch() {
@@ -418,7 +441,7 @@ private struct HuggingFaceSearchView: View {
         searching = true
         searchTask = Task {
             let repo = HuggingFaceRepository(token: token.isEmpty ? nil : token)
-            let r = await repo.search(q, purpose: p)
+            let r = await repo.search(q, purpose: p, sort: sort)
             if !Task.isCancelled {
                 results = r
                 searching = false

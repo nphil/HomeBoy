@@ -21,6 +21,28 @@ struct HFTreeEntry: Codable, Sendable, Identifiable {
     }
 }
 
+/// Sort order for Hugging Face model search.
+enum HFSort: String, CaseIterable, Identifiable, Sendable {
+    case downloads, trending, recent, likes
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .downloads: return "Downloads"
+        case .trending:  return "Trending"
+        case .recent:    return "New"
+        case .likes:     return "Likes"
+        }
+    }
+    var apiValue: String {
+        switch self {
+        case .downloads: return "downloads"
+        case .trending:  return "trendingScore"
+        case .recent:    return "lastModified"
+        case .likes:     return "likes"
+        }
+    }
+}
+
 /// On-device compatibility verdict for a GGUF repo (iOS / Metal wording).
 struct GGUFCompatibility: Sendable {
     let runnable: Bool
@@ -35,18 +57,23 @@ struct HuggingFaceRepository: Sendable {
 
     // MARK: Search
 
-    func search(_ query: String, purpose: ModelPurpose) async -> [HFModel] {
+    func search(_ query: String, purpose: ModelPurpose, sort: HFSort = .downloads) async -> [HFModel] {
         var comps = URLComponents(string: "https://huggingface.co/api/models")!
         let q = query.trimmingCharacters(in: .whitespaces)
         comps.queryItems = [
             URLQueryItem(name: "search", value: q.isEmpty ? defaultQuery(purpose) : q),
             URLQueryItem(name: "filter", value: "gguf"),
-            URLQueryItem(name: "sort", value: "downloads"),
+            URLQueryItem(name: "sort", value: sort.apiValue),
             URLQueryItem(name: "direction", value: "-1"),
             URLQueryItem(name: "limit", value: "30"),
         ]
         guard let url = comps.url, let data = try? await get(url) else { return [] }
         return (try? JSONDecoder().decode([HFModel].self, from: data)) ?? []
+    }
+
+    /// Smallest GGUF file size in a repo (files() is sorted ascending). For the size badge.
+    func smallestGGUFSize(_ repoId: String) async -> Int64? {
+        await files(repoId).first?.size
     }
 
     private func defaultQuery(_ purpose: ModelPurpose) -> String {

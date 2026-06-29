@@ -221,6 +221,16 @@ final class AIModelManager: ObservableObject {
         Task { await embedding.setUnloadMinutes(minutes); await embedding.setGGUF(modelId: id, path: path, backend: b) }
     }
 
+    /// Load the currently-selected embedder so the benchmark screen can test it even when
+    /// the active search mode isn't the downloaded embedder.
+    func prepareEmbedder() async {
+        let id = embedModelId
+        let path = ModelDownloadManager.shared.isReady(id) ? ModelDownloadManager.modelPath(id).path : nil
+        let b = backend(for: id)
+        await embedding.setUnloadMinutes(unloadMinutes)
+        await embedding.setGGUF(modelId: id, path: path, backend: b)
+    }
+
     func configureGenerator() {
         let id = genModelId
         var path: String?
