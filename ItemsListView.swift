@@ -435,7 +435,7 @@ struct ItemsListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 6, pinnedViews: .sectionHeaders) {
-                    if isSortedAlphabetically {
+                    if isSortedAlphabetically && !isShowingSemanticResults {
                         ForEach(itemSections) { section in
                             Section {
                                 ForEach(section.items) { item in
@@ -477,7 +477,7 @@ struct ItemsListView: View {
             .refreshable { await load(force: true) }
             .safeAreaPadding(.top, showFilters ? 50 : 0)
             .overlay(alignment: .trailing) {
-                if isSortedAlphabetically && !sectionLetters.isEmpty {
+                if isSortedAlphabetically && !isShowingSemanticResults && !sectionLetters.isEmpty {
                     AlphabetIndexBar(letters: sectionLetters, currentLetter: $indexLetter) { letter in
                         withAnimation { proxy.scrollTo(letter, anchor: .center) }
                     }
@@ -486,7 +486,7 @@ struct ItemsListView: View {
                 }
             }
             .overlay {
-                if isSortedAlphabetically, let letter = indexLetter {
+                if isSortedAlphabetically, !isShowingSemanticResults, let letter = indexLetter {
                     LetterPopupBox(letter: letter, accent: theme.current.accentColor)
                         .allowsHitTesting(false)
                         .transition(.opacity)
@@ -640,8 +640,7 @@ struct ItemsListView: View {
 
     // MARK: - Filtering & sections
 
-    private var filteredItems: [HBItem] {
-        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
+    private var locationTagFiltered: [HBItem] {
         var items = allItems
         if let locId = filterLocationId {
             items = items.filter { $0.effectiveLocation?.id == locId }
@@ -652,7 +651,12 @@ struct ItemsListView: View {
                 return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
             }
         }
-        
+        return items
+    }
+
+    private var filteredItems: [HBItem] {
+        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        let items = locationTagFiltered
         if !q.isEmpty {
             let textMatches = items.filter {
                 $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
@@ -665,12 +669,24 @@ struct ItemsListView: View {
         return items
     }
 
+    /// True when the list is showing AI relevance-ranked results (a query with no literal
+    /// matches). In that case the items are ordered by relevance and must NOT be re-sorted
+    /// or grouped into A-Z sections, or that ranking is lost.
+    private var isShowingSemanticResults: Bool {
+        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty, semanticResults != nil else { return false }
+        return !locationTagFiltered.contains {
+            $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
+        }
+    }
+
     private var isSortedAlphabetically: Bool {
         sortOption == .nameAZ || sortOption == .nameZA
     }
 
     private var sortedItems: [HBItem] {
         let items = filteredItems
+        if isShowingSemanticResults { return items }   // preserve AI relevance order
         switch sortOption {
         case .nameAZ:
             return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
