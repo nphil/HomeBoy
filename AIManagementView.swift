@@ -9,6 +9,8 @@ struct AIManagementView: View {
 
     @State private var browsePurpose: ModelPurpose?
     @State private var showToken = false
+    @State private var diagResult: String?
+    @State private var runningDiag = false
 
     private var appleLLMAvailable: Bool { SystemLanguageModel.default.isAvailable }
     private let searchChoices: [EmbedProvider] = [.appleLLM, .gguf, .appleContextual, .appleNL]
@@ -70,10 +72,23 @@ struct AIManagementView: View {
             Button { browsePurpose = .embedding } label: {
                 Label("Browse Hugging Face", systemImage: "magnifyingglass")
             }
+            Button {
+                runningDiag = true; diagResult = nil
+                Task { let r = await ai.embedding.runDiagnostics(); diagResult = r; runningDiag = false }
+            } label: {
+                Label(runningDiag ? "Testing…" : "Test embedder", systemImage: "stethoscope")
+            }
+            .disabled(runningDiag)
+            if let diagResult {
+                Text(diagResult)
+                    .font(.caption2.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
         } header: {
             Text("Embedding model")
         } footer: {
-            Text("Hybrid search shortlists with this embedder, then reranks with Apple Intelligence. Smaller is faster.")
+            Text("Pure on-device embedding search (nomic / BGE), same as the Android app. Runs on CPU.")
         }
     }
 

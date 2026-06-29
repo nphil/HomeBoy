@@ -40,7 +40,7 @@ actor EmbeddingService {
     // Tuning. The 1.15 NLEmbedding distance is locked by CLAUDE.md; the contextual
     // cosine floor / cap below are independent and tunable on-device.
     private let contextualFloor: Float = 0.25
-    private let ggufFloor: Float = 0.15   // lenient — GGUF rank is a hybrid shortlist
+    private let ggufMargin: Float = 0.07   // nomic/BGE: keep items within this cosine of the best
     private let maxResults = 30
 
     func setProvider(_ p: EmbedProvider) {
@@ -243,11 +243,36 @@ actor EmbeddingService {
             } else {
                 continue
             }
-            let sim = dot(qVec, vec)
-            if sim >= ggufFloor { scored.append((item, sim)) }
+            scored.append((item, dot(qVec, vec)))
         }
         scored.sort { $0.1 > $1.1 }
-        return Array(scored.prefix(maxResults).map { $0.0 })
+        guard let best = scored.first?.1 else { return [] }
+        // nomic/BGE have a high baseline similarity, so an absolute floor lets everything
+        // through (search appears to "do nothing"). Use a RELATIVE cutoff: keep only items
+        // close to the best match.
+        let cutoff = best - ggufMargin
+        return scored.prefix(maxResults).filter { $0.1 >= cutoff }.map { $0.0 }
+    }
+
+    /// On-device self-test: embed known pairs and report cosine similarities so we can see
+    /// whether the embedder is actually discriminating on this device.
+    func runDiagnostics() -> String {
+        guard ggufPath != nil else { return "No downloaded embedder selected." }
+        guard let h = ensureGGUF() else { return "Embedder failed to load (model not ready?)." }
+        func cos(_ q: String, _ d: String) -> Float {
+            guard let a = ggufVector(handle: h, text: q, isQuery: true),
+                  let b = ggufVector(handle: h, text: d, isQuery: false) else { return .nan }
+            return dot(a, b)
+        }
+        func fmt(_ f: Float) -> String { f.isNaN ? "NaN" : String(format: "%.3f", f) }
+        let dim = (ggufVector(handle: h, text: "lubricant", isQuery: true) ?? []).count
+        return """
+        model: \(ggufModelId ?? "?") · \(ggufEngaged?.displayName ?? "?") · dim \(dim)
+        lubricant ↔ engine oil:    \(fmt(cos("lubricant", "car engine oil")))  (should be highest)
+        lubricant ↔ grease:        \(fmt(cos("lubricant", "grease")))  (should be high)
+        lubricant ↔ aquarium sand: \(fmt(cos("lubricant", "aquarium sand")))
+        lubricant ↔ interior paint:\(fmt(cos("lubricant", "interior paint")))
+        """
     }
 
     private func ggufVector(handle: UInt64, text: String, isQuery: Bool) -> [Float]? {
