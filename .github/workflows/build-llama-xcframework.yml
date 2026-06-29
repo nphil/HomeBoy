@@ -1,0 +1,55 @@
+name: Build llama.xcframework
+
+# Manually-triggered. Builds a slim iOS-device llama.xcframework from the pinned
+# llama.cpp submodule and commits it to the repo via Git LFS. Re-run only when the
+# submodule is bumped — the normal iOS release build just links the committed binary.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-llama-xcframework
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and commit llama.xcframework
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout (submodules + LFS)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          lfs: true
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          echo "Using: $LATEST"
+          sudo xcode-select -s "$LATEST"
+          xcodebuild -version
+
+      - name: Ensure CMake
+        run: cmake --version || brew install cmake
+
+      - name: Build llama.xcframework (iOS device, arm64)
+        run: bash scripts/build-llama-xcframework.sh
+
+      - name: Commit framework via Git LFS
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .gitattributes Frameworks/llama.xcframework
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "build: llama.xcframework (iOS) from pinned llama.cpp [skip ci]"
+          git pull --rebase origin main
+          git push origin HEAD:main
+          echo "=== LFS tracked files ==="
+          git lfs ls-files | head -20
