@@ -3,6 +3,7 @@
 #import <llama/llama.h>
 #import <llama/ggml-backend.h>
 
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -211,6 +212,79 @@ std::string run_generation(Engine *eng, const std::string &formatted, bool add_b
     NSMutableArray<NSNumber *> *out = [NSMutableArray arrayWithCapacity:n_embd];
     for (int i = 0; i < n_embd; ++i) [out addObject:@(emb[i] * inv)];
     return out;
+}
+
++ (NSDictionary<NSString *, id> *)benchmarkChatWithHandle:(uint64_t)handle
+                                                   system:(NSString *)system
+                                                     user:(NSString *)user
+                                                maxTokens:(int)maxTokens
+                                              temperature:(float)temperature
+                                                     topK:(int)topK {
+    Engine *eng = as_engine(handle);
+    if (eng == nullptr || eng->ctx == nullptr) return @{};
+
+    const llama_vocab *vocab = llama_model_get_vocab(eng->model);
+    const std::string sys_str = to_std(system);
+    const std::string usr_str = to_std(user);
+
+    std::vector<llama_chat_message> msgs;
+    if (!sys_str.empty()) msgs.push_back({"system", sys_str.c_str()});
+    msgs.push_back({"user", usr_str.c_str()});
+
+    const char *tmpl = llama_model_chat_template(eng->model, nullptr);
+    std::string formatted(8192, '\0');
+    int32_t n = tmpl ? llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), true,
+                                                 formatted.data(), (int32_t)formatted.size())
+                     : -1;
+    if (n < 0) {
+        formatted = (sys_str.empty() ? "" : sys_str + "\n") + usr_str;
+    } else if (n > (int32_t)formatted.size()) {
+        formatted.assign(static_cast<size_t>(n + 1), '\0');
+        llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), true, formatted.data(), n + 1);
+        formatted.resize(n);
+    } else {
+        formatted.resize(n);
+    }
+
+    llama_memory_clear(llama_get_memory(eng->ctx), true);
+    std::vector<llama_token> tokens = tokenize(vocab, formatted, /*add_bos=*/false);
+    if (tokens.empty()) return @{};
+    const int promptTokens = static_cast<int>(tokens.size());
+
+    using clock = std::chrono::steady_clock;
+    const auto t0 = clock::now();
+    llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int>(tokens.size()));
+    if (llama_decode(eng->ctx, batch) != 0) return @{};
+    const auto t1 = clock::now();
+
+    llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(topK > 0 ? topK : 40));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature > 0.f ? temperature : 0.7f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    std::string out;
+    int gen = 0;
+    for (int i = 0; i < maxTokens; ++i) {
+        llama_token tok = llama_sampler_sample(smpl, eng->ctx, -1);
+        if (llama_vocab_is_eog(vocab, tok)) break;
+        out += token_to_piece(vocab, tok);
+        gen++;
+        llama_batch step = llama_batch_get_one(&tok, 1);
+        if (llama_decode(eng->ctx, step) != 0) break;
+    }
+    const auto t2 = clock::now();
+    llama_sampler_free(smpl);
+
+    const double prefillMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    const double genMs = std::chrono::duration<double, std::milli>(t2 - t1).count();
+
+    return @{
+        @"text": to_ns(out),
+        @"promptTokens": @(promptTokens),
+        @"genTokens": @(gen),
+        @"prefillMs": @(prefillMs),
+        @"genMs": @(genMs),
+    };
 }
 
 + (void)freeHandle:(uint64_t)handle {

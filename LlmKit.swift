@@ -60,6 +60,28 @@ enum LlmKit {
         LlamaBridge.embed(withHandle: handle, text: text).map { $0.floatValue }
     }
 
+    struct ChatBenchmark: Sendable {
+        let text: String
+        let promptTokens: Int
+        let genTokens: Int
+        let prefillMs: Double
+        let genMs: Double
+        var tokensPerSec: Double { genMs > 0 ? Double(genTokens) / (genMs / 1000.0) : 0 }
+    }
+
+    static func chatBenchmark(_ handle: UInt64, system: String, user: String,
+                              maxTokens: Int32 = 96, temperature: Float = 0.4, topK: Int32 = 20) -> ChatBenchmark {
+        let d = LlamaBridge.benchmarkChat(withHandle: handle, system: system, user: user,
+                                          maxTokens: maxTokens, temperature: temperature, topK: topK)
+        return ChatBenchmark(
+            text: d["text"] as? String ?? "",
+            promptTokens: (d["promptTokens"] as? NSNumber)?.intValue ?? 0,
+            genTokens: (d["genTokens"] as? NSNumber)?.intValue ?? 0,
+            prefillMs: (d["prefillMs"] as? NSNumber)?.doubleValue ?? 0,
+            genMs: (d["genMs"] as? NSNumber)?.doubleValue ?? 0
+        )
+    }
+
     static func free(_ handle: UInt64) {
         LlamaBridge.freeHandle(handle)
     }

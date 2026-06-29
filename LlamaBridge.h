@@ -38,6 +38,15 @@ NS_ASSUME_NONNULL_BEGIN
 /// Compute a mean-pooled, L2-normalized embedding vector.
 + (NSArray<NSNumber *> *)embedWithHandle:(uint64_t)handle text:(NSString *)text;
 
+/// Like `chat`, but also reports timing + token counts for benchmarking.
+/// Returns keys: text (NSString), promptTokens, genTokens, prefillMs, genMs (NSNumber).
++ (NSDictionary<NSString *, id> *)benchmarkChatWithHandle:(uint64_t)handle
+                                                   system:(NSString *)system
+                                                     user:(NSString *)user
+                                                maxTokens:(int)maxTokens
+                                              temperature:(float)temperature
+                                                     topK:(int)topK;
+
 /// Release a model + context. Safe with a stale/zero handle.
 + (void)freeHandle:(uint64_t)handle;
 
