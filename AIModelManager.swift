@@ -171,12 +171,13 @@ final class AIModelManager: ObservableObject {
             // so the LLM call stays fast. A raw embedder shortlist ranks by surface
             // similarity and gives nonsense like "aquarium sand" for "lubricant".
             if SystemLanguageModel.default.isAvailable {
-                if items.count <= 100 {
-                    // Small/medium: let the LLM read everything (matches "Smart" quality).
+                if items.count <= 300 {
+                    // Up to a few hundred items: let the LLM read everything (the high-quality
+                    // "Smart" path). No embedder — avoids surface-similarity nonsense entirely.
                     if let m = await llmSearch(query: query, items: items) { return m }
                     return await embedding.rank(query: query, items: items)  // LLM errored → embedder
                 }
-                // Large: embedder narrows the field, then the LLM ranks the top 40.
+                // Very large: embedder narrows the field, then the LLM ranks the top 40.
                 let shortlist = Array(await embedding.rank(query: query, items: items).prefix(40))
                 if let m = await llmMatchChunk(query: query, items: shortlist), !m.isEmpty { return m }
                 return shortlist

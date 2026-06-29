@@ -268,20 +268,40 @@ actor EmbeddingService {
         if ggufTriedLoad { return nil }
         ggufTriedLoad = true
         guard let path = ggufPath, FileManager.default.fileExists(atPath: path) else { return nil }
-        // Try the requested backend, then CPU. Reject NaN output (BERT graphs can NaN on Metal).
-        let order: [LlamaBackend] = (ggufBackend == .cpu) ? [.cpu] : [ggufBackend, .cpu]
+        // BERT embedding graphs are unreliable on the Metal GPU (garbage / non-deterministic
+        // vectors — not NaN, so they slip past a simple check), which yields nonsensical and
+        // *inconsistent* search results. So the default (.auto) runs on CPU; an explicit GPU
+        // choice is tried but must pass a strict probe (finite + deterministic) or fall to CPU.
+        let order: [LlamaBackend]
+        switch ggufBackend {
+        case .cpu:  order = [.cpu]
+        case .gpu:  order = [.gpu, .cpu]
+        case .auto: order = [.cpu]
+        }
         for backend in order {
             guard let h = LlmKit.loadModel(path: path, embeddings: true, backend: backend) else { continue }
-            let probe = LlmKit.embed(h, text: "ok")
-            if !probe.isEmpty, !probe.contains(where: { $0.isNaN }) {
+            if probeIsHealthy(h) {
                 ggufHandle = h
-                ggufEngaged = (backend == .auto) ? .gpu : backend
+                ggufEngaged = backend
                 reportStatus()
                 return h
             }
             LlmKit.free(h)
         }
         return nil
+    }
+
+    /// A backend is healthy only if it returns finite, non-degenerate, and *deterministic*
+    /// embeddings — embedding the same text twice must match. Catches Metal BERT garbage.
+    private func probeIsHealthy(_ handle: UInt64) -> Bool {
+        let a = LlmKit.embed(handle, text: "lubricant for the door hinge")
+        guard a.count > 1, !a.contains(where: { $0.isNaN || $0.isInfinite }) else { return false }
+        if a.allSatisfy({ $0 == 0 }) { return false }
+        let b = LlmKit.embed(handle, text: "lubricant for the door hinge")
+        guard b.count == a.count else { return false }
+        var diff: Float = 0
+        for i in 0..<a.count { diff += abs(a[i] - b[i]) }
+        return diff < 1e-3
     }
 
     // MARK: - Legacy NLEmbedding path (threshold 1.15 — locked by CLAUDE.md)
