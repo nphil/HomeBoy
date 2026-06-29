@@ -111,11 +111,16 @@ struct HuggingFaceRepository: Sendable {
             return GGUFCompatibility(runnable: false, backend: nil, warning: "No GGUF file in this repo.")
         }
         let hay = (repoId + " " + fileNames.joined(separator: " ")).lowercased()
+        // Gemma 3n (E2B/E4B) is a multimodal/MatFormer arch whose context fails to init on
+        // the bundled engine ("requires ctx_other"). Steer users to standard text models.
+        let gemma3n = ["gemma-3n", "gemma3n", "-e2b", "-e4b", " e2b", " e4b"]
         let exotic = ["mamba", "rwkv", "deltanet", "jamba", "ssm", "recurrentgemma", "griffin"]
         let large = ["70b", "72b", "65b", "34b", "32b", "30b", "27b", "20b", "14b", "13b", "9b", "8b", "7b"]
 
         var warning: String?
-        if exotic.contains(where: { hay.contains($0) }) {
+        if gemma3n.contains(where: { hay.contains($0) }) {
+            warning = "Gemma 3n (E2B/E4B) won’t run on the bundled engine. Use a standard instruct model (Qwen, Llama, Gemma 2, Phi)."
+        } else if exotic.contains(where: { hay.contains($0) }) {
             warning = "Unusual architecture — llama.cpp may run it slowly on CPU, or not at all."
         } else if large.contains(where: { hay.contains($0) }) {
             warning = "Large model — heavy memory use on iPhone; a 0.5–2B model is recommended."
