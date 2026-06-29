@@ -53,6 +53,17 @@ enum LLMProvider: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// A saved benchmark run — parameters used plus a rendered summary of the results.
+struct SavedRun: Codable, Identifiable, Sendable {
+    var id: String
+    var date: String
+    var mode: String
+    var input: String
+    var source: String
+    var backendMode: String
+    var lines: [String]
+}
+
 /// Top-level on-device AI coordinator: owns the feature toggles, provider selection,
 /// and the shared embedding / tag-suggestion services. Injected app-wide as an
 /// `@EnvironmentObject` (alongside `HomeboxStore` and `ThemeManager`).
@@ -102,6 +113,9 @@ final class AIModelManager: ObservableObject {
     @Published var modelBackends: [String: String] {
         didSet { persistModelBackends(); configureEmbedder(); configureGenerator() }
     }
+    @Published var savedRuns: [SavedRun] {
+        didSet { persistSavedRuns() }
+    }
 
     let embedding = EmbeddingService()
     let tagging = TagSuggestionService()
@@ -126,6 +140,7 @@ final class AIModelManager: ObservableObject {
         static let hfToken       = "hf_token"
         static let customModels  = "ai_custom_models"
         static let modelBackends = "ai_model_backends"
+        static let savedRuns     = "ai_benchmark_runs"
     }
 
     init() {
@@ -134,12 +149,13 @@ final class AIModelManager: ObservableObject {
         tagsEnabled   = d.object(forKey: Keys.tagsEnabled) as? Bool ?? true
         embedProvider = d.string(forKey: Keys.embedProvider).flatMap(EmbedProvider.init(rawValue:)) ?? .appleLLM
         llmProvider   = d.string(forKey: Keys.llmProvider).flatMap(LLMProvider.init(rawValue:)) ?? .apple
-        embedModelId  = d.string(forKey: Keys.embedModelId) ?? "nomic-embed-v1.5"
+        embedModelId  = d.string(forKey: Keys.embedModelId) ?? ""
         genModelId    = d.string(forKey: Keys.genModelId)
         unloadMinutes = d.object(forKey: Keys.unloadMinutes) as? Int ?? 5
         hfToken       = d.string(forKey: Keys.hfToken) ?? ""
         customModels  = Self.loadCustomModels(d)
         modelBackends = Self.loadModelBackends(d)
+        savedRuns     = Self.loadSavedRuns(d)
 
         // Property observers don't fire during init — push the initial config manually.
         let p = embedProvider
@@ -197,16 +213,39 @@ final class AIModelManager: ObservableObject {
 
     func addCustomModel(_ spec: ModelSpec) {
         if !customModels.contains(where: { $0.id == spec.id }) { customModels.append(spec) }
+        // Auto-select the first downloaded model of each kind so it's usable immediately.
+        if spec.purpose == .embedding, embedModelId.isEmpty { embedModelId = spec.id }
+        if spec.purpose == .generation, genModelId == nil { genModelId = spec.id }
         download(spec)
     }
 
     func deleteModel(_ id: String) {
         ModelDownloadManager.shared.delete(id)
         customModels.removeAll { $0.id == id }
-        if embedModelId == id { embedModelId = "nomic-embed-v1.5" }
+        if embedModelId == id { embedModelId = "" }
         if genModelId == id { genModelId = nil }
         configureEmbedder()
         configureGenerator()
+    }
+
+    // MARK: - Saved benchmark runs
+
+    func saveRun(_ run: SavedRun) {
+        savedRuns.insert(run, at: 0)
+        if savedRuns.count > 30 { savedRuns = Array(savedRuns.prefix(30)) }
+    }
+
+    func deleteRun(_ id: String) {
+        savedRuns.removeAll { $0.id == id }
+    }
+
+    private func persistSavedRuns() {
+        if let data = try? JSONEncoder().encode(savedRuns) { defaults.set(data, forKey: Keys.savedRuns) }
+    }
+
+    private static func loadSavedRuns(_ d: UserDefaults) -> [SavedRun] {
+        guard let data = d.data(forKey: Keys.savedRuns) else { return [] }
+        return (try? JSONDecoder().decode([SavedRun].self, from: data)) ?? []
     }
 
     func configureEmbedder() {

@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,17 @@ struct Engine {
 
 inline Engine *as_engine(uint64_t handle) {
     return reinterpret_cast<Engine *>(handle);
+}
+
+// Capture llama.cpp/ggml log output so the app can surface real load errors.
+std::mutex g_log_mutex;
+std::string g_log;
+
+void llmkit_log_cb(ggml_log_level level, const char *text, void *) {
+    if (text == nullptr) return;
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    g_log += text;
+    if (g_log.size() > 6000) g_log.erase(0, g_log.size() - 6000);
 }
 
 std::string to_std(NSString *s) {
@@ -95,9 +107,20 @@ std::string run_generation(Engine *eng, const std::string &formatted, bool add_b
 + (void)initBackend {
     static bool done = false;
     if (done) return;
+    llama_log_set(llmkit_log_cb, nullptr);
     ggml_backend_load_all();
     llama_backend_init();
     done = true;
+}
+
++ (void)clearLog {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    g_log.clear();
+}
+
++ (NSString *)recentLog {
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    return to_ns(g_log);
 }
 
 + (NSArray<NSString *> *)probeBackends {

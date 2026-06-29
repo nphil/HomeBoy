@@ -50,6 +50,12 @@ NS_ASSUME_NONNULL_BEGIN
 /// Release a model + context. Safe with a stale/zero handle.
 + (void)freeHandle:(uint64_t)handle;
 
+/// Clear the captured llama.cpp log buffer (call before a load to isolate its messages).
++ (void)clearLog;
+
+/// The recent llama.cpp / ggml log output (model-load errors land here).
++ (NSString *)recentLog;
+
 @end
 
 NS_ASSUME_NONNULL_END

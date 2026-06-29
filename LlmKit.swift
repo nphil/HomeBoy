@@ -85,4 +85,7 @@ enum LlmKit {
     static func free(_ handle: UInt64) {
         LlamaBridge.freeHandle(handle)
     }
+
+    static func clearLog() { LlamaBridge.clearLog() }
+    static func recentLog() -> String { LlamaBridge.recentLog() }
 }

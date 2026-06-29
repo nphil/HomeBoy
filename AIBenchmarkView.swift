@@ -15,6 +15,12 @@ struct AIBenchmarkView: View {
     @State private var mode: Mode = .embedder
     @State private var selected: Set<String> = []
 
+    enum BenchBackend: String, CaseIterable, Identifiable {
+        case gpu = "GPU", cpu = "CPU", both = "Both"
+        var id: String { rawValue }
+    }
+    @State private var benchBackend: BenchBackend = .gpu
+
     // Embedder input
     @State private var query = ""
     @State private var useMyItems = true
@@ -51,6 +57,7 @@ struct AIBenchmarkView: View {
                 .onChange(of: mode) { _, _ in resetSelection() }
 
                 modelChips
+                backendPicker
                 inputCard
                 runButton
 
@@ -59,6 +66,8 @@ struct AIBenchmarkView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 resultsView
+                if hasResults { saveRunButton }
+                savedRunsSection
             }
             .padding(16)
         }
@@ -154,6 +163,97 @@ struct AIBenchmarkView: View {
         .disabled(running || selected.isEmpty || !inputValid)
     }
 
+    private var backendPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("BACKEND")
+                .font(.caption2.weight(.semibold)).tracking(0.5)
+                .foregroundStyle(theme.current.accentColor.opacity(0.8))
+            Picker("Backend", selection: $benchBackend) {
+                ForEach(BenchBackend.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var hasResults: Bool {
+        mode == .embedder ? !embedRows.isEmpty : !llmRows.isEmpty
+    }
+
+    private var saveRunButton: some View {
+        Button { saveCurrentRun() } label: {
+            Label("Save this run", systemImage: "square.and.arrow.down")
+                .frame(maxWidth: .infinity).padding(.vertical, 4)
+        }
+        .buttonStyle(.bordered)
+        .tint(theme.current.accentColor)
+    }
+
+    @ViewBuilder
+    private var savedRunsSection: some View {
+        if !ai.savedRuns.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("SAVED RUNS")
+                    .font(.caption2.weight(.semibold)).tracking(0.5)
+                    .foregroundStyle(theme.current.accentColor.opacity(0.8))
+                ForEach(ai.savedRuns) { run in
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Source: \(run.source)").font(.caption2).foregroundStyle(.secondary)
+                            ForEach(run.lines.indices, id: \.self) { i in
+                                Text(run.lines[i]).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                            }
+                            Button(role: .destructive) { ai.deleteRun(run.id) } label: {
+                                Label("Delete", systemImage: "trash").font(.caption)
+                            }
+                            .padding(.top, 2)
+                        }
+                        .padding(.top, 4)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(run.mode) · \(run.backendMode)").font(.caption.weight(.medium))
+                            Text("\(run.date) · \(run.input)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                    .padding(12).background(cardBG)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func saveCurrentRun() {
+        let df = DateFormatter(); df.dateStyle = .short; df.timeStyle = .short
+        let dateStr = df.string(from: Date())
+        var lines: [String] = []
+        let input: String
+        let source: String
+        if mode == .embedder {
+            input = "Query: \(query)"
+            source = useMyItems ? "My items (\(min(store.localDB.items.count, 200)))" : "Custom text"
+            for r in embedRows {
+                if r.failed {
+                    lines.append("\(r.modelName) [\(r.backend)] — \(r.error ?? "failed")")
+                } else {
+                    let top = r.top.prefix(3).map { "\($0.text.prefix(18)) \(String(format: "%.2f", $0.score))" }.joined(separator: ", ")
+                    lines.append("\(r.modelName) [\(r.backend)] — \(String(format: "%.0f", r.embedsPerSec)) emb/s, load \(Int(r.loadMs))ms · \(top)")
+                }
+            }
+        } else {
+            input = "Item: \(tagName)" + (tagDesc.isEmpty ? "" : " / \(tagDesc)")
+            source = "—"
+            for r in llmRows {
+                if r.failed {
+                    lines.append("\(r.modelName) [\(r.backend)] — \(r.error ?? "failed")")
+                } else {
+                    lines.append("\(r.modelName) [\(r.backend)] — \(String(format: "%.1f", r.tokensPerSec)) tok/s, load \(Int(r.loadMs))ms · \(r.output.prefix(40))")
+                }
+            }
+        }
+        ai.saveRun(SavedRun(id: UUID().uuidString, date: dateStr, mode: mode.rawValue,
+                            input: input, source: source, backendMode: benchBackend.rawValue, lines: lines))
+    }
+
     // MARK: - Results
 
     @ViewBuilder
@@ -218,12 +318,12 @@ struct AIBenchmarkView: View {
     private func embedOutput(_ r: BenchmarkRunner.EmbedRow) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(r.modelName).font(.subheadline.weight(.semibold))
+                Text("\(r.modelName) · \(r.backend)").font(.subheadline.weight(.semibold))
                 Spacer()
-                if !r.failed { Text("\(r.backend) · dim \(r.dim)").font(.caption2).foregroundStyle(.secondary) }
+                if !r.failed { Text("dim \(r.dim)").font(.caption2).foregroundStyle(.secondary) }
             }
             if r.failed {
-                Text("Failed to load").font(.caption).foregroundStyle(.orange)
+                Text(r.error ?? "Failed to load").font(.caption).foregroundStyle(.orange)
             } else {
                 ForEach(r.top.indices, id: \.self) { i in
                     let s = r.top[i]
@@ -244,12 +344,11 @@ struct AIBenchmarkView: View {
     private func llmOutput(_ r: BenchmarkRunner.LLMRow) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(r.modelName).font(.subheadline.weight(.semibold))
+                Text("\(r.modelName) · \(r.backend)").font(.subheadline.weight(.semibold))
                 Spacer()
-                if !r.failed { Text(r.backend).font(.caption2).foregroundStyle(.secondary) }
             }
             if r.failed {
-                Text("Failed to load or generate").font(.caption).foregroundStyle(.orange)
+                Text(r.error ?? "Failed to load or generate").font(.caption).foregroundStyle(.orange)
             } else {
                 Text(r.output.isEmpty ? "(empty)" : r.output).font(.caption)
                 Text(String(format: "%.1f tok/s · %d tokens · load %dms", r.tokensPerSec, r.genTokens, Int(r.loadMs)))
@@ -279,7 +378,7 @@ struct AIBenchmarkView: View {
         running = true; note = nil; embedRows = []; llmRows = []
 
         let paths = Dictionary(uniqueKeysWithValues: specs.map { ($0.id, ModelDownloadManager.modelPath($0.id).path) })
-        let backends = Dictionary(uniqueKeysWithValues: specs.map { ($0.id, ai.backend(for: $0.id)) })
+        let backends: [LlamaBackend] = benchBackend == .both ? [.gpu, .cpu] : (benchBackend == .cpu ? [.cpu] : [.gpu])
 
         if mode == .embedder {
             let q = query.trimmingCharacters(in: .whitespaces)
@@ -288,10 +387,12 @@ struct AIBenchmarkView: View {
                 : customText.split(whereSeparator: \.isNewline).map(String.init)
             Task { @MainActor in
                 for spec in specs {
-                    let row = await runner.benchmarkEmbedder(
-                        spec: spec, path: paths[spec.id] ?? "", backend: backends[spec.id] ?? .auto,
-                        query: q, candidates: candidates)
-                    embedRows.append(row)
+                    for b in backends {
+                        let row = await runner.benchmarkEmbedder(
+                            spec: spec, path: paths[spec.id] ?? "", backend: b,
+                            query: q, candidates: candidates)
+                        embedRows.append(row)
+                    }
                 }
                 if candidates.isEmpty { note = "No candidates to test." }
                 running = false
@@ -301,10 +402,12 @@ struct AIBenchmarkView: View {
             let desc = tagDesc
             Task { @MainActor in
                 for spec in specs {
-                    let row = await runner.benchmarkLLM(
-                        spec: spec, path: paths[spec.id] ?? "", backend: backends[spec.id] ?? .gpu,
-                        system: tagSystem, user: tagUserPrompt(name, desc))
-                    llmRows.append(row)
+                    for b in backends {
+                        let row = await runner.benchmarkLLM(
+                            spec: spec, path: paths[spec.id] ?? "", backend: b,
+                            system: tagSystem, user: tagUserPrompt(name, desc))
+                        llmRows.append(row)
+                    }
                 }
                 running = false
             }

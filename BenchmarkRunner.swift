@@ -6,12 +6,12 @@ struct ScoredText: Sendable {
     let score: Float
 }
 
-/// Runs head-to-head model benchmarks. Each model is loaded fresh, measured, then freed —
-/// independent of the app's live embedding/generation engines, and bounding peak memory.
+/// Runs head-to-head model benchmarks. Each model is loaded fresh on a SPECIFIC backend
+/// (no silent fallback, so GPU vs CPU are measured honestly), timed, then freed.
 actor BenchmarkRunner {
 
     struct EmbedRow: Identifiable, Sendable {
-        let id: String          // modelId
+        let id: String          // "modelId|backend" — unique per model+backend
         let modelName: String
         let backend: String
         let dim: Int
@@ -21,6 +21,7 @@ actor BenchmarkRunner {
         let count: Int
         let top: [ScoredText]
         let failed: Bool
+        let error: String?
     }
 
     struct LLMRow: Identifiable, Sendable {
@@ -33,14 +34,16 @@ actor BenchmarkRunner {
         let tokensPerSec: Double
         let output: String
         let failed: Bool
+        let error: String?
     }
 
     func benchmarkEmbedder(spec: ModelSpec, path: String, backend: LlamaBackend,
                            query: String, candidates: [String], topN: Int = 12) -> EmbedRow {
-        let (handle, engaged, loadMs) = load(path: path, embeddings: true, backend: backend, probe: true)
+        let rowId = "\(spec.id)|\(backend.rawValue)"
+        let (handle, loadMs, err) = load(path: path, embeddings: true, backend: backend, probe: true)
         guard let h = handle else {
-            return EmbedRow(id: spec.id, modelName: spec.displayName, backend: "—", dim: 0,
-                            loadMs: loadMs, msPerItem: 0, embedsPerSec: 0, count: 0, top: [], failed: true)
+            return EmbedRow(id: rowId, modelName: spec.displayName, backend: backend.displayName, dim: 0,
+                            loadMs: loadMs, msPerItem: 0, embedsPerSec: 0, count: 0, top: [], failed: true, error: err)
         }
         defer { LlmKit.free(h) }
 
@@ -60,45 +63,78 @@ actor BenchmarkRunner {
         scored.sort { $0.score > $1.score }
 
         return EmbedRow(
-            id: spec.id, modelName: spec.displayName, backend: engaged.displayName, dim: dim,
+            id: rowId, modelName: spec.displayName, backend: backend.displayName, dim: dim,
             loadMs: loadMs,
             msPerItem: count > 0 ? elapsed * 1000 / Double(count) : 0,
             embedsPerSec: elapsed > 0 ? Double(count) / elapsed : 0,
             count: count,
             top: Array(scored.prefix(topN)),
-            failed: false)
+            failed: false, error: nil)
     }
 
     func benchmarkLLM(spec: ModelSpec, path: String, backend: LlamaBackend,
                       system: String, user: String) -> LLMRow {
-        let (handle, engaged, loadMs) = load(path: path, embeddings: false, backend: backend, probe: false)
+        let rowId = "\(spec.id)|\(backend.rawValue)"
+        let (handle, loadMs, err) = load(path: path, embeddings: false, backend: backend, probe: false)
         guard let h = handle else {
-            return LLMRow(id: spec.id, modelName: spec.displayName, backend: "—",
-                          loadMs: loadMs, promptTokens: 0, genTokens: 0, tokensPerSec: 0, output: "", failed: true)
+            return LLMRow(id: rowId, modelName: spec.displayName, backend: backend.displayName,
+                          loadMs: loadMs, promptTokens: 0, genTokens: 0, tokensPerSec: 0, output: "", failed: true, error: err)
         }
         defer { LlmKit.free(h) }
 
         let b = LlmKit.chatBenchmark(h, system: system, user: user, maxTokens: 96, temperature: 0.4, topK: 20)
-        return LLMRow(id: spec.id, modelName: spec.displayName, backend: engaged.displayName,
+        let failed = b.genTokens == 0
+        return LLMRow(id: rowId, modelName: spec.displayName, backend: backend.displayName,
                       loadMs: loadMs, promptTokens: b.promptTokens, genTokens: b.genTokens,
-                      tokensPerSec: b.tokensPerSec, output: b.text, failed: b.genTokens == 0)
+                      tokensPerSec: b.tokensPerSec, output: stripThink(b.text),
+                      failed: failed, error: failed ? "Loaded but generated 0 tokens (decode failed)." : nil)
     }
 
     // MARK: - Helpers
 
+    /// Strict load on one backend (no fallback). Captures llama.cpp's own log on failure.
     private func load(path: String, embeddings: Bool, backend: LlamaBackend, probe: Bool)
-        -> (handle: UInt64?, engaged: LlamaBackend, loadMs: Double) {
-        let order: [LlamaBackend] = (backend == .cpu) ? [.cpu] : [backend == .auto ? .gpu : backend, .cpu]
+        -> (handle: UInt64?, loadMs: Double, error: String?) {
+        LlmKit.clearLog()
         let t0 = Date()
-        for b in order {
-            guard let h = LlmKit.loadModel(path: path, embeddings: embeddings, backend: b) else { continue }
-            if probe {
-                let p = LlmKit.embed(h, text: "ok")
-                if p.isEmpty || p.contains(where: { $0.isNaN }) { LlmKit.free(h); continue }
-            }
-            return (h, b, Date().timeIntervalSince(t0) * 1000)
+        guard let h = LlmKit.loadModel(path: path, embeddings: embeddings, backend: backend) else {
+            return (nil, Date().timeIntervalSince(t0) * 1000, loadErrorMessage())
         }
-        return (nil, .cpu, Date().timeIntervalSince(t0) * 1000)
+        if probe {
+            let p = LlmKit.embed(h, text: "ok")
+            if p.isEmpty || p.contains(where: { $0.isNaN }) {
+                LlmKit.free(h)
+                return (nil, Date().timeIntervalSince(t0) * 1000,
+                        "Produced invalid (NaN/empty) embeddings on \(backend.displayName) — try CPU.")
+            }
+        }
+        return (h, Date().timeIntervalSince(t0) * 1000, nil)
+    }
+
+    private func loadErrorMessage() -> String {
+        let log = LlmKit.recentLog()
+        let interesting = log.split(whereSeparator: \.isNewline).map(String.init).filter {
+            let lo = $0.lowercased()
+            return lo.contains("error") || lo.contains("fail") || lo.contains("unknown")
+                || lo.contains("unsupported") || lo.contains("not found") || lo.contains("missing")
+                || lo.contains("cannot") || lo.contains("invalid")
+        }
+        if let last = interesting.last, !last.isEmpty { return last.trimmingCharacters(in: .whitespaces) }
+        if !log.isEmpty { return String(log.suffix(220)).trimmingCharacters(in: .whitespacesAndNewlines) }
+        return "Failed to load — likely an unsupported architecture, a partial/sharded GGUF (only one shard downloaded), or out of memory."
+    }
+
+    private func stripThink(_ s: String) -> String {
+        var out = s
+        while let start = out.range(of: "<think>") {
+            if let end = out.range(of: "</think>", range: start.upperBound..<out.endIndex) {
+                out.removeSubrange(start.lowerBound..<end.upperBound)
+            } else {
+                out.removeSubrange(start.lowerBound..<out.endIndex)
+                break
+            }
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func prefix(_ id: String, isQuery: Bool) -> String {
