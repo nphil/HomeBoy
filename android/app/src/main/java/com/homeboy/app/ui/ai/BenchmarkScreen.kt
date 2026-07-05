@@ -1,8 +1,11 @@
 package com.homeboy.app.ui.ai
 
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -11,10 +14,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.PriorityHigh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -35,7 +41,7 @@ import java.util.Locale
  * generator), and see quality + performance side by side. Android analogue of the iOS
  * `AIBenchmarkView`, with an extra NPU option the iPhone doesn't have.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BenchmarkScreen(onBack: () -> Unit) {
     val ctx = LocalContext.current
@@ -55,9 +61,12 @@ fun BenchmarkScreen(onBack: () -> Unit) {
     val embedRows by vm.embedRows.collectAsStateWithLifecycle()
     val llmRows by vm.llmRows.collectAsStateWithLifecycle()
     val savedRuns by vm.savedRuns.collectAsStateWithLifecycle()
+    val available by vm.availableModels.collectAsStateWithLifecycle()
 
-    val available = vm.availableModels()
-    val inputValid = vm.inputValid()
+    val isEmbedder = mode == BenchmarkViewModel.Mode.EMBEDDER
+    val inputValid = if (isEmbedder) query.isNotBlank() else tagName.trim().length >= 3
+    val hasResults = if (isEmbedder) embedRows.isNotEmpty() else llmRows.isNotEmpty()
+    val myItemCount = remember { vm.myItemCount }
     val dateFmt = remember { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
 
     Scaffold(
@@ -90,19 +99,32 @@ fun BenchmarkScreen(onBack: () -> Unit) {
                 }
             }
 
-            // Models to compare
-            SectionLabel("MODELS TO COMPARE")
+            // Models to compare — wrapping chips (no horizontal scroll), with a select-all toggle.
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SectionLabel("MODELS TO COMPARE")
+                if (available.isNotEmpty()) {
+                    val allSelected = selected.size == available.size
+                    TextButton(
+                        onClick = { if (allSelected) vm.clearSelection() else vm.selectAll() },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) { Text(if (allSelected) "Clear" else "Select all", style = MaterialTheme.typography.labelMedium) }
+                }
+            }
             if (available.isEmpty()) {
                 Text(
-                    "No downloaded ${if (mode == BenchmarkViewModel.Mode.EMBEDDER) "embedders" else "language models"}. " +
-                        "Add one in AI & Models.",
+                    "No downloaded ${if (isEmbedder) "embedders" else "language models"}. Add one in AI & Models.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
-                Row(
-                    Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                FlowRow(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     available.forEach { spec ->
                         val on = spec.id in selected
@@ -144,7 +166,7 @@ fun BenchmarkScreen(onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth()
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Use my items (${vm.myItemCount})", Modifier.weight(1f),
+                            Text("Use my items ($myItemCount)", Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodyMedium)
                             Switch(checked = useMyItems, onCheckedChange = vm::setUseMyItems)
                         }
@@ -193,16 +215,13 @@ fun BenchmarkScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.tertiary)
             }
 
-            // Results
-            if (mode == BenchmarkViewModel.Mode.EMBEDDER && embedRows.isNotEmpty()) {
-                EmbedTable(embedRows)
-                embedRows.forEach { EmbedOutput(it) }
-            } else if (mode == BenchmarkViewModel.Mode.TAGS && llmRows.isNotEmpty()) {
-                LlmTable(llmRows)
-                llmRows.forEach { LlmOutput(it) }
+            // Results — ranked leaderboard so the fastest is obvious at a glance.
+            if (hasResults) {
+                SectionLabel("RESULTS")
+                ResultsLeaderboard(isEmbedder, embedRows, llmRows)
             }
 
-            if (vm.hasResults) {
+            if (hasResults) {
                 OutlinedButton(
                     onClick = { vm.saveCurrentRun(dateFmt.format(Date())) },
                     modifier = Modifier.fillMaxWidth()
@@ -229,58 +248,267 @@ private fun SectionLabel(text: String) {
     )
 }
 
-// ---- Embedder results ------------------------------------------------------
+// ---- Results leaderboard ---------------------------------------------------
+
+private enum class SortKey(val label: String) { THROUGHPUT("Throughput"), LOAD("Load time") }
+
+/** Unified per-(model × backend) view used to rank either result type on one shared scale. */
+private data class BenchView(
+    val id: String,
+    val name: String,
+    val backend: String,
+    val failed: Boolean,
+    val error: String?,
+    val throughput: Double,   // emb/s or tok/s — higher is better
+    val loadMs: Double,
+    val throughputEstimated: Boolean,
+)
+
+private fun fmtThroughput(x: Double, unit: String): String =
+    if (unit == "tok/s") "%.1f".format(x) else "%.0f".format(x)
+
+/**
+ * Ranked leaderboard: every model×backend result on one shared scale, sorted so the fastest is
+ * row #1 with a full-width bar. The bar always means "longer = better" — when sorting by load time
+ * the fraction is inverted so the quickest-loading model still gets the longest bar. Failures are
+ * pinned, unranked, at the bottom. (Design per graphical-perception + Material 3 guidance.)
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ResultsLeaderboard(
+    isEmbedder: Boolean,
+    embedRows: List<BenchmarkRunner.EmbedRow>,
+    llmRows: List<BenchmarkRunner.LLMRow>,
+) {
+    var sortKey by remember { mutableStateOf(SortKey.THROUGHPUT) }
+    val unit = if (isEmbedder) "emb/s" else "tok/s"
+
+    val views = if (isEmbedder) {
+        embedRows.map { BenchView(it.id, it.modelName, it.backend, it.failed, it.error, it.embedsPerSec, it.loadMs, false) }
+    } else {
+        llmRows.map { BenchView(it.id, it.modelName, it.backend, it.failed, it.error, it.tokensPerSec, it.loadMs, it.genTokensEstimated) }
+    }
+    val ok = views.filter { !it.failed }
+    val failed = views.filter { it.failed }
+    val ranked = when (sortKey) {
+        SortKey.THROUGHPUT -> ok.sortedByDescending { it.throughput }
+        SortKey.LOAD -> ok.sortedBy { it.loadMs }
+    }
+    val maxTp = ok.maxOfOrNull { it.throughput }?.takeIf { it > 0 } ?: 1.0
+    val minLoad = ok.filter { it.loadMs > 0 }.minOfOrNull { it.loadMs } ?: 1.0
+
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            SortKey.entries.forEachIndexed { i, k ->
+                SegmentedButton(
+                    selected = sortKey == k,
+                    onClick = { sortKey = k },
+                    shape = SegmentedButtonDefaults.itemShape(i, SortKey.entries.size)
+                ) { Text("By ${k.label}") }
+            }
+        }
+        Text(
+            if (sortKey == SortKey.THROUGHPUT) "Higher is better — longer bar = faster"
+            else "Lower is better — longer bar = loads faster",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        ranked.forEachIndexed { i, v ->
+            val fraction = if (sortKey == SortKey.THROUGHPUT) v.throughput / maxTp
+            else if (v.loadMs > 0) minLoad / v.loadMs else 0.0
+            RankedResultRow(
+                rank = i + 1, v = v, unit = unit, sortKey = sortKey,
+                fraction = fraction.toFloat(), winner = i == 0
+            ) {
+                if (isEmbedder) embedRows.firstOrNull { it.id == v.id }?.let { EmbedDetail(it) }
+                else llmRows.firstOrNull { it.id == v.id }?.let { LlmDetail(it) }
+            }
+        }
+
+        if (failed.isNotEmpty()) {
+            HorizontalDivider(Modifier.padding(top = 2.dp))
+            Text("Didn't run", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            failed.forEach { FailedResultRow(it) }
+        }
+
+        val estNote = !isEmbedder && llmRows.any { !it.failed && it.genTokensEstimated }
+        Text(
+            (if (isEmbedder) "Emb/s = embeddings/second" else "Tok/s = generated tokens/second") +
+                " · Load = ms to load" + if (estNote) " · ~ = estimated" else "",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
 
 @Composable
-private fun EmbedTable(rows: List<BenchmarkRunner.EmbedRow>) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row {
-                HeaderCell("Model", 2.4f); HeaderCell("On", 1f); HeaderCell("Load", 1f); HeaderCell("Emb/s", 1f)
-            }
-            HorizontalDivider()
-            rows.forEach { r ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BodyCell(r.modelName, 2.4f, fontWeight = FontWeight.Medium)
-                    BodyCell(if (r.failed) "—" else r.backend, 1f)
-                    BodyCell(if (r.failed) "—" else "${r.loadMs.toInt()}", 1f, mono = true)
-                    BodyCell(if (r.failed) "fail" else "%.0f".format(r.embedsPerSec), 1f, mono = true,
-                        fontWeight = FontWeight.SemiBold)
+private fun RankedResultRow(
+    rank: Int,
+    v: BenchView,
+    unit: String,
+    sortKey: SortKey,
+    fraction: Float,
+    winner: Boolean,
+    detail: @Composable () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val container = if (winner) MaterialTheme.colorScheme.primaryContainer
+    else MaterialTheme.colorScheme.surfaceContainerLow
+    val est = if (v.throughputEstimated) "~" else ""
+    val byThroughput = sortKey == SortKey.THROUGHPUT
+    val primaryValue = if (byThroughput) est + fmtThroughput(v.throughput, unit) else "${v.loadMs.toInt()}"
+    val primaryUnit = if (byThroughput) unit else "ms load"
+    val secondary = if (byThroughput) "load ${v.loadMs.toInt()} ms"
+    else "$est${fmtThroughput(v.throughput, unit)} $unit"
+
+    Surface(
+        color = container,
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(12.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                RankBadge(rank, winner)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(v.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                        if (winner) FastestPill()
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        BackendTag(v.backend)
+                        Text(secondary, style = MaterialTheme.typography.labelMedium,
+                            fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    MetricBar(fraction)
+                }
+                Column(horizontalAlignment = Alignment.End, modifier = Modifier.widthIn(min = 60.dp)) {
+                    Text(primaryValue, style = MaterialTheme.typography.titleMedium,
+                        fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurface)
+                    Text(primaryUnit, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                IconButton(onClick = { expanded = !expanded }) {
+                    Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        if (expanded) "Hide details" else "Show details")
                 }
             }
-            Text("Load = ms to load · Emb/s = embeddings/second",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (expanded) {
+                Spacer(Modifier.height(8.dp))
+                detail()
+            }
         }
     }
 }
 
 @Composable
-private fun EmbedOutput(r: BenchmarkRunner.EmbedRow) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${r.modelName} · ${r.backend}", Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                if (!r.failed) Text("dim ${r.dim}", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun RankBadge(rank: Int, winner: Boolean) {
+    val bg = when {
+        winner -> MaterialTheme.colorScheme.primary
+        rank <= 3 -> MaterialTheme.colorScheme.secondaryContainer
+        else -> Color.Transparent
+    }
+    val fg = when {
+        winner -> MaterialTheme.colorScheme.onPrimary
+        rank <= 3 -> MaterialTheme.colorScheme.onSecondaryContainer
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Box(Modifier.size(28.dp).clip(CircleShape).background(bg), contentAlignment = Alignment.Center) {
+        Text("$rank", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = fg)
+    }
+}
+
+@Composable
+private fun MetricBar(fraction: Float) {
+    val anim by animateFloatAsState(fraction.coerceIn(0f, 1f), label = "bar")
+    Box(
+        Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(
+            Modifier.fillMaxWidth(anim).fillMaxHeight().clip(RoundedCornerShape(50))
+                .background(MaterialTheme.colorScheme.primary)
+        )
+    }
+}
+
+@Composable
+private fun BackendTag(backend: String) {
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(6.dp)) {
+        Text(backend, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+    }
+}
+
+@Composable
+private fun FastestPill() {
+    Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(50)) {
+        Text("Fastest", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+    }
+}
+
+@Composable
+private fun FailedResultRow(v: BenchView) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(28.dp).clip(CircleShape).background(MaterialTheme.colorScheme.errorContainer),
+                contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.PriorityHigh, null, Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onErrorContainer)
             }
-            if (r.failed) {
-                Text(r.error ?: "Failed to load", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary)
-            } else {
-                val best = r.top.firstOrNull()?.score ?: 0f
-                r.top.forEach { s ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(s.text, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodySmall)
-                        Text("%.3f".format(s.score), style = MaterialTheme.typography.labelSmall,
-                            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold,
-                            color = scoreColor(s.score, best))
-                    }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(v.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    BackendTag(v.backend)
                 }
+                Text(v.error ?: "Failed to run", style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error)
             }
         }
+    }
+}
+
+@Composable
+private fun EmbedDetail(r: BenchmarkRunner.EmbedRow) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Top matches · dim ${r.dim}", style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val best = r.top.firstOrNull()?.score ?: 0f
+        r.top.forEach { s ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(s.text, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodySmall)
+                Text("%.3f".format(s.score), style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace, fontWeight = FontWeight.SemiBold,
+                    color = scoreColor(s.score, best))
+            }
+        }
+    }
+}
+
+@Composable
+private fun LlmDetail(r: BenchmarkRunner.LLMRow) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(r.output.ifEmpty { "(empty)" }, style = MaterialTheme.typography.bodySmall)
+        val est = if (r.genTokensEstimated) "~" else ""
+        Text("$est${r.genTokens} tokens generated", style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -289,55 +517,6 @@ private fun scoreColor(s: Float, best: Float) = when {
     s >= best - 0.03f -> MaterialTheme.colorScheme.primary
     s >= best - 0.08f -> MaterialTheme.colorScheme.secondary
     else -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-// ---- LLM results -----------------------------------------------------------
-
-@Composable
-private fun LlmTable(rows: List<BenchmarkRunner.LLMRow>) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row {
-                HeaderCell("Model", 2.4f); HeaderCell("On", 1f); HeaderCell("Load", 1f); HeaderCell("Tok/s", 1f)
-            }
-            HorizontalDivider()
-            rows.forEach { r ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    BodyCell(r.modelName, 2.4f, fontWeight = FontWeight.Medium)
-                    BodyCell(if (r.failed) "—" else r.backend, 1f)
-                    BodyCell(if (r.failed) "—" else "${r.loadMs.toInt()}", 1f, mono = true)
-                    val tps = if (r.genTokensEstimated) "~%.1f".format(r.tokensPerSec) else "%.1f".format(r.tokensPerSec)
-                    BodyCell(if (r.failed) "fail" else tps, 1f, mono = true, fontWeight = FontWeight.SemiBold)
-                }
-            }
-            val anyEstimated = rows.any { !it.failed && it.genTokensEstimated }
-            Text(
-                "Load = ms to load · Tok/s = generated tokens/second" +
-                    if (anyEstimated) " (~ = estimated from output length)" else "",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun LlmOutput(r: BenchmarkRunner.LLMRow) {
-    ElevatedCard(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("${r.modelName} · ${r.backend}",
-                style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            if (r.failed) {
-                Text(r.error ?: "Failed to load or generate", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.tertiary)
-            } else {
-                Text(r.output.ifEmpty { "(empty)" }, style = MaterialTheme.typography.bodySmall)
-                val approx = if (r.genTokensEstimated) "~" else ""
-                Text("$approx%.1f tok/s · $approx%d tokens · load %dms".format(r.tokensPerSec, r.genTokens, r.loadMs.toInt()),
-                    style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
-    }
 }
 
 // ---- Saved runs ------------------------------------------------------------
@@ -380,23 +559,3 @@ private fun SavedRunCard(run: BenchmarkViewModel.SavedRun, onDelete: () -> Unit)
     }
 }
 
-// ---- Small table cells -----------------------------------------------------
-
-@Composable
-private fun RowScope.HeaderCell(text: String, weight: Float) {
-    Text(text, Modifier.weight(weight), style = MaterialTheme.typography.labelSmall,
-        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-}
-
-@Composable
-private fun RowScope.BodyCell(
-    text: String,
-    weight: Float,
-    mono: Boolean = false,
-    fontWeight: FontWeight = FontWeight.Normal,
-) {
-    Text(text, Modifier.weight(weight), maxLines = 1, overflow = TextOverflow.Ellipsis,
-        style = MaterialTheme.typography.bodySmall,
-        fontWeight = fontWeight,
-        fontFamily = if (mono) FontFamily.Monospace else FontFamily.Default)
-}

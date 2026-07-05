@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -59,6 +60,19 @@ class BenchmarkViewModel(
     private val _selected = MutableStateFlow<Set<String>>(emptySet())
     val selected: StateFlow<Set<String>> = _selected.asStateFlow()
 
+    /**
+     * Downloaded models for the current mode's purpose — reactive so the chip list is always in
+     * sync with the mode and with downloads finishing. Derived from [ModelRepository.states]
+     * (never a stale `.value`/disk read in composition, which was flipping embedder/LLM lists).
+     */
+    val availableModels: StateFlow<List<ModelRepository.ModelSpec>> =
+        combine(_mode, ModelRepository.states, ModelRepository.customModels) { mode, states, custom ->
+            val purpose = if (mode == Mode.EMBEDDER) ModelRepository.Purpose.EMBEDDING
+            else ModelRepository.Purpose.GENERATION
+            (ModelRepository.CATALOG + custom)
+                .filter { it.purpose == purpose && states[it.id] is ModelRepository.State.Ready }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _backend = MutableStateFlow(BenchBackend.NPU)
     val backend: StateFlow<BenchBackend> = _backend.asStateFlow()
 
@@ -98,37 +112,42 @@ class BenchmarkViewModel(
 
     init {
         // Models are loaded into ModelRepository by the Settings flow before this screen opens;
-        // reconcile with disk once more so a fresh process still sees downloaded models.
+        // reconcile with disk once more so a fresh process still sees downloaded models, then
+        // default to comparing all of them for the current mode.
         viewModelScope.launch {
             ModelRepository.refreshStates(appContext)
-            resetSelection()
+            _selected.value = readyIdsFor(_mode.value)
         }
     }
 
-    /** Downloaded models matching the current mode's purpose. */
-    fun availableModels(): List<ModelRepository.ModelSpec> {
-        val purpose = if (_mode.value == Mode.EMBEDDER) ModelRepository.Purpose.EMBEDDING
+    /** Ready model ids for [mode]'s purpose (read once, off-composition — safe to use here). */
+    private fun readyIdsFor(mode: Mode): Set<String> {
+        val purpose = if (mode == Mode.EMBEDDER) ModelRepository.Purpose.EMBEDDING
         else ModelRepository.Purpose.GENERATION
-        return ModelRepository.allSpecs()
-            .filter { it.purpose == purpose && ModelRepository.isReady(appContext, it.id) }
-    }
-
-    private fun resetSelection() {
-        _selected.value = availableModels().map { it.id }.toSet()
-        _embedRows.value = emptyList()
-        _llmRows.value = emptyList()
-        _note.value = null
+        return (ModelRepository.CATALOG + ModelRepository.customModels.value)
+            .filter { it.purpose == purpose && ModelRepository.stateOf(it.id) is ModelRepository.State.Ready }
+            .map { it.id }.toSet()
     }
 
     fun setMode(m: Mode) {
         if (m == _mode.value) return
         _mode.value = m
-        resetSelection()
+        // New purpose → clear stale results and default to all of the new mode's models.
+        _embedRows.value = emptyList()
+        _llmRows.value = emptyList()
+        _note.value = null
+        _selected.value = readyIdsFor(m)
     }
 
     fun toggleModel(id: String) {
         _selected.value = _selected.value.toMutableSet().apply { if (!add(id)) remove(id) }
     }
+
+    /** Select every available model for the current mode. */
+    fun selectAll() { _selected.value = readyIdsFor(_mode.value) }
+
+    /** Deselect all models. */
+    fun clearSelection() { _selected.value = emptySet() }
 
     fun setBackend(b: BenchBackend) { _backend.value = b }
     fun setQuery(q: String) { _query.value = q }
@@ -137,19 +156,16 @@ class BenchmarkViewModel(
     fun setTagName(n: String) { _tagName.value = n }
     fun setTagDesc(d: String) { _tagDesc.value = d }
 
-    fun inputValid(): Boolean = if (_mode.value == Mode.EMBEDDER) {
+    private fun inputValid(): Boolean = if (_mode.value == Mode.EMBEDDER) {
         _query.value.trim().isNotEmpty()
     } else {
         _tagName.value.trim().length >= 3
     }
 
-    val hasResults: Boolean
-        get() = if (_mode.value == Mode.EMBEDDER) _embedRows.value.isNotEmpty() else _llmRows.value.isNotEmpty()
-
     // ---- Run ---------------------------------------------------------------
 
     fun run() {
-        val specs = availableModels().filter { it.id in _selected.value }
+        val specs = availableModels.value.filter { it.id in _selected.value }
         if (_running.value || specs.isEmpty() || !inputValid()) return
 
         _running.value = true
