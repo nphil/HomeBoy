@@ -147,8 +147,10 @@ class SettingsViewModel(
         val url = HuggingFaceRepository.resolveUrl(model.id, ggufPath)
         val id = ModelRepository.addCustomModel(appContext, model.name, url)
         if (id == null) { _snackbar.value = "Couldn't add model"; return }
-        viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
-        ModelRepository.download(viewModelScope, appContext, id)
+        viewModelScope.launch {
+            prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels())
+            ModelRepository.download(viewModelScope, appContext, id, prefs.getHfToken())
+        }
         _snackbar.value = "Downloading ${model.name}"
     }
 
@@ -157,8 +159,10 @@ class SettingsViewModel(
         val url = HuggingFaceRepository.resolveUrl(model.id, ggufPath)
         val id = ModelRepository.addCustomGenModel(appContext, model.name, url)
         if (id == null) { _snackbar.value = "Couldn't add model"; return }
-        viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
-        ModelRepository.download(viewModelScope, appContext, id)
+        viewModelScope.launch {
+            prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels())
+            ModelRepository.download(viewModelScope, appContext, id, prefs.getHfToken())
+        }
         _snackbar.value = "Downloading ${model.name}"
     }
 
@@ -177,7 +181,9 @@ class SettingsViewModel(
         viewModelScope.launch { prefs.setAiCustomModelsJson(ModelRepository.serializeCustomModels()) }
     }
 
-    fun downloadModel(id: String) = ModelRepository.download(viewModelScope, appContext, id)
+    fun downloadModel(id: String) {
+        viewModelScope.launch { ModelRepository.download(viewModelScope, appContext, id, prefs.getHfToken()) }
+    }
     fun cancelModelDownload(id: String) = ModelRepository.cancel(id)
     fun deleteModel(id: String) {
         val isCustom = ModelRepository.customModels.value.any { it.id == id }

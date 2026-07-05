@@ -110,6 +110,63 @@ object LlmKit {
         nativeGenerate(handle, fallback, maxTokens, temperature, topK)
     }
 
+    /** Exact generation metrics from [chatBenchmark]. Times are wall-clock on the native side. */
+    data class ChatBenchmark(
+        val text: String,
+        val promptTokens: Int,
+        val genTokens: Int,
+        val prefillMs: Double,
+        val genMs: Double,
+        /** True when counts/timings are exact (native benchmark path), false when estimated. */
+        val exact: Boolean,
+    ) {
+        /** Generated tokens per second, based on the generation-loop time only. */
+        val tokensPerSec: Double get() = if (genMs > 0) genTokens / (genMs / 1000.0) else 0.0
+    }
+
+    /**
+     * Chat completion instrumented for benchmarking: returns the text plus exact prompt/generated
+     * token counts and separate prefill/generation timings (measured natively). Falls back to a
+     * plain [generateChat] with an output-length token estimate if the native library predates the
+     * benchmark symbol, so the app keeps working on an older engine build.
+     */
+    fun chatBenchmark(
+        handle: Long,
+        system: String,
+        user: String,
+        maxTokens: Int = 96,
+        temperature: Float = 0.4f,
+        topK: Int = 20,
+    ): ChatBenchmark = try {
+        val raw = nativeGenerateChatBenchmark(handle, system, user, maxTokens, temperature, topK)
+        // "promptTokens\tgenTokens\tprefillMs\tgenMs\ttext" — text is last, may contain tabs.
+        val parts = raw.split('\t', limit = 5)
+        if (parts.size == 5) {
+            ChatBenchmark(
+                text = parts[4],
+                promptTokens = parts[0].toIntOrNull() ?: 0,
+                genTokens = parts[1].toIntOrNull() ?: 0,
+                prefillMs = parts[2].toDoubleOrNull() ?: 0.0,
+                genMs = parts[3].toDoubleOrNull() ?: 0.0,
+                exact = true,
+            )
+        } else {
+            ChatBenchmark(raw, 0, 0, 0.0, 0.0, exact = false)
+        }
+    } catch (_: UnsatisfiedLinkError) {
+        estimatedBenchmark(handle, system, user, maxTokens, temperature, topK)
+    }
+
+    private fun estimatedBenchmark(
+        handle: Long, system: String, user: String, maxTokens: Int, temperature: Float, topK: Int,
+    ): ChatBenchmark {
+        val t0 = System.nanoTime()
+        val text = generateChat(handle, system, user, maxTokens, temperature, topK)
+        val genMs = (System.nanoTime() - t0) / 1e6
+        val estTokens = if (text.isBlank()) 0 else kotlin.math.ceil(text.length / 4.0).toInt()
+        return ChatBenchmark(text, promptTokens = 0, genTokens = estTokens, prefillMs = 0.0, genMs = genMs, exact = false)
+    }
+
     /** Embed [text]. Returns a mean-pooled, L2-normalized vector. */
     fun embed(handle: Long, text: String): FloatArray = nativeEmbed(handle, text)
 
@@ -132,6 +189,7 @@ object LlmKit {
     private external fun nativeEngagedBackend(handle: Long): Int
     private external fun nativeGenerate(handle: Long, prompt: String, maxTokens: Int, temperature: Float, topK: Int): String
     private external fun nativeGenerateChat(handle: Long, system: String, user: String, maxTokens: Int, temperature: Float, topK: Int): String
+    private external fun nativeGenerateChatBenchmark(handle: Long, system: String, user: String, maxTokens: Int, temperature: Float, topK: Int): String
     private external fun nativeEmbed(handle: Long, text: String): FloatArray
     private external fun nativeProbeBackends(): Array<String>
     private external fun nativeFree(handle: Long)

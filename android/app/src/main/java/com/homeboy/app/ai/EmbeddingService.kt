@@ -100,15 +100,17 @@ object EmbeddingService {
     private fun queryPrefix(modelId: String): String = when {
         modelId.startsWith("nomic-embed") -> "search_query: "
         modelId.startsWith("bge-") -> "Represent this sentence for searching relevant passages: "
+        modelId.startsWith("embeddinggemma") -> "task: search result | query: "
         else -> ""
     }
 
     /**
-     * Document-time instruction prefix. Only nomic requires one; bge and custom models use
-     * symmetric encoding (no prefix on the document side).
+     * Document-time instruction prefix. Nomic and EmbeddingGemma require one; bge and custom models
+     * use symmetric encoding (no prefix on the document side).
      */
     private fun docPrefix(modelId: String): String = when {
         modelId.startsWith("nomic-embed") -> "search_document: "
+        modelId.startsWith("embeddinggemma") -> "title: none | text: "
         else -> ""
     }
 

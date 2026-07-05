@@ -306,11 +306,14 @@ private fun LlmTable(rows: List<BenchmarkRunner.LLMRow>) {
                     BodyCell(r.modelName, 2.4f, fontWeight = FontWeight.Medium)
                     BodyCell(if (r.failed) "—" else r.backend, 1f)
                     BodyCell(if (r.failed) "—" else "${r.loadMs.toInt()}", 1f, mono = true)
-                    BodyCell(if (r.failed) "fail" else "~%.1f".format(r.tokensPerSec), 1f, mono = true,
-                        fontWeight = FontWeight.SemiBold)
+                    val tps = if (r.genTokensEstimated) "~%.1f".format(r.tokensPerSec) else "%.1f".format(r.tokensPerSec)
+                    BodyCell(if (r.failed) "fail" else tps, 1f, mono = true, fontWeight = FontWeight.SemiBold)
                 }
             }
-            Text("Load = ms to load · Tok/s ≈ generated tokens/second (estimated from output length)",
+            val anyEstimated = rows.any { !it.failed && it.genTokensEstimated }
+            Text(
+                "Load = ms to load · Tok/s = generated tokens/second" +
+                    if (anyEstimated) " (~ = estimated from output length)" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -328,7 +331,8 @@ private fun LlmOutput(r: BenchmarkRunner.LLMRow) {
                     color = MaterialTheme.colorScheme.tertiary)
             } else {
                 Text(r.output.ifEmpty { "(empty)" }, style = MaterialTheme.typography.bodySmall)
-                Text("~%.1f tok/s · ~%d tokens · load %dms".format(r.tokensPerSec, r.genTokens, r.loadMs.toInt()),
+                val approx = if (r.genTokensEstimated) "~" else ""
+                Text("$approx%.1f tok/s · $approx%d tokens · load %dms".format(r.tokensPerSec, r.genTokens, r.loadMs.toInt()),
                     style = MaterialTheme.typography.labelSmall, fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
