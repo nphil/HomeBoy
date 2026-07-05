@@ -25,6 +25,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.ui.ai.AiManagementScreen
+import com.homeboy.app.ui.ai.BenchmarkScreen
 import com.homeboy.app.ui.ai.HuggingFaceSearchScreen
 import com.homeboy.app.ui.theme.APP_THEMES
 import com.homeboy.app.ui.theme.THEME_MATERIAL_YOU
@@ -33,6 +34,7 @@ import com.homeboy.app.ui.theme.THEME_MATERIAL_YOU
 private sealed interface SettingsRoute {
     data object Main : SettingsRoute
     data object AiManagement : SettingsRoute
+    data object Benchmark : SettingsRoute
     data class HfSearch(val purpose: ModelRepository.Purpose) : SettingsRoute
 }
 
@@ -68,8 +70,13 @@ fun SettingsTab(onLogout: () -> Unit) {
             AiManagementScreen(
                 vm = vm,
                 onBack = { route = SettingsRoute.Main },
-                onBrowse = { purpose -> route = SettingsRoute.HfSearch(purpose) }
+                onBrowse = { purpose -> route = SettingsRoute.HfSearch(purpose) },
+                onBenchmark = { route = SettingsRoute.Benchmark }
             )
+            return
+        }
+        is SettingsRoute.Benchmark -> {
+            BenchmarkScreen(onBack = { route = SettingsRoute.AiManagement })
             return
         }
         is SettingsRoute.HfSearch -> {

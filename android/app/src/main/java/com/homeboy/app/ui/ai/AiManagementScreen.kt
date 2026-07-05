@@ -33,7 +33,8 @@ import com.homeboy.app.ui.settings.SettingsViewModel
 fun AiManagementScreen(
     vm: SettingsViewModel,
     onBack: () -> Unit,
-    onBrowse: (ModelRepository.Purpose) -> Unit
+    onBrowse: (ModelRepository.Purpose) -> Unit,
+    onBenchmark: () -> Unit
 ) {
     val states by vm.modelStates.collectAsStateWithLifecycle()
     val customModels by vm.customModels.collectAsStateWithLifecycle()
@@ -157,6 +158,19 @@ fun AiManagementScreen(
                 )
             }
             item { AddModelButton("Browse language models") { onBrowse(ModelRepository.Purpose.GENERATION) } }
+
+            // ---- Benchmarking -------------------------------------------------
+            item { SectionHeader("Benchmarking", Icons.Default.Speed) }
+            item { SectionBlurb("Compare your downloaded models head-to-head — quality and speed on NPU, GPU or CPU.") }
+            item {
+                ListItem(
+                    leadingContent = { Icon(Icons.Default.Speed, null) },
+                    headlineContent = { Text("Benchmark models") },
+                    supportingContent = { Text("Run embedders or tag generators side by side") },
+                    trailingContent = { Icon(Icons.Default.ChevronRight, null) },
+                    modifier = Modifier.clickable { onBenchmark() }
+                )
+            }
 
             // ---- HuggingFace account ------------------------------------------
             item { SectionHeader("HuggingFace", Icons.Default.Key) }

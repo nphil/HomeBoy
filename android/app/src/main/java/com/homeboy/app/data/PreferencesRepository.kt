@@ -37,6 +37,7 @@ class PreferencesRepository(private val context: Context) {
         val KEY_AI_TAGS_ENABLED = booleanPreferencesKey("ai_tags_enabled")
         val KEY_AI_UNLOAD_MINUTES = intPreferencesKey("ai_unload_minutes")
         val KEY_AI_MODEL_BACKENDS = stringPreferencesKey("ai_model_backends")
+        val KEY_BENCHMARK_RUNS = stringPreferencesKey("benchmark_runs")
         const val DEFAULT_EMBED_MODEL_ID = "nomic-embed-v1.5"
         const val DEFAULT_UNLOAD_MINUTES = 5
     }
@@ -90,6 +91,13 @@ class PreferencesRepository(private val context: Context) {
             if (backend == null) map.remove(modelId) else map[modelId] = backend
             prefs[KEY_AI_MODEL_BACKENDS] =
                 map.entries.joinToString(",", "{", "}") { "\"${it.key}\":\"${it.value}\"" }
+        }
+
+    /** Saved benchmark runs, serialized as a JSON array by the benchmark view-model. */
+    val benchmarkRunsJson: Flow<String> = context.dataStore.data.map { it[KEY_BENCHMARK_RUNS] ?: "" }
+    suspend fun setBenchmarkRunsJson(json: String) =
+        context.dataStore.edit {
+            if (json.isBlank()) it.remove(KEY_BENCHMARK_RUNS) else it[KEY_BENCHMARK_RUNS] = json
         }
 
     private fun parseBackends(raw: String?): Map<String, String> {
