@@ -232,7 +232,8 @@ class BenchmarkViewModel(
                 lines += if (r.failed) {
                     "${r.modelName} [${r.backend}] — ${r.error ?: "failed"}"
                 } else {
-                    "${r.modelName} [${r.backend}] — ~${"%.1f".format(r.tokensPerSec)} tok/s, load ${r.loadMs.toInt()}ms · ${r.output.take(40)}"
+                    val approx = if (r.genTokensEstimated) "~" else ""
+                    "${r.modelName} [${r.backend}] — $approx${"%.1f".format(r.tokensPerSec)} tok/s, load ${r.loadMs.toInt()}ms · ${r.output.take(40)}"
                 }
             }
         }

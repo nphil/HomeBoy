@@ -113,22 +113,19 @@ class BenchmarkRunner(private val nativeLibDir: String) {
             )
         }
         try {
-            val t0 = System.nanoTime()
-            val raw = runCatching {
-                LlmKit.generateChat(handle, system, user, maxTokens = maxTokens, temperature = 0.4f, topK = 20)
-            }.getOrNull().orEmpty()
-            val genSec = (System.nanoTime() - t0) / 1e9
-            val text = stripThink(raw)
-            // The native bridge returns only the completion text, not a token count, so estimate
-            // it from output length (~4 chars/token for these BPE vocabularies).
-            val genTokens = estimateTokens(raw)
-            val failed = raw.isBlank()
+            // Prefer exact native metrics (token counts + gen-loop timing); LlmKit falls back to an
+            // output-length estimate if the engine build predates the benchmark symbol.
+            val b = runCatching {
+                LlmKit.chatBenchmark(handle, system, user, maxTokens = maxTokens, temperature = 0.4f, topK = 20)
+            }.getOrNull()
+            val text = stripThink(b?.text.orEmpty())
+            val failed = b == null || b.genTokens == 0
             LLMRow(
                 id = rowId, modelName = spec.displayName, backend = backend.shortLabel,
                 loadMs = loadMs,
-                genTokens = genTokens,
-                tokensPerSec = if (genSec > 0) genTokens / genSec else 0.0,
-                genTokensEstimated = true,
+                genTokens = b?.genTokens ?: 0,
+                tokensPerSec = b?.tokensPerSec ?: 0.0,
+                genTokensEstimated = !(b?.exact ?: false),
                 output = text,
                 failed = failed,
                 error = if (failed) "Loaded but generated no output (decode failed)." else null
@@ -182,12 +179,6 @@ class BenchmarkRunner(private val nativeLibDir: String) {
             "(e.g. an mmproj projector or one shard of a split model), or out of memory."
     }
 
-    /** Rough token count from output length; matches the ~4 chars/token BPE ratio. */
-    private fun estimateTokens(text: String): Int {
-        if (text.isBlank()) return 0
-        return kotlin.math.ceil(text.length / 4.0).toInt().coerceAtLeast(1)
-    }
-
     private fun stripThink(s: String): String {
         var out = s
         while (true) {
@@ -206,6 +197,8 @@ class BenchmarkRunner(private val nativeLibDir: String) {
         return when {
             l.contains("nomic") -> if (isQuery) "search_query: " else "search_document: "
             l.contains("bge") -> if (isQuery) "Represent this sentence for searching relevant passages: " else ""
+            l.contains("embeddinggemma") || l.contains("gemma") ->
+                if (isQuery) "task: search result | query: " else "title: none | text: "
             else -> ""
         }
     }

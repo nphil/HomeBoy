@@ -11,7 +11,9 @@
 #include <jni.h>
 #include <android/log.h>
 
+#include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -264,6 +266,81 @@ Java_com_homeboy_llmkit_LlmKit_nativeGenerateChat(JNIEnv *env, jobject, jlong ha
 
     llama_sampler_free(smpl);
     return env->NewStringUTF(out.c_str());
+}
+
+// Benchmark variant of nativeGenerateChat: same chat-template + generation path, but it separately
+// times the prompt prefill and the token-generation loop and returns exact token counts. Result is a
+// tab-delimited string "promptTokens\tgenTokens\tprefillMs\tgenMs\ttext" (text is the final field, so
+// the Kotlin side splits with a limit and keeps any tabs/newlines the model emitted). Empty/zero
+// counts signal a failed decode. This exists so the benchmarking screen can report real tok/s instead
+// of an output-length estimate; ordinary tag suggestions keep using nativeGenerateChat.
+JNIEXPORT jstring JNICALL
+Java_com_homeboy_llmkit_LlmKit_nativeGenerateChatBenchmark(JNIEnv *env, jobject, jlong handle,
+                                                           jstring jsystem, jstring juser,
+                                                           jint max_tokens, jfloat temperature, jint top_k) {
+    using clock = std::chrono::steady_clock;
+    Engine *eng = as_engine(handle);
+    if (eng == nullptr || eng->ctx == nullptr) return env->NewStringUTF("0\t0\t0\t0\t");
+
+    const llama_vocab *vocab = llama_model_get_vocab(eng->model);
+    const std::string sys_str = jstr(env, jsystem);
+    const std::string usr_str = jstr(env, juser);
+
+    std::vector<llama_chat_message> msgs;
+    if (!sys_str.empty()) msgs.push_back({"system", sys_str.c_str()});
+    msgs.push_back({"user", usr_str.c_str()});
+
+    const char *tmpl = llama_model_chat_template(eng->model, /*name=*/nullptr);
+    std::string formatted(8192, '\0');
+    int32_t n = tmpl ? llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), /*add_ass=*/true,
+                                                 formatted.data(), (int32_t)formatted.size())
+                     : -1;
+    if (n < 0) {
+        formatted = (sys_str.empty() ? "" : sys_str + "\n") + usr_str;
+    } else if (n > (int32_t)formatted.size()) {
+        formatted.assign(static_cast<size_t>(n + 1), '\0');
+        llama_chat_apply_template(tmpl, msgs.data(), msgs.size(), true, formatted.data(), n + 1);
+        formatted.resize(n);
+    } else {
+        formatted.resize(n);
+    }
+
+    llama_memory_clear(llama_get_memory(eng->ctx), true);
+
+    std::vector<llama_token> tokens = tokenize(vocab, formatted, /*add_bos=*/false);
+    if (tokens.empty()) return env->NewStringUTF("0\t0\t0\t0\t");
+    const int promptTokens = static_cast<int>(tokens.size());
+
+    const auto t_prefill0 = clock::now();
+    llama_batch batch = llama_batch_get_one(tokens.data(), static_cast<int>(tokens.size()));
+    if (llama_decode(eng->ctx, batch) != 0) {
+        return env->NewStringUTF("0\t0\t0\t0\t");
+    }
+    const double prefillMs = std::chrono::duration<double, std::milli>(clock::now() - t_prefill0).count();
+
+    llama_sampler *smpl = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(top_k > 0 ? top_k : 40));
+    llama_sampler_chain_add(smpl, llama_sampler_init_temp(temperature > 0.f ? temperature : 0.7f));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
+
+    std::string out;
+    int genTokens = 0;
+    const auto t_gen0 = clock::now();
+    for (int i = 0; i < max_tokens; ++i) {
+        llama_token tok = llama_sampler_sample(smpl, eng->ctx, -1);
+        if (llama_vocab_is_eog(vocab, tok)) break;
+        out += token_to_piece(vocab, tok);
+        ++genTokens;
+        llama_batch step = llama_batch_get_one(&tok, 1);
+        if (llama_decode(eng->ctx, step) != 0) break;
+    }
+    const double genMs = std::chrono::duration<double, std::milli>(clock::now() - t_gen0).count();
+    llama_sampler_free(smpl);
+
+    char head[160];
+    std::snprintf(head, sizeof(head), "%d\t%d\t%.3f\t%.3f\t", promptTokens, genTokens, prefillMs, genMs);
+    const std::string result = std::string(head) + out;
+    return env->NewStringUTF(result.c_str());
 }
 
 JNIEXPORT jstring JNICALL
