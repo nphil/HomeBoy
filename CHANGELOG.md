@@ -4,6 +4,17 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.34 — 2026-07-16
+
+### Offline mode & sync
+- **Fixed items list going blank after login**: a transient server error (e.g. HTTP 500/502 while Homebox restarts) threw a plain exception that bypassed the offline cache fallback, leaving every list empty. HTTP errors are now typed; transient ones (5xx/408/429 and network failures) retry with backoff and then fall back to locally cached data.
+- **Full offline mode**: items, locations, tags, item details, maintenance logs, and statistics are all served from the on-device cache when the server is unreachable. Creates/edits/deletes of items, locations, tags, *and maintenance entries* made offline are queued locally and replayed automatically when the connection returns.
+- **Automatic reconnect + sync**: the app listens for network changes and probes an unreachable server every 30 s. When the connection returns it replays queued changes, refreshes all caches, and every screen reloads by itself.
+- **Connection status indicator** in the top bar of every tab: green cloud = connected, red cloud with a badge = offline with N unsynced local changes, spinning amber = syncing. Tap it for details and a manual "Sync now".
+- Statistics screen keeps showing its last data instead of zeroing out when a fetch fails; replaying mutations is now serialized so parallel screen loads can't double-apply queued changes.
+
+---
+
 ## v1.0.30 — 2026-06-28
 
 ### AI & Models

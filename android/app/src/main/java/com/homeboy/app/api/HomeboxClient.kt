@@ -11,6 +11,14 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
+/**
+ * A non-2xx HTTP response from the Homebox server. Carries the status code so
+ * callers can distinguish transient server trouble (5xx during a restart, 429)
+ * from permanent rejections (validation 4xx) — the offline cache fallback only
+ * applies to the former.
+ */
+class HomeboxHttpException(val code: Int, message: String) : Exception(message)
+
 class HomeboxClient(baseUrl: String) {
 
     private val gson = GsonBuilder().create()
@@ -44,6 +52,14 @@ class HomeboxClient(baseUrl: String) {
     // Raw token — no "Bearer " prefix per Homebox API spec
     private fun auth() = token
 
+    private fun fail(op: String, resp: retrofit2.Response<*>): Nothing {
+        val detail = try { resp.errorBody()?.string()?.take(200) } catch (_: Exception) { null }
+        throw HomeboxHttpException(
+            resp.code(),
+            "$op failed: ${resp.code()}" + if (detail.isNullOrBlank()) "" else " $detail"
+        )
+    }
+
     /** Full URL for an item attachment (used by Coil to load thumbnails/photos). */
     fun attachmentUrl(itemId: String, attachmentId: String): String =
         "${apiBase}v1/entities/$itemId/attachments/$attachmentId"
@@ -57,13 +73,13 @@ class HomeboxClient(baseUrl: String) {
 
     suspend fun login(email: String, password: String): HBAuthResponse {
         val resp = api.login(email, password)
-        if (!resp.isSuccessful) throw Exception("Login failed (${resp.code()}): ${resp.errorBody()?.string()}")
+        if (!resp.isSuccessful) fail("Login", resp)
         return resp.body() ?: throw Exception("Empty login response")
     }
 
     suspend fun getMe(): HBUserInfo {
         val resp = api.getMe(auth())
-        if (!resp.isSuccessful) throw Exception("GetMe failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("GetMe", resp)
         return resp.body()?.item ?: HBUserInfo()
     }
 
@@ -89,13 +105,13 @@ class HomeboxClient(baseUrl: String) {
             page = page,
             pageSize = pageSize
         )
-        if (!resp.isSuccessful) throw Exception("listItems failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("listItems", resp)
         return resp.body() ?: HBItemListResponse()
     }
 
     suspend fun listEntityTypes(): List<HBEntityType> {
         val resp = api.listEntityTypes(auth(), tenant)
-        if (!resp.isSuccessful) throw Exception("listEntityTypes failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("listEntityTypes", resp)
         val body = resp.body() ?: return emptyList()
         val arr = when {
             body.isJsonArray -> body.asJsonArray
@@ -107,58 +123,58 @@ class HomeboxClient(baseUrl: String) {
 
     suspend fun getItem(id: String): HBItemDetail {
         val resp = api.getItem(auth(), tenant, id)
-        if (!resp.isSuccessful) throw Exception("getItem failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("getItem", resp)
         return resp.body() ?: throw Exception("Empty item response")
     }
 
     suspend fun createItem(item: HBItemCreate): HBItemDetail {
         val resp = api.createItem(auth(), tenant, item)
-        if (!resp.isSuccessful) throw Exception("createItem failed: ${resp.code()} ${resp.errorBody()?.string()}")
+        if (!resp.isSuccessful) fail("createItem", resp)
         return resp.body() ?: throw Exception("Empty create response")
     }
 
     suspend fun updateItem(id: String, item: HBItemUpdate): HBItemDetail {
         val resp = api.updateItem(auth(), tenant, id, item)
-        if (!resp.isSuccessful) throw Exception("updateItem failed: ${resp.code()} ${resp.errorBody()?.string()}")
+        if (!resp.isSuccessful) fail("updateItem", resp)
         return resp.body() ?: throw Exception("Empty update response")
     }
 
     suspend fun deleteItem(id: String) {
         val resp = api.deleteItem(auth(), tenant, id)
-        if (!resp.isSuccessful) throw Exception("deleteItem failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("deleteItem", resp)
     }
 
     suspend fun listMaintenance(itemId: String): List<HBMaintenanceEntry> {
         val resp = api.listMaintenance(auth(), tenant, itemId)
-        if (!resp.isSuccessful) throw Exception("listMaintenance failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("listMaintenance", resp)
         return resp.body() ?: emptyList()
     }
 
     suspend fun createMaintenance(itemId: String, entry: HBMaintenanceCreate): HBMaintenanceEntry {
         val resp = api.createMaintenance(auth(), tenant, itemId, entry)
-        if (!resp.isSuccessful) throw Exception("createMaintenance failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("createMaintenance", resp)
         return resp.body() ?: throw Exception("Empty maintenance response")
     }
 
     suspend fun updateMaintenance(id: String, entry: HBMaintenanceCreate) {
         val resp = api.updateMaintenance(auth(), tenant, id, entry)
-        if (!resp.isSuccessful) throw Exception("updateMaintenance failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("updateMaintenance", resp)
     }
 
     suspend fun deleteMaintenance(id: String) {
         val resp = api.deleteMaintenance(auth(), tenant, id)
-        if (!resp.isSuccessful) throw Exception("deleteMaintenance failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("deleteMaintenance", resp)
     }
 
     suspend fun listLocations(): List<HBLocation> {
         val resp = api.listLocations(auth(), tenant, isLocation = true, pageSize = 500)
-        if (!resp.isSuccessful) throw Exception("listLocations failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("listLocations", resp)
         return resp.body()?.items ?: emptyList()
     }
 
     suspend fun getLocationTree(): List<HBLocationTreeItem> {
         val resp = api.getLocationTree(auth(), tenant, withItems = false)
-        if (!resp.isSuccessful) throw Exception("getLocationTree failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("getLocationTree", resp)
         return resp.body() ?: emptyList()
     }
 
@@ -169,24 +185,24 @@ class HomeboxClient(baseUrl: String) {
             location.copy(entityTypeId = locTypeId)
         } else location
         val resp = api.createLocation(auth(), tenant, payload)
-        if (!resp.isSuccessful) throw Exception("createLocation failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("createLocation", resp)
         return resp.body() ?: throw Exception("Empty location response")
     }
 
     suspend fun updateLocation(id: String, location: HBLocationUpdate): HBLocation {
         val resp = api.updateLocation(auth(), tenant, id, location)
-        if (!resp.isSuccessful) throw Exception("updateLocation failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("updateLocation", resp)
         return resp.body() ?: throw Exception("Empty location response")
     }
 
     suspend fun deleteLocation(id: String) {
         val resp = api.deleteLocation(auth(), tenant, id)
-        if (!resp.isSuccessful) throw Exception("deleteLocation failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("deleteLocation", resp)
     }
 
     suspend fun listTags(): List<HBTag> {
         val resp = api.listTags(auth(), tenant)
-        if (!resp.isSuccessful) throw Exception("listTags failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("listTags", resp)
         val body = resp.body() ?: return emptyList()
         return if (body.isJsonArray) {
             gson.fromJson(body.asJsonArray, Array<HBTag>::class.java).toList()
@@ -198,54 +214,54 @@ class HomeboxClient(baseUrl: String) {
 
     suspend fun createTag(tag: HBTagCreate): HBTag {
         val resp = api.createTag(auth(), tenant, tag)
-        if (!resp.isSuccessful) throw Exception("createTag failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("createTag", resp)
         return resp.body() ?: throw Exception("Empty tag response")
     }
 
     suspend fun updateTag(id: String, tag: HBTagUpdate): HBTag {
         val resp = api.updateTag(auth(), tenant, id, tag)
-        if (!resp.isSuccessful) throw Exception("updateTag failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("updateTag", resp)
         return resp.body() ?: throw Exception("Empty tag response")
     }
 
     suspend fun deleteTag(id: String) {
         val resp = api.deleteTag(auth(), tenant, id)
-        if (!resp.isSuccessful) throw Exception("deleteTag failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("deleteTag", resp)
     }
 
     suspend fun listAllMaintenance(status: String?): List<HBMaintenanceWithDetails> {
         val resp = api.listAllMaintenance(auth(), tenant, status)
-        if (!resp.isSuccessful) throw Exception("listAllMaintenance failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("listAllMaintenance", resp)
         return resp.body() ?: emptyList()
     }
 
     suspend fun getStatistics(): HBGroupStatistics {
         val resp = api.getStatistics(auth(), tenant)
-        if (!resp.isSuccessful) throw Exception("getStatistics failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("getStatistics", resp)
         return resp.body() ?: HBGroupStatistics()
     }
 
     suspend fun getStatsByLocation(): List<HBTotalsByOrganizer> {
         val resp = api.getStatsByLocation(auth(), tenant)
-        if (!resp.isSuccessful) throw Exception("getStatsByLocation failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("getStatsByLocation", resp)
         return resp.body() ?: emptyList()
     }
 
     suspend fun getStatsByTag(): List<HBTotalsByOrganizer> {
         val resp = api.getStatsByTag(auth(), tenant)
-        if (!resp.isSuccessful) throw Exception("getStatsByTag failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("getStatsByTag", resp)
         return resp.body() ?: emptyList()
     }
 
     suspend fun getPurchasePriceOverTime(start: String?, end: String?): HBValueOverTime {
         val resp = api.getPurchasePriceOverTime(auth(), tenant, start, end)
-        if (!resp.isSuccessful) throw Exception("getPurchasePriceOverTime failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("getPurchasePriceOverTime", resp)
         return resp.body() ?: HBValueOverTime()
     }
 
     suspend fun listGroups(): List<HBGroup> {
         val resp = api.listGroups(auth(), tenant)
-        if (!resp.isSuccessful) throw Exception("listGroups failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("listGroups", resp)
         val body = resp.body() ?: return emptyList()
         val arr = when {
             body.isJsonArray -> body.asJsonArray
@@ -267,7 +283,7 @@ class HomeboxClient(baseUrl: String) {
         val typePart = "photo".toRequestBody("text/plain".toMediaTypeOrNull())
         val primaryPart = (if (primary) "true" else "false").toRequestBody("text/plain".toMediaTypeOrNull())
         val resp = api.uploadAttachment(auth(), tenant, itemId, filePart, typePart, primaryPart)
-        if (!resp.isSuccessful) throw Exception("uploadAttachment failed: ${resp.code()}")
+        if (!resp.isSuccessful) fail("uploadAttachment", resp)
         return resp.body() ?: throw Exception("Empty attachment response")
     }
 }

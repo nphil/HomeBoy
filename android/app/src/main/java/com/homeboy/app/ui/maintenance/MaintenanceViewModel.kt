@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBMaintenanceCreate
 import com.homeboy.app.api.HBMaintenanceWithDetails
+import com.homeboy.app.data.ConnectionMonitor
 import com.homeboy.app.data.HomeboxRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,7 +25,11 @@ class MaintenanceViewModel(private val repo: HomeboxRepository) : ViewModel() {
     private val _snackbar = MutableStateFlow<String?>(null)
     val snackbar = _snackbar.asStateFlow()
 
-    init { load() }
+    init {
+        // Reload with fresh server data after a reconnect sync completes.
+        viewModelScope.launch { ConnectionMonitor.refreshTicks.collect { load() } }
+        load()
+    }
 
     fun load() {
         viewModelScope.launch {

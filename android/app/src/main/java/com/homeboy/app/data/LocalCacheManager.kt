@@ -9,9 +9,15 @@ import java.util.UUID
 
 data class PendingMutation(
     val uuid: String,
-    val type: String, // CREATE_ITEM, UPDATE_ITEM, DELETE_ITEM, CREATE_LOCATION, UPDATE_LOCATION, DELETE_LOCATION, CREATE_TAG, UPDATE_TAG, DELETE_TAG
+    val type: String, // CREATE/UPDATE/DELETE_ITEM, _LOCATION, _TAG, _MAINTENANCE
     val targetId: String,
     val payloadJson: String
+)
+
+/** Payload for queued maintenance mutations — the entry plus the item it belongs to. */
+data class PendingMaintenancePayload(
+    val itemId: String,
+    val entry: HBMaintenanceCreate
 )
 
 class LocalCacheManager(private val context: Context) {
@@ -22,6 +28,37 @@ class LocalCacheManager(private val context: Context) {
     private val locationsFile = File(context.filesDir, "locations_cache.json")
     private val tagsFile = File(context.filesDir, "tags_cache.json")
     private val mutationsFile = File(context.filesDir, "pending_mutations.json")
+
+    init {
+        // Publish the persisted queue size so the UI badge is correct from launch.
+        ConnectionMonitor.setPendingCount(getPendingMutations().size)
+    }
+
+    // -------------------------------------------------------------------------
+    // Generic blob cache (maintenance lists, statistics, ...)
+    // -------------------------------------------------------------------------
+
+    private fun blobFile(key: String) =
+        File(context.filesDir, "cache_" + key.replace(Regex("[^A-Za-z0-9_-]"), "_") + ".json")
+
+    fun <T> saveBlob(key: String, value: T) {
+        try {
+            blobFile(key).writeText(gson.toJson(value))
+        } catch (_: Exception) {}
+    }
+
+    fun <T> getBlob(key: String, type: java.lang.reflect.Type): T? {
+        val f = blobFile(key)
+        if (!f.exists()) return null
+        return try {
+            gson.fromJson<T>(f.readText(), type)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    inline fun <reified T> getBlob(key: String): T? =
+        getBlob(key, object : TypeToken<T>() {}.type)
 
     // -------------------------------------------------------------------------
     // File I/O
@@ -116,6 +153,7 @@ class LocalCacheManager(private val context: Context) {
         try {
             mutationsFile.writeText(gson.toJson(mutations))
         } catch (_: Exception) {}
+        ConnectionMonitor.setPendingCount(mutations.size)
     }
 
     fun clearPendingMutations() {
@@ -335,6 +373,84 @@ class LocalCacheManager(private val context: Context) {
         }
         return cached
     }
+
+    // -------------------------------------------------------------------------
+    // Maintenance cache + overlay
+    // -------------------------------------------------------------------------
+
+    fun maintenanceKey(itemId: String) = "maint_item_$itemId"
+    fun allMaintenanceKey(status: String?) = "maint_all_${status ?: "both"}"
+
+    /** Cached maintenance log for one item with pending offline edits applied. */
+    fun getAppliedMaintenance(itemId: String): List<HBMaintenanceEntry> {
+        val type = object : TypeToken<List<HBMaintenanceEntry>>() {}.type
+        val cached = getBlob<List<HBMaintenanceEntry>>(maintenanceKey(itemId), type).orEmpty().toMutableList()
+
+        for (m in getPendingMutations()) {
+            when (m.type) {
+                "CREATE_MAINTENANCE" -> {
+                    val p = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                    if (p.itemId == itemId) cached.add(entryFrom(m.targetId, p.entry))
+                }
+                "UPDATE_MAINTENANCE" -> {
+                    val p = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                    val i = cached.indexOfFirst { it.id == m.targetId }
+                    if (i != -1) cached[i] = entryFrom(m.targetId, p.entry)
+                }
+                "DELETE_MAINTENANCE" -> cached.removeAll { it.id == m.targetId }
+            }
+        }
+        return cached
+    }
+
+    /** Cached global maintenance log with pending offline edits applied. */
+    fun getAppliedAllMaintenance(status: String?): List<HBMaintenanceWithDetails> {
+        val type = object : TypeToken<List<HBMaintenanceWithDetails>>() {}.type
+        val cached = getBlob<List<HBMaintenanceWithDetails>>(allMaintenanceKey(status), type)
+            .orEmpty().toMutableList()
+
+        for (m in getPendingMutations()) {
+            when (m.type) {
+                "CREATE_MAINTENANCE" -> {
+                    val p = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                    val itemName = getAppliedItems().firstOrNull { it.id == p.itemId }?.name
+                    cached.add(withDetailsFrom(m.targetId, p, itemName))
+                }
+                "UPDATE_MAINTENANCE" -> {
+                    val p = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                    val i = cached.indexOfFirst { it.id == m.targetId }
+                    if (i != -1) {
+                        val old = cached[i]
+                        cached[i] = withDetailsFrom(m.targetId, p, old.itemName)
+                            .copy(itemId = old.itemId)
+                    }
+                }
+                "DELETE_MAINTENANCE" -> cached.removeAll { it.id == m.targetId }
+            }
+        }
+        return cached
+    }
+
+    private fun entryFrom(id: String, e: HBMaintenanceCreate) = HBMaintenanceEntry(
+        id = id,
+        name = e.name,
+        description = e.description,
+        date = e.date,
+        scheduledDate = e.scheduledDate,
+        cost = e.cost
+    )
+
+    private fun withDetailsFrom(id: String, p: PendingMaintenancePayload, itemName: String?) =
+        HBMaintenanceWithDetails(
+            id = id,
+            name = p.entry.name,
+            description = p.entry.description,
+            date = p.entry.date,
+            scheduledDate = p.entry.scheduledDate,
+            cost = p.entry.cost,
+            itemId = p.itemId.takeIf { it.isNotBlank() },
+            itemName = itemName
+        )
 
     // -------------------------------------------------------------------------
     // Location Tree Builder Helper

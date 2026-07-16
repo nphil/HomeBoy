@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ui.ConnectionStatusAction
 import com.homeboy.app.api.HBValueOverTime
 import com.homeboy.app.ui.formatMoney
 import com.homeboy.app.ui.formatMoneyCompact
@@ -52,7 +53,10 @@ fun StatisticsTab() {
         topBar = {
             TopAppBar(
                 title = { Text("Statistics", fontWeight = FontWeight.SemiBold) },
-                actions = { IconButton(onClick = { vm.load() }) { Icon(Icons.Default.Refresh, "Refresh") } },
+                actions = {
+                    ConnectionStatusAction()
+                    IconButton(onClick = { vm.load() }) { Icon(Icons.Default.Refresh, "Refresh") }
+                },
                 scrollBehavior = scrollBehavior
             )
         }

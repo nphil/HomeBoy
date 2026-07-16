@@ -1,18 +1,72 @@
 package com.homeboy.app
 
 import android.app.Application
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.homeboy.app.data.ConnectionMonitor
+import com.homeboy.app.data.ConnectionState
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
 import com.homeboy.app.data.SessionHolder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 class HomeboxApplication : Application(), ImageLoaderFactory {
     val prefs: PreferencesRepository by lazy { PreferencesRepository(this) }
     val repository: HomeboxRepository by lazy { HomeboxRepository(this, prefs) }
+
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    override fun onCreate() {
+        super.onCreate()
+        registerConnectivityCallback()
+        // Heartbeat: while the SERVER (not the network) is unreachable, no system
+        // callback will ever fire when it comes back — probe every 30s so queued
+        // offline changes sync and screens refresh without user interaction.
+        appScope.launch {
+            while (true) {
+                delay(30_000)
+                if (ConnectionMonitor.state.value == ConnectionState.OFFLINE &&
+                    ConnectionMonitor.networkAvailable
+                ) {
+                    repository.syncNow()
+                }
+            }
+        }
+    }
+
+    private fun registerConnectivityCallback() {
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        ConnectionMonitor.networkAvailable = cm.activeNetwork != null
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        cm.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                ConnectionMonitor.networkAvailable = true
+                // Connectivity is back — replay queued changes and refresh caches.
+                appScope.launch { repository.syncNow() }
+            }
+
+            override fun onLost(network: Network) {
+                // Only offline when NO network remains (wifi→cellular handoff fires onLost too).
+                if (cm.activeNetwork == null) {
+                    ConnectionMonitor.networkAvailable = false
+                    ConnectionMonitor.reportOffline()
+                }
+            }
+        })
+    }
 
     /**
      * Coil loader that attaches the raw Homebox token + X-Tenant header to every

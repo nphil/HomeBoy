@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ui.ConnectionStatusAction
 import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.ui.ai.AiManagementScreen
 import com.homeboy.app.ui.ai.BenchmarkScreen
@@ -140,7 +141,12 @@ fun SettingsTab(onLogout: () -> Unit) {
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Settings", fontWeight = FontWeight.SemiBold) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text("Settings", fontWeight = FontWeight.SemiBold) },
+                actions = { ConnectionStatusAction() }
+            )
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding)) {

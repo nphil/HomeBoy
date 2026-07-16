@@ -2,9 +2,13 @@ package com.homeboy.app.data
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.homeboy.app.api.*
-import java.io.IOException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 class HomeboxRepository(
     private val context: Context,
@@ -13,6 +17,10 @@ class HomeboxRepository(
     private val cache = LocalCacheManager(context)
     private val gson = Gson()
     private var _client: HomeboxClient? = null
+
+    /** Serializes pending-mutation replay so parallel screen loads can't double-apply. */
+    private val replayMutex = Mutex()
+    private val syncingNow = AtomicBoolean(false)
 
     private suspend fun client(): HomeboxClient {
         val token = prefs.getToken()
@@ -51,9 +59,10 @@ class HomeboxRepository(
         c.token = resp.token
         _client = c
         syncSession(c)
+        ConnectionMonitor.reportOnline()
     }
 
-    suspend fun listGroups() = client().listGroups()
+    suspend fun listGroups() = online { it.listGroups() }
 
     suspend fun setActiveGroup(id: String?, name: String) {
         prefs.setTenant(id, name)
@@ -61,17 +70,104 @@ class HomeboxRepository(
     }
 
     suspend fun uploadAttachment(itemId: String, bytes: ByteArray, filename: String, primary: Boolean) =
-        client().uploadAttachment(itemId, bytes, filename, primary)
+        online(retries = 0) { it.uploadAttachment(itemId, bytes, filename, primary) }
 
     suspend fun logout() { prefs.logout(); invalidate() }
 
-    suspend fun getMe() = client().getMe()
+    suspend fun getMe() = online { it.getMe() }
+
+    // -------------------------------------------------------------------------
+    // Networking core: retry, status reporting, offline classification
+    // -------------------------------------------------------------------------
+
+    /**
+     * Runs a server call with transient-failure retries and reports the outcome
+     * to ConnectionMonitor. Queued offline mutations are replayed first so the
+     * server response already reflects local edits. Throws on failure — callers
+     * that can serve cached data catch transient errors and fall back.
+     *
+     * [retries]: extra attempts after the first, for transient failures only.
+     * Creates use 0 — retrying a create whose response was lost would duplicate it;
+     * the offline queue is their retry mechanism.
+     */
+    private suspend fun <T> online(retries: Int = 2, block: suspend (HomeboxClient) -> T): T {
+        val c = client()
+        replayPendingMutations(c)
+        try {
+            var delayMs = 400L
+            repeat(retries) {
+                try {
+                    return block(c).also { ConnectionMonitor.reportOnline() }
+                } catch (e: Exception) {
+                    if (!e.isTransient()) throw e
+                    delay(delayMs)
+                    delayMs *= 3
+                }
+            }
+            return block(c).also { ConnectionMonitor.reportOnline() }
+        } catch (e: Exception) {
+            if (e.isTransient()) ConnectionMonitor.reportOffline()
+            throw e
+        }
+    }
+
+    /** Fetch-through-cache: serve the server response and persist it, or fall back to the cached copy. */
+    private suspend fun <T> cachedRead(
+        key: String,
+        type: java.lang.reflect.Type,
+        block: suspend (HomeboxClient) -> T
+    ): T {
+        return try {
+            val resp = online(block = block)
+            cache.saveBlob(key, resp)
+            resp
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            cache.getBlob<T>(key, type) ?: throw e
+        }
+    }
+
+    /**
+     * Full sync pass: replay queued mutations, then refresh the offline caches
+     * with fresh server data. Called when connectivity returns (network callback /
+     * heartbeat) and from the status dialog's "Sync now". Emits a refresh tick on
+     * success so every screen reloads. Returns true if the server was reachable.
+     */
+    suspend fun syncNow(): Boolean {
+        if (!prefs.isLoggedIn()) return false
+        if (!syncingNow.compareAndSet(false, true)) return false
+        ConnectionMonitor.syncStarted()
+        return try {
+            val c = client()
+            replayMutex.withLock { replayPendingMutationsLocked(c) }
+            cache.saveCachedItems(c.listItems(pageSize = 1000).items)
+            cache.saveCachedLocations(c.listLocations())
+            cache.saveCachedTags(c.listTags())
+            ConnectionMonitor.syncFinished(online = true)
+            ConnectionMonitor.requestRefresh()
+            true
+        } catch (e: Exception) {
+            // A permanent (non-transient) error still means the server answered.
+            ConnectionMonitor.syncFinished(online = !e.isTransient())
+            false
+        } finally {
+            syncingNow.set(false)
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Background Synchronization
     // -------------------------------------------------------------------------
 
-    private suspend fun syncPendingMutations(client: HomeboxClient) {
+    private suspend fun replayPendingMutations(c: HomeboxClient) {
+        // While known-offline, don't burn a connect timeout per queued mutation on
+        // every read — the reconnect heartbeat will replay the queue.
+        if (ConnectionMonitor.state.value == ConnectionState.OFFLINE) return
+        if (cache.getPendingMutations().isEmpty()) return
+        replayMutex.withLock { replayPendingMutationsLocked(c) }
+    }
+
+    private suspend fun replayPendingMutationsLocked(client: HomeboxClient) {
         val mutations = cache.getPendingMutations()
         if (mutations.isEmpty()) return
 
@@ -126,11 +222,24 @@ class HomeboxRepository(
                     "DELETE_TAG" -> {
                         client.deleteTag(translatedTargetId)
                     }
+                    "CREATE_MAINTENANCE" -> {
+                        val payload = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                        val itemId = idMap[payload.itemId] ?: payload.itemId
+                        val created = client.createMaintenance(itemId, payload.entry)
+                        idMap[m.targetId] = created.id
+                    }
+                    "UPDATE_MAINTENANCE" -> {
+                        val payload = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                        client.updateMaintenance(translatedTargetId, payload.entry)
+                    }
+                    "DELETE_MAINTENANCE" -> {
+                        client.deleteMaintenance(translatedTargetId)
+                    }
                 }
-            } catch (e: IOException) {
-                remainingMutations.add(m)
             } catch (e: Exception) {
-                e.printStackTrace()
+                // Server unreachable → keep the mutation and retry on the next sync.
+                // Permanently rejected (validation 4xx) → drop it; it can never succeed.
+                if (e.isTransient()) remainingMutations.add(m) else e.printStackTrace()
             }
         }
 
@@ -162,6 +271,11 @@ class HomeboxRepository(
                             val finalPayload = payload.copy(parentId = payload.parentId?.let { idMap[it] ?: it })
                             newPayloadJson = gson.toJson(finalPayload)
                         }
+                        "CREATE_MAINTENANCE" -> {
+                            val payload = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                            val finalPayload = payload.copy(itemId = idMap[payload.itemId] ?: payload.itemId)
+                            newPayloadJson = gson.toJson(finalPayload)
+                        }
                     }
                 } catch (_: Exception) {}
                 m.copy(targetId = newTargetId, payloadJson = newPayloadJson)
@@ -184,12 +298,11 @@ class HomeboxRepository(
         pageSize: Int = 500
     ): HBItemListResponse {
         try {
-            val c = client()
-            syncPendingMutations(c)
-            val resp = c.listItems(query, locationIds, labelIds, parentIds, includeArchived, page, pageSize)
+            val resp = online { it.listItems(query, locationIds, labelIds, parentIds, includeArchived, page, pageSize) }
             cache.saveCachedItems(resp.items)
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             val applied = cache.getAppliedItems()
             val filtered = applied.filter { item ->
                 if (!includeArchived && item.archived) return@filter false
@@ -210,12 +323,11 @@ class HomeboxRepository(
 
     suspend fun getItem(id: String): HBItemDetail {
         try {
-            val c = client()
-            syncPendingMutations(c)
-            val resp = c.getItem(id)
+            val resp = online { it.getItem(id) }
             cache.saveCachedItemDetail(resp)
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             return cache.getAppliedItemDetail(id) ?: throw e
         }
     }
@@ -224,14 +336,14 @@ class HomeboxRepository(
         val tempId = UUID.randomUUID().toString()
         try {
             val c = client()
-            syncPendingMutations(c)
-            val resp = c.createItem(item)
+            val resp = online(retries = 0) { it.createItem(item) }
             try {
                 val fresh = c.listItems()
                 cache.saveCachedItems(fresh.items)
             } catch (_: Exception) {}
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("CREATE_ITEM", tempId, item)
             val parentName = cache.getCachedLocations().firstOrNull { it.id == item.parentId }?.name ?: ""
             val loc = item.parentId?.let { HBItemLocation(it, parentName) }
@@ -265,14 +377,14 @@ class HomeboxRepository(
     suspend fun updateItem(id: String, item: HBItemUpdate): HBItemDetail {
         try {
             val c = client()
-            syncPendingMutations(c)
-            val resp = c.updateItem(id, item)
+            val resp = online { it.updateItem(id, item) }
             try {
                 val fresh = c.listItems()
                 cache.saveCachedItems(fresh.items)
             } catch (_: Exception) {}
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("UPDATE_ITEM", id, item)
             val parentName = cache.getCachedLocations().firstOrNull { it.id == item.parentId }?.name ?: ""
             val loc = item.parentId?.let { HBItemLocation(it, parentName) }
@@ -328,13 +440,13 @@ class HomeboxRepository(
     suspend fun deleteItem(id: String) {
         try {
             val c = client()
-            syncPendingMutations(c)
-            c.deleteItem(id)
+            online { it.deleteItem(id) }
             try {
                 val fresh = c.listItems()
                 cache.saveCachedItems(fresh.items)
             } catch (_: Exception) {}
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("DELETE_ITEM", id, "")
             val filtered = cache.getCachedItems().filter { it.id != id }
             cache.saveCachedItems(filtered)
@@ -348,48 +460,124 @@ class HomeboxRepository(
     // Maintenance
     // -------------------------------------------------------------------------
 
-    suspend fun listMaintenance(itemId: String) = client().listMaintenance(itemId)
-    suspend fun createMaintenance(itemId: String, entry: HBMaintenanceCreate) = client().createMaintenance(itemId, entry)
-    suspend fun updateMaintenance(id: String, entry: HBMaintenanceCreate) = client().updateMaintenance(id, entry)
-    suspend fun deleteMaintenance(id: String) = client().deleteMaintenance(id)
+    suspend fun listMaintenance(itemId: String): List<HBMaintenanceEntry> {
+        return try {
+            val resp = online { it.listMaintenance(itemId) }
+            cache.saveBlob(cache.maintenanceKey(itemId), resp)
+            resp
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            cache.getAppliedMaintenance(itemId)
+        }
+    }
+
+    suspend fun createMaintenance(itemId: String, entry: HBMaintenanceCreate): HBMaintenanceEntry {
+        return try {
+            online(retries = 0) { it.createMaintenance(itemId, entry) }
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            val tempId = UUID.randomUUID().toString()
+            cache.queueMutation("CREATE_MAINTENANCE", tempId, PendingMaintenancePayload(itemId, entry))
+            HBMaintenanceEntry(
+                id = tempId,
+                name = entry.name,
+                description = entry.description,
+                date = entry.date,
+                scheduledDate = entry.scheduledDate,
+                cost = entry.cost
+            )
+        }
+    }
+
+    suspend fun updateMaintenance(id: String, entry: HBMaintenanceCreate) {
+        try {
+            online { it.updateMaintenance(id, entry) }
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            // Editing an entry that itself was created offline: fold the edit into
+            // the queued create instead of queueing an update against a temp id.
+            val pending = cache.getPendingMutations()
+            val createIdx = pending.indexOfFirst { it.type == "CREATE_MAINTENANCE" && it.targetId == id }
+            if (createIdx != -1) {
+                val old = gson.fromJson(pending[createIdx].payloadJson, PendingMaintenancePayload::class.java)
+                val updated = pending.toMutableList()
+                updated[createIdx] = pending[createIdx].copy(payloadJson = gson.toJson(old.copy(entry = entry)))
+                cache.savePendingMutations(updated)
+            } else {
+                cache.queueMutation("UPDATE_MAINTENANCE", id, PendingMaintenancePayload("", entry))
+            }
+        }
+    }
+
+    suspend fun deleteMaintenance(id: String) {
+        try {
+            online { it.deleteMaintenance(id) }
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            // Deleting an entry created offline just cancels its queued create.
+            val pending = cache.getPendingMutations()
+            val createIdx = pending.indexOfFirst { it.type == "CREATE_MAINTENANCE" && it.targetId == id }
+            if (createIdx != -1) {
+                cache.savePendingMutations(pending.filterIndexed { i, _ -> i != createIdx })
+            } else {
+                cache.queueMutation("DELETE_MAINTENANCE", id, "")
+            }
+        }
+    }
 
     /** Global maintenance log across all items. status = scheduled | completed | both */
-    suspend fun listAllMaintenance(status: String? = "both") = client().listAllMaintenance(status)
+    suspend fun listAllMaintenance(status: String? = "both"): List<HBMaintenanceWithDetails> {
+        return try {
+            val resp = online { it.listAllMaintenance(status) }
+            cache.saveBlob(cache.allMaintenanceKey(status), resp)
+            resp
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            cache.getAppliedAllMaintenance(status)
+        }
+    }
 
     // -------------------------------------------------------------------------
     // Statistics
     // -------------------------------------------------------------------------
 
-    suspend fun getStatistics() = client().getStatistics()
-    suspend fun getStatsByLocation() = client().getStatsByLocation()
-    suspend fun getStatsByTag() = client().getStatsByTag()
-    suspend fun getPurchasePriceOverTime(start: String?, end: String?) =
-        client().getPurchasePriceOverTime(start, end)
+    suspend fun getStatistics(): HBGroupStatistics =
+        cachedRead("stats_group", object : TypeToken<HBGroupStatistics>() {}.type) { it.getStatistics() }
+
+    suspend fun getStatsByLocation(): List<HBTotalsByOrganizer> =
+        cachedRead("stats_by_location", object : TypeToken<List<HBTotalsByOrganizer>>() {}.type) { it.getStatsByLocation() }
+
+    suspend fun getStatsByTag(): List<HBTotalsByOrganizer> =
+        cachedRead("stats_by_tag", object : TypeToken<List<HBTotalsByOrganizer>>() {}.type) { it.getStatsByTag() }
+
+    // Stable cache key: callers pass a now()-anchored window, so keying on the
+    // range would mean a guaranteed cache miss on every offline read.
+    suspend fun getPurchasePriceOverTime(start: String?, end: String?): HBValueOverTime =
+        cachedRead("stats_price", object : TypeToken<HBValueOverTime>() {}.type) {
+            it.getPurchasePriceOverTime(start, end)
+        }
 
     // -------------------------------------------------------------------------
     // Locations
     // -------------------------------------------------------------------------
 
     suspend fun listLocations(): List<HBLocation> {
-        try {
-            val c = client()
-            syncPendingMutations(c)
-            val resp = c.listLocations()
+        return try {
+            val resp = online { it.listLocations() }
             cache.saveCachedLocations(resp)
-            return resp
-        } catch (e: IOException) {
-            return cache.getAppliedLocations()
+            resp
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            cache.getAppliedLocations()
         }
     }
 
     suspend fun getLocationTree(): List<HBLocationTreeItem> {
-        try {
-            val c = client()
-            syncPendingMutations(c)
-            val resp = c.getLocationTree()
-            return resp
-        } catch (e: IOException) {
-            return cache.buildLocationTree(cache.getAppliedLocations())
+        return try {
+            online { it.getLocationTree() }
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            cache.buildLocationTree(cache.getAppliedLocations())
         }
     }
 
@@ -397,14 +585,14 @@ class HomeboxRepository(
         val tempId = UUID.randomUUID().toString()
         try {
             val c = client()
-            syncPendingMutations(c)
-            val resp = c.createLocation(loc)
+            val resp = online(retries = 0) { it.createLocation(loc) }
             try {
                 val fresh = c.listLocations()
                 cache.saveCachedLocations(fresh)
             } catch (_: Exception) {}
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("CREATE_LOCATION", tempId, loc)
             val mockLoc = HBLocation(
                 id = tempId,
@@ -421,14 +609,14 @@ class HomeboxRepository(
     suspend fun updateLocation(id: String, loc: HBLocationUpdate): HBLocation {
         try {
             val c = client()
-            syncPendingMutations(c)
-            val resp = c.updateLocation(id, loc)
+            val resp = online { it.updateLocation(id, loc) }
             try {
                 val fresh = c.listLocations()
                 cache.saveCachedLocations(fresh)
             } catch (_: Exception) {}
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("UPDATE_LOCATION", id, loc)
             val updated = cache.getCachedLocations().map {
                 if (it.id == id) {
@@ -443,13 +631,13 @@ class HomeboxRepository(
     suspend fun deleteLocation(id: String) {
         try {
             val c = client()
-            syncPendingMutations(c)
-            c.deleteLocation(id)
+            online { it.deleteLocation(id) }
             try {
                 val fresh = c.listLocations()
                 cache.saveCachedLocations(fresh)
             } catch (_: Exception) {}
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("DELETE_LOCATION", id, "")
             val filtered = cache.getCachedLocations().filter { it.id != id }
             cache.saveCachedLocations(filtered)
@@ -461,14 +649,13 @@ class HomeboxRepository(
     // -------------------------------------------------------------------------
 
     suspend fun listTags(): List<HBTag> {
-        try {
-            val c = client()
-            syncPendingMutations(c)
-            val resp = c.listTags()
+        return try {
+            val resp = online { it.listTags() }
             cache.saveCachedTags(resp)
-            return resp
-        } catch (e: IOException) {
-            return cache.getAppliedTags()
+            resp
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            cache.getAppliedTags()
         }
     }
 
@@ -479,14 +666,14 @@ class HomeboxRepository(
         val tempId = UUID.randomUUID().toString()
         try {
             val c = client()
-            syncPendingMutations(c)
-            val resp = c.createTag(tag)
+            val resp = online(retries = 0) { it.createTag(tag) }
             try {
                 val fresh = c.listTags()
                 cache.saveCachedTags(fresh)
             } catch (_: Exception) {}
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("CREATE_TAG", tempId, tag)
             val mockTag = HBTag(id = tempId, name = tag.name, color = tag.color)
             cache.saveCachedTags(cache.getCachedTags() + mockTag)
@@ -497,14 +684,14 @@ class HomeboxRepository(
     suspend fun updateTag(id: String, tag: HBTagUpdate): HBTag {
         try {
             val c = client()
-            syncPendingMutations(c)
-            val resp = c.updateTag(id, tag)
+            val resp = online { it.updateTag(id, tag) }
             try {
                 val fresh = c.listTags()
                 cache.saveCachedTags(fresh)
             } catch (_: Exception) {}
             return resp
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("UPDATE_TAG", id, tag)
             val updated = cache.getCachedTags().map {
                 if (it.id == id) {
@@ -519,13 +706,13 @@ class HomeboxRepository(
     suspend fun deleteTag(id: String) {
         try {
             val c = client()
-            syncPendingMutations(c)
-            c.deleteTag(id)
+            online { it.deleteTag(id) }
             try {
                 val fresh = c.listTags()
                 cache.saveCachedTags(fresh)
             } catch (_: Exception) {}
-        } catch (e: IOException) {
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
             cache.queueMutation("DELETE_TAG", id, "")
             val filtered = cache.getCachedTags().filter { it.id != id }
             cache.saveCachedTags(filtered)

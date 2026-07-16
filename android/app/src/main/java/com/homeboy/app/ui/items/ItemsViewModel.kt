@@ -12,6 +12,7 @@ import com.homeboy.app.api.HBItemCreate
 import com.homeboy.app.api.HBItemUpdate
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
+import com.homeboy.app.data.ConnectionMonitor
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
 import kotlinx.coroutines.flow.combine
@@ -110,6 +111,10 @@ class ItemsViewModel(
                 EmbeddingService.setModel(resolved)
                 if (aiSearchEnabled && _query.value.isNotBlank()) load()
             }
+        }
+        // Reload with fresh server data after a reconnect sync completes.
+        viewModelScope.launch {
+            ConnectionMonitor.refreshTicks.collect { load() }
         }
         // Apply the selected embedding model's backend override (NPU/CPU) to the engine.
         viewModelScope.launch {

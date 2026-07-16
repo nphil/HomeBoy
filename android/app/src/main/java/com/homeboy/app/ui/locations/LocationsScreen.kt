@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ui.ConnectionStatusAction
 import com.homeboy.app.api.HBLocationTreeItem
 
 // Spring animations: expand smoothly without bounce, collapse crisp
@@ -111,6 +112,7 @@ fun LocationsTab() {
             TopAppBar(
                 title = { Text("Locations", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    ConnectionStatusAction()
                     IconButton(onClick = { vm.toggleViewMode() }) {
                         Icon(
                             if (orgChartMode) Icons.Default.ViewList else Icons.Default.GridView,

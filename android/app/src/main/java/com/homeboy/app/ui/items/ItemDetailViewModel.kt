@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.*
+import com.homeboy.app.data.ConnectionMonitor
 import com.homeboy.app.data.HomeboxRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +37,11 @@ class ItemDetailViewModel(private val repo: HomeboxRepository) : ViewModel() {
     val snackbar = _snackbar.asStateFlow()
 
     private var currentItemId: String? = null
+
+    init {
+        // Reload with fresh server data after a reconnect sync completes.
+        viewModelScope.launch { ConnectionMonitor.refreshTicks.collect { reload() } }
+    }
 
     fun load(itemId: String) {
         currentItemId = itemId

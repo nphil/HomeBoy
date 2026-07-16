@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ui.ConnectionStatusAction
 import com.homeboy.app.api.HBTagTreeItem
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.homeboy.app.ui.IconSearchRepository
@@ -127,6 +128,7 @@ fun TagsTab() {
             TopAppBar(
                 title = { Text("Tags", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    ConnectionStatusAction()
                     IconButton(onClick = { vm.toggleViewMode() }) {
                         Icon(
                             if (orgChartMode) Icons.Default.ViewList else Icons.Default.GridView,

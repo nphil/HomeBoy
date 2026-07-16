@@ -8,6 +8,7 @@ import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBLocationCreate
 import com.homeboy.app.api.HBLocationTreeItem
 import com.homeboy.app.api.HBLocationUpdate
+import com.homeboy.app.data.ConnectionMonitor
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +38,10 @@ class LocationsViewModel(
     init {
         viewModelScope.launch {
             prefs.locationsViewMode.collect { _viewMode.value = it }
+        }
+        // Reload with fresh server data after a reconnect sync completes.
+        viewModelScope.launch {
+            ConnectionMonitor.refreshTicks.collect { load() }
         }
         load()
     }

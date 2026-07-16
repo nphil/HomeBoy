@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ui.ConnectionStatusAction
 import com.homeboy.app.api.HBMaintenanceWithDetails
 import com.homeboy.app.ui.formatMoney
 import com.homeboy.app.ui.items.MaintenanceSheet
@@ -93,6 +94,7 @@ fun MaintenanceTab() {
             TopAppBar(
                 title = { Text("Maintenance", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    ConnectionStatusAction()
                     IconButton(onClick = { vm.load() }) { Icon(Icons.Default.Refresh, "Refresh") }
                 },
                 scrollBehavior = scrollBehavior

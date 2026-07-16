@@ -43,6 +43,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.homeboy.app.HomeboxApplication
+import com.homeboy.app.ui.ConnectionStatusAction
 import com.homeboy.app.api.HBItem
 import com.homeboy.app.api.HBLocation
 import com.homeboy.app.api.HBTag
@@ -281,6 +282,7 @@ fun ItemsListPane(
                 TopAppBar(
                     title = { Text("Items", fontWeight = FontWeight.SemiBold) },
                     actions = {
+                        ConnectionStatusAction()
                         IconButton(onClick = { showSearch = true }) {
                             Icon(Icons.Default.Search, "Search")
                         }

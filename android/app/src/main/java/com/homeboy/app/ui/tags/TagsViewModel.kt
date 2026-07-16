@@ -9,6 +9,7 @@ import com.homeboy.app.api.HBTagCreate
 import com.homeboy.app.api.HBTagTreeItem
 import com.homeboy.app.api.HBTagUpdate
 import com.homeboy.app.api.buildTagTree
+import com.homeboy.app.data.ConnectionMonitor
 import com.homeboy.app.data.HomeboxRepository
 import com.homeboy.app.data.PreferencesRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,8 @@ class TagsViewModel(
 
     init {
         viewModelScope.launch { prefs.tagsViewMode.collect { _viewMode.value = it } }
+        // Reload with fresh server data after a reconnect sync completes.
+        viewModelScope.launch { ConnectionMonitor.refreshTicks.collect { load() } }
         load()
     }
 

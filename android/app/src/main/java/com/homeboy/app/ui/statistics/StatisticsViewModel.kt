@@ -7,6 +7,7 @@ import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.api.HBGroupStatistics
 import com.homeboy.app.api.HBTotalsByOrganizer
 import com.homeboy.app.api.HBValueOverTime
+import com.homeboy.app.data.ConnectionMonitor
 import com.homeboy.app.data.HomeboxRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,7 +37,11 @@ class StatisticsViewModel(private val repo: HomeboxRepository) : ViewModel() {
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
-    init { load() }
+    init {
+        // Reload with fresh server data after a reconnect sync completes.
+        viewModelScope.launch { ConnectionMonitor.refreshTicks.collect { load() } }
+        load()
+    }
 
     fun load() {
         viewModelScope.launch {
@@ -54,10 +59,12 @@ class StatisticsViewModel(private val repo: HomeboxRepository) : ViewModel() {
                     runCatching { repo.getPurchasePriceOverTime(fmt.format(start), fmt.format(end)) }.getOrNull()
                 }
 
-                _stats.value = statsD.await() ?: HBGroupStatistics()
-                _byLocation.value = locD.await().orEmpty().filter { it.total > 0 }.sortedByDescending { it.total }
-                _byTag.value = tagD.await().orEmpty().filter { it.total > 0 }.sortedByDescending { it.total }
-                _valueOverTime.value = votD.await()
+                // Keep whatever is currently shown when a fetch fails — never
+                // blank the screen over a transient error.
+                _stats.value = statsD.await() ?: _stats.value ?: HBGroupStatistics()
+                locD.await()?.let { l -> _byLocation.value = l.filter { it.total > 0 }.sortedByDescending { it.total } }
+                tagD.await()?.let { t -> _byTag.value = t.filter { it.total > 0 }.sortedByDescending { it.total } }
+                votD.await()?.let { _valueOverTime.value = it }
             } catch (e: Exception) {
                 _error.value = e.message
             } finally {
