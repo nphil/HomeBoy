@@ -358,6 +358,16 @@ data class HBMaintenanceCreate(
     @SerializedName("cost") val cost: String = "0"  // must be JSON string per API
 )
 
+/** Local echo of a create/update payload — the entry as it will appear once synced. */
+fun HBMaintenanceCreate.asEntry(id: String) = HBMaintenanceEntry(
+    id = id,
+    name = name,
+    description = description,
+    date = date,
+    scheduledDate = scheduledDate,
+    cost = cost
+)
+
 // ---------------------------------------------------------------------------
 // Statistics (GET /v1/groups/statistics*)
 // ---------------------------------------------------------------------------

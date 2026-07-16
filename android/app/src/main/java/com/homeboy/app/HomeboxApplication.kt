@@ -30,19 +30,35 @@ class HomeboxApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         registerConnectivityCallback()
+        // Seed the pending-changes badge from disk off the main thread.
+        appScope.launch { repository.seedPendingCount() }
         // Heartbeat: while the SERVER (not the network) is unreachable, no system
         // callback will ever fire when it comes back — probe every 30s so queued
-        // offline changes sync and screens refresh without user interaction.
+        // offline changes sync and screens refresh without user interaction. Also
+        // fires when we're nominally online but changes are still queued (e.g. a
+        // replay pass aborted mid-way on a flapping connection). Deliberately does
+        // NOT gate on networkAvailable — during wifi↔cellular handover onLost can
+        // observe a transiently-null active network and leave the flag stuck false,
+        // which would silence the heartbeat forever.
         appScope.launch {
             while (true) {
                 delay(30_000)
-                if (ConnectionMonitor.state.value == ConnectionState.OFFLINE &&
-                    ConnectionMonitor.networkAvailable
-                ) {
+                val state = ConnectionMonitor.state.value
+                val pending = ConnectionMonitor.pendingCount.value
+                if (state == ConnectionState.OFFLINE || (state == ConnectionState.ONLINE && pending > 0)) {
                     repository.syncNow()
                 }
             }
         }
+    }
+
+    /**
+     * Kick off a sync that survives navigation — UI code must call this instead of
+     * launching syncNow in a composable scope, which dies (and cancels the sync)
+     * as soon as the dialog/screen that created it leaves composition.
+     */
+    fun requestSync() {
+        appScope.launch { repository.syncNow() }
     }
 
     private fun registerConnectivityCallback() {

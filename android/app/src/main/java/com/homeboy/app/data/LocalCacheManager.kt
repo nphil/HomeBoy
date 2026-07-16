@@ -11,7 +11,10 @@ data class PendingMutation(
     val uuid: String,
     val type: String, // CREATE/UPDATE/DELETE_ITEM, _LOCATION, _TAG, _MAINTENANCE
     val targetId: String,
-    val payloadJson: String
+    val payloadJson: String,
+    // Times the server answered this mutation with a 5xx-class error. Bounded so a
+    // permanently-rejected-with-500 payload can't wedge the queue forever.
+    val attempts: Int = 0
 )
 
 /** Payload for queued maintenance mutations — the entry plus the item it belongs to. */
@@ -29,8 +32,12 @@ class LocalCacheManager(private val context: Context) {
     private val tagsFile = File(context.filesDir, "tags_cache.json")
     private val mutationsFile = File(context.filesDir, "pending_mutations.json")
 
-    init {
-        // Publish the persisted queue size so the UI badge is correct from launch.
+    /**
+     * Publish the persisted queue size so the badge and replay checks are correct
+     * from launch. Called from HomeboxApplication on an IO dispatcher — doing this
+     * in init would put a file read + JSON parse on first main-thread construction.
+     */
+    fun seedPendingCount() {
         ConnectionMonitor.setPendingCount(getPendingMutations().size)
     }
 
@@ -59,6 +66,24 @@ class LocalCacheManager(private val context: Context) {
 
     inline fun <reified T> getBlob(key: String): T? =
         getBlob(key, object : TypeToken<T>() {}.type)
+
+    /**
+     * Wipe every cached dataset (items, details, locations, tags, and all blob
+     * caches). Called on group switch — none of the cache files are tenant-scoped,
+     * so serving them across a switch would show the previous group's data offline.
+     * Pending mutations are intentionally kept: they were made by the user and
+     * replay against whichever tenant is active when the server is reachable.
+     */
+    fun clearAllCachedData() {
+        try {
+            itemsFile.delete()
+            detailsFile.delete()
+            locationsFile.delete()
+            tagsFile.delete()
+            context.filesDir.listFiles { f -> f.name.startsWith("cache_") && f.name.endsWith(".json") }
+                ?.forEach { it.delete() }
+        } catch (_: Exception) {}
+    }
 
     // -------------------------------------------------------------------------
     // File I/O
@@ -409,11 +434,13 @@ class LocalCacheManager(private val context: Context) {
         val cached = getBlob<List<HBMaintenanceWithDetails>>(allMaintenanceKey(status), type)
             .orEmpty().toMutableList()
 
+        // Item-name lookup built at most once, not per queued mutation.
+        val appliedItems by lazy { getAppliedItems() }
         for (m in getPendingMutations()) {
             when (m.type) {
                 "CREATE_MAINTENANCE" -> {
                     val p = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
-                    val itemName = getAppliedItems().firstOrNull { it.id == p.itemId }?.name
+                    val itemName = appliedItems.firstOrNull { it.id == p.itemId }?.name
                     cached.add(withDetailsFrom(m.targetId, p, itemName))
                 }
                 "UPDATE_MAINTENANCE" -> {
@@ -431,14 +458,7 @@ class LocalCacheManager(private val context: Context) {
         return cached
     }
 
-    private fun entryFrom(id: String, e: HBMaintenanceCreate) = HBMaintenanceEntry(
-        id = id,
-        name = e.name,
-        description = e.description,
-        date = e.date,
-        scheduledDate = e.scheduledDate,
-        cost = e.cost
-    )
+    private fun entryFrom(id: String, e: HBMaintenanceCreate) = e.asEntry(id)
 
     private fun withDetailsFrom(id: String, p: PendingMaintenancePayload, itemName: String?) =
         HBMaintenanceWithDetails(

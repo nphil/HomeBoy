@@ -21,7 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -31,7 +30,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.homeboy.app.HomeboxApplication
 import com.homeboy.app.data.ConnectionMonitor
 import com.homeboy.app.data.ConnectionState
-import kotlinx.coroutines.launch
 
 /**
  * Top-bar connection indicator, shown on every tab:
@@ -85,7 +83,6 @@ fun ConnectionStatusAction() {
 
     if (showDialog) {
         val app = LocalContext.current.applicationContext as HomeboxApplication
-        val scope = rememberCoroutineScope()
         AlertDialog(
             onDismissRequest = { showDialog = false },
             title = {
@@ -120,7 +117,8 @@ fun ConnectionStatusAction() {
             confirmButton = {
                 TextButton(onClick = {
                     showDialog = false
-                    scope.launch { app.repository.syncNow() }
+                    // App-scoped: closing the dialog must not cancel the sync.
+                    app.requestSync()
                 }) { Text("Sync now") }
             },
             dismissButton = {
