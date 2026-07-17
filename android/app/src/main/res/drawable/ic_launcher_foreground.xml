@@ -1,20 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive-icon foreground. Only the central 66dp-diameter circle of the 108dp
+  canvas is guaranteed visible (launchers mask to circles/squircles/rounded
+  squares), so the glyph must fit inside radius 33 from (54,54) INCLUDING the
+  stroke. Hexagon vertical radius 27 + stroke/2 (2.5) = 29.5 — safe on every mask.
+-->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Outer Hexagon Outline -->
+    <!-- Outer hexagon outline (pointy-top, centered at 54,54) -->
     <path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="5"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M54,20 L84,36 L84,70 L54,86 L24,70 L24,36 Z" />
-    <!-- Inner Y Lines -->
+        android:pathData="M54,27 L77.4,40.5 L77.4,67.5 L54,81 L30.6,67.5 L30.6,40.5 Z" />
+    <!-- Inner Y lines (box-edge illusion) -->
     <path
         android:strokeColor="#FFFFFF"
         android:strokeWidth="5"
         android:strokeLineCap="round"
-        android:pathData="M54,52 L24,36 M54,52 L84,36 M54,52 L54,86" />
+        android:pathData="M54,54 L30.6,40.5 M54,54 L77.4,40.5 M54,54 L54,81" />
 </vector>

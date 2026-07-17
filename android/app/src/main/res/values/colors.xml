@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Kept for tooling/legacy references; the adaptive icon now uses the
+         drawable gradient ic_launcher_background. -->
     <color name="ic_launcher_background">#4F46E5</color>
 </resources>

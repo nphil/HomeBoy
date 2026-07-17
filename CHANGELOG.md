@@ -4,6 +4,14 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.36 — 2026-07-17
+
+### App icon
+- **Fixed clipped launcher icon**: the hexagon glyph extended past the adaptive-icon safe zone (the central 66 dp circle of the 108 dp canvas), so circular and squircle launcher masks cut off its points. The glyph is redrawn to fit every mask shape with proper breathing room.
+- **Modern theming**: subtle indigo gradient background (vector, not a flat color) and a monochrome layer so Android 13+ "themed icons" render it in your wallpaper's Material You palette. All layers are vector drawables — crisp at every size.
+
+---
+
 ## v1.0.35 — 2026-07-17
 
 ### Offline photos
