@@ -6,6 +6,9 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android.yml'
+  # Manual re-run for when a transient GitHub outage kills the release step
+  # after the APK already built (happened 2026-07-16: API answered 50x).
+  workflow_dispatch:
 
 permissions:
   contents: write
