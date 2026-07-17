@@ -19,10 +19,11 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 /**
- * A theme ported 1:1 from the iOS app (`Theme.swift`), which in turn mirrors
- * Homebox's web frontend. Each theme is self-contained: it carries its own
- * background/foreground and a `dark` flag, so picking "Light" stays light even
- * when the system is in dark mode (matching iOS).
+ * 30 hand-curated palettes — 15 light + 15 dark — shared 1:1 with the iOS app
+ * (`Theme.swift` uses the same names and hex values). Each theme is
+ * self-contained: it carries its own background/foreground and a `dark` flag,
+ * so picking a light theme stays light even when the system is in dark mode
+ * (matching iOS). Index 0 remains Android-only Material You dynamic color.
  *
  * `seed` is the swatch/preview color shown in Settings (= the primary color).
  */
@@ -39,49 +40,48 @@ data class AppColorScheme(
 /** Index 0 is Material You: dynamic color derived from the wallpaper (Android 12+). */
 const val THEME_MATERIAL_YOU = 0
 
-/** hsl helper — h in 0..360, s/l in 0..100 (percent), matching the iOS source. */
-private fun hsl(h: Float, s: Float, l: Float): Color = Color.hsl(h, s / 100f, l / 100f)
-
 private fun theme(
     name: String,
-    bg: Color, fg: Color, primary: Color, accent: Color, dark: Boolean
-) = AppColorScheme(name, primary, bg, fg, primary, accent, dark)
+    bg: Long, fg: Long, primary: Long, accent: Long, dark: Boolean
+) = AppColorScheme(name, Color(primary), Color(bg), Color(fg), Color(primary), Color(accent), dark)
 
 val APP_THEMES: List<AppColorScheme> = listOf(
     // Index 0 — Android-native dynamic color (handled specially in HomeBoyTheme).
-    AppColorScheme("Material You", Color(0xFF4F46E5), hsl(0f, 0f, 100f), hsl(0f, 0f, 20f), Color(0xFF4F46E5), Color(0xFF7C3AED), false),
-    // Ported from iOS (Theme.swift) — order matches the iOS picker.
-    theme("Homebox",   hsl(0f,0f,100f),    hsl(0f,0f,20f),     hsl(139f,16f,43f),  hsl(97f,37f,93f),  false),
-    theme("Light",     hsl(0f,0f,100f),    hsl(215f,28f,17f),  hsl(259f,94f,51f),  hsl(314f,100f,47f), false),
-    theme("Dark",      hsl(0f,0f,11f),     hsl(0f,0f,90f),     hsl(259f,94f,70f),  hsl(314f,100f,70f), true),
-    theme("Forest",    hsl(0f,12f,8f),     hsl(0f,12f,82f),    hsl(141f,72f,42f),  hsl(141f,75f,48f), true),
-    theme("Garden",    hsl(0f,4f,91f),     hsl(0f,3f,6f),      hsl(139f,16f,43f),  hsl(97f,37f,93f),  false),
-    theme("Emerald",   hsl(0f,0f,100f),    hsl(219f,20f,25f),  hsl(141f,50f,60f),  hsl(219f,96f,60f), false),
-    theme("Aqua",      hsl(219f,53f,43f),  hsl(218f,100f,89f), hsl(182f,93f,49f),  hsl(274f,31f,57f), true),
-    theme("Ocean",     hsl(207f,50f,14f),  hsl(207f,30f,90f),  hsl(199f,89f,64f),  hsl(259f,50f,67f), true),
-    theme("Night",     hsl(222f,47f,11f),  hsl(222f,65f,82f),  hsl(198f,93f,60f),  hsl(234f,89f,74f), true),
-    theme("Dracula",   hsl(231f,15f,18f),  hsl(60f,30f,96f),   hsl(326f,100f,74f), hsl(265f,89f,78f), true),
-    theme("Synthwave", hsl(254f,59f,26f),  hsl(260f,60f,98f),  hsl(321f,70f,69f),  hsl(197f,87f,65f), true),
-    theme("Halloween", hsl(0f,0f,13f),     hsl(0f,0f,83f),     hsl(32f,89f,52f),   hsl(271f,46f,42f), true),
-    theme("Coffee",    hsl(306f,19f,11f),  hsl(37f,30f,70f),   hsl(30f,67f,58f),   hsl(182f,25f,50f), true),
-    theme("Business",  hsl(0f,0f,13f),     hsl(0f,0f,82f),     hsl(210f,64f,55f),  hsl(200f,13f,65f), true),
-    theme("Luxury",    hsl(240f,10f,4f),   hsl(37f,67f,58f),   hsl(0f,0f,100f),    hsl(218f,54f,50f), true),
-    theme("Black",     hsl(0f,0f,0f),      hsl(0f,0f,80f),     hsl(0f,0f,70f),     hsl(0f,0f,50f),    true),
-    theme("Cupcake",   hsl(24f,33f,97f),   hsl(280f,46f,14f),  hsl(183f,47f,59f),  hsl(338f,71f,78f), false),
-    theme("Valentine", hsl(318f,46f,89f),  hsl(344f,38f,28f),  hsl(353f,74f,67f),  hsl(254f,86f,77f), false),
-    theme("Pastel",    hsl(0f,0f,100f),    hsl(0f,0f,20f),     hsl(284f,22f,70f),  hsl(352f,70f,80f), false),
-    theme("Fantasy",   hsl(0f,0f,100f),    hsl(215f,28f,17f),  hsl(296f,83f,35f),  hsl(200f,100f,37f), false),
-    theme("Retro",     hsl(45f,47f,80f),   hsl(345f,5f,15f),   hsl(3f,60f,55f),    hsl(145f,35f,50f), false),
-    theme("Bumblebee", hsl(0f,0f,100f),    hsl(0f,0f,20f),     hsl(41f,74f,53f),   hsl(50f,94f,58f),  false),
-    theme("Lemonade",  hsl(0f,0f,100f),    hsl(0f,0f,20f),     hsl(89f,96f,31f),   hsl(60f,81f,45f),  false),
-    theme("Corporate", hsl(0f,0f,100f),    hsl(233f,27f,13f),  hsl(229f,96f,64f),  hsl(215f,26f,59f), false),
-    theme("CMYK",      hsl(0f,0f,100f),    hsl(0f,0f,20f),     hsl(203f,83f,60f),  hsl(335f,78f,60f), false),
-    theme("Autumn",    hsl(0f,0f,95f),     hsl(0f,0f,19f),     hsl(344f,96f,38f),  hsl(0f,63f,50f),   false),
-    theme("Winter",    hsl(0f,0f,100f),    hsl(214f,30f,32f),  hsl(212f,100f,51f), hsl(247f,47f,43f), false),
-    theme("Acid",      hsl(0f,0f,98f),     hsl(0f,0f,20f),     hsl(303f,90f,45f),  hsl(27f,100f,50f), false),
-    theme("Cyberpunk", hsl(56f,100f,50f),  hsl(56f,100f,10f),  hsl(345f,100f,50f), hsl(195f,80f,55f), true),
-    theme("Wireframe", hsl(0f,0f,100f),    hsl(0f,0f,20f),     hsl(0f,0f,40f),     hsl(0f,0f,60f),    false),
-    theme("Lofi",      hsl(0f,0f,100f),    hsl(0f,0f,0f),      hsl(0f,0f,5f),      hsl(0f,2f,30f),    false)
+    AppColorScheme("Material You", Color(0xFF4F46E5), Color(0xFFFFFFFF), Color(0xFF333333), Color(0xFF4F46E5), Color(0xFF7C3AED), false),
+
+    // ---- Light (15) — names/colors shared with iOS Theme.swift ----
+    theme("Indigo Dawn",    0xFFF4F5FE, 0xFF1E1B4B, 0xFF4F46E5, 0xFF7C3AED, false),
+    theme("Porcelain Teal", 0xFFF0FAF8, 0xFF134E4A, 0xFF0F766E, 0xFF0891B2, false),
+    theme("Rosewater",      0xFFFDF2F4, 0xFF4C0519, 0xFFBE123C, 0xFFFB7185, false),
+    theme("Amber Grove",    0xFFFDF8EF, 0xFF451A03, 0xFFD97706, 0xFFB45309, false),
+    theme("Meadow",         0xFFF2FAF2, 0xFF14532D, 0xFF16A34A, 0xFF65A30D, false),
+    theme("Sky Harbor",     0xFFEFF7FF, 0xFF0C4A6E, 0xFF0284C7, 0xFF38BDF8, false),
+    theme("Lavender Mist",  0xFFF7F4FD, 0xFF3B0764, 0xFF7C3AED, 0xFFC084FC, false),
+    theme("Coral Reef",     0xFFFFF4F0, 0xFF431407, 0xFFEA580C, 0xFFF97316, false),
+    theme("Sandstone",      0xFFFAF6F0, 0xFF422006, 0xFFA16207, 0xFFCA8A04, false),
+    theme("Sakura",         0xFFFDF2F8, 0xFF500724, 0xFFDB2777, 0xFFF472B6, false),
+    theme("Glacier",        0xFFF0F9FB, 0xFF164E63, 0xFF0891B2, 0xFF06B6D4, false),
+    theme("Olive Grove",    0xFFF7F8EC, 0xFF1A2E05, 0xFF4D7C0F, 0xFF84CC16, false),
+    theme("Copper Slate",   0xFFF6F7F8, 0xFF292524, 0xFFB45309, 0xFF57534E, false),
+    theme("Cobalt",         0xFFF2F6FF, 0xFF172554, 0xFF2563EB, 0xFF3B82F6, false),
+    theme("Graphite",       0xFFF7F7F8, 0xFF18181B, 0xFF3F3F46, 0xFF71717A, false),
+
+    // ---- Dark (15) ----
+    theme("Midnight Indigo", 0xFF11122B, 0xFFE0E7FF, 0xFF818CF8, 0xFFA5B4FC, true),
+    theme("Obsidian Teal",   0xFF091514, 0xFFCCFBF1, 0xFF2DD4BF, 0xFF5EEAD4, true),
+    theme("Ember",           0xFF1B100C, 0xFFFFEDD5, 0xFFF97316, 0xFFFB923C, true),
+    theme("Deep Forest",     0xFF0B140E, 0xFFDCFCE7, 0xFF4ADE80, 0xFF86EFAC, true),
+    theme("Midnight Ocean",  0xFF081420, 0xFFE0F2FE, 0xFF38BDF8, 0xFF7DD3FC, true),
+    theme("Velvet Grape",    0xFF16101F, 0xFFF3E8FF, 0xFFA78BFA, 0xFFC4B5FD, true),
+    theme("Carbon Rose",     0xFF1A0E13, 0xFFFFE4E6, 0xFFFB7185, 0xFFFDA4AF, true),
+    theme("Nordic Night",    0xFF10151D, 0xFFECEFF4, 0xFF88C0D0, 0xFF81A1C1, true),
+    theme("Espresso",        0xFF171210, 0xFFF5E9DC, 0xFFE0A458, 0xFFC68A4E, true),
+    theme("Neon Noir",       0xFF0D0B14, 0xFFFAE8FF, 0xFFE879F9, 0xFFF0ABFC, true),
+    theme("Abyss",           0xFF061218, 0xFFD1FAE5, 0xFF34D399, 0xFF6EE7B7, true),
+    theme("Pitch Black",     0xFF000000, 0xFFE4E4E7, 0xFF60A5FA, 0xFF93C5FD, true),
+    theme("Aurora",          0xFF0C1322, 0xFFCCFBF1, 0xFF5EEAD4, 0xFFA78BFA, true),
+    theme("Honey Amber",     0xFF15110A, 0xFFFEF3C7, 0xFFFBBF24, 0xFFFCD34D, true),
+    theme("Steel",           0xFF0D1117, 0xFFC9D1D9, 0xFF58A6FF, 0xFF79C0FF, true)
 )
 
 private fun onColor(c: Color): Color = if (c.luminance() > 0.5f) Color(0xFF101014) else Color.White

@@ -15,6 +15,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +30,8 @@ import com.homeboy.app.ai.ModelRepository
 import com.homeboy.app.ui.ai.AiManagementScreen
 import com.homeboy.app.ui.ai.BenchmarkScreen
 import com.homeboy.app.ui.ai.HuggingFaceSearchScreen
+import androidx.compose.ui.graphics.luminance
+import com.homeboy.app.ui.theme.AppColorScheme
 import com.homeboy.app.ui.theme.APP_THEMES
 import com.homeboy.app.ui.theme.THEME_MATERIAL_YOU
 
@@ -198,7 +202,7 @@ fun SettingsTab(onLogout: () -> Unit) {
                 ListItem(
                     leadingContent = { Icon(Icons.Default.Palette, null) },
                     headlineContent = { Text("Theme") },
-                    supportingContent = { Text(APP_THEMES.getOrNull(themeIndex)?.name ?: "Indigo") },
+                    supportingContent = { Text(APP_THEMES.getOrNull(themeIndex)?.name ?: "Material You") },
                     trailingContent = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -284,63 +288,107 @@ private fun ThemePickerSheet(
     onDismiss: () -> Unit
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(Modifier.padding(16.dp).padding(bottom = 32.dp)) {
+        Column(
+            Modifier
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState())
+        ) {
             Text("Choose Theme", style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(16.dp))
 
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxWidth()
+            ThemeSwatchSection(
+                title = "System",
+                entries = APP_THEMES.withIndex().filter { it.index == THEME_MATERIAL_YOU },
+                currentIndex = currentIndex, onSelect = onSelect
+            )
+            ThemeSwatchSection(
+                title = "Light",
+                entries = APP_THEMES.withIndex().filter { it.index != THEME_MATERIAL_YOU && !it.value.dark },
+                currentIndex = currentIndex, onSelect = onSelect
+            )
+            ThemeSwatchSection(
+                title = "Dark",
+                entries = APP_THEMES.withIndex().filter { it.value.dark },
+                currentIndex = currentIndex, onSelect = onSelect
+            )
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ThemeSwatchSection(
+    title: String,
+    entries: List<IndexedValue<AppColorScheme>>,
+    currentIndex: Int,
+    onSelect: (Int) -> Unit
+) {
+    Text(
+        title,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+    )
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        entries.forEach { (index, theme) ->
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.clickable { onSelect(index) }.width(72.dp)
             ) {
-                APP_THEMES.forEachIndexed { index, theme ->
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.clickable { onSelect(index) }.width(72.dp)
-                    ) {
-                        val swatchBg = if (index == THEME_MATERIAL_YOU) {
-                            // Wallpaper-derived theme — show a multicolor swatch
-                            Modifier.background(
-                                Brush.sweepGradient(
-                                    listOf(
-                                        Color(0xFF4F46E5), Color(0xFF0D9488),
-                                        Color(0xFFD97706), Color(0xFFDB2777),
-                                        Color(0xFF4F46E5)
-                                    )
-                                )
+                val swatchBg = if (index == THEME_MATERIAL_YOU) {
+                    // Wallpaper-derived theme — show a multicolor swatch
+                    Modifier.background(
+                        Brush.sweepGradient(
+                            listOf(
+                                Color(0xFF4F46E5), Color(0xFF0D9488),
+                                Color(0xFFD97706), Color(0xFFDB2777),
+                                Color(0xFF4F46E5)
                             )
-                        } else {
-                            Modifier.background(theme.seed)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .then(swatchBg)
-                                .then(
-                                    if (index == currentIndex) Modifier.border(
-                                        3.dp, MaterialTheme.colorScheme.onBackground, CircleShape
-                                    ) else Modifier
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (index == currentIndex) {
-                                Icon(Icons.Default.Check, null, tint = Color.White,
-                                    modifier = Modifier.size(20.dp))
-                            } else if (index == THEME_MATERIAL_YOU) {
-                                Icon(Icons.Default.Wallpaper, null, tint = Color.White,
-                                    modifier = Modifier.size(20.dp))
-                            }
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(theme.name, style = MaterialTheme.typography.labelSmall,
-                            maxLines = 1)
+                        )
+                    )
+                } else {
+                    // Two-tone: theme background with the primary color on top,
+                    // so light and dark variants of similar hues stay distinct.
+                    Modifier.background(
+                        Brush.verticalGradient(
+                            0f to theme.primary, 0.55f to theme.primary,
+                            0.55f to theme.background, 1f to theme.background
+                        )
+                    )
+                }
+                // Legible on both halves of the swatch: contrast against the primary.
+                val markTint = if (theme.primary.luminance() > 0.5f) Color(0xFF101014) else Color.White
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .then(swatchBg)
+                        .then(
+                            if (index == currentIndex) Modifier.border(
+                                3.dp, MaterialTheme.colorScheme.onBackground, CircleShape
+                            ) else Modifier
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (index == currentIndex) {
+                        Icon(Icons.Default.Check, null, tint = markTint,
+                            modifier = Modifier.size(20.dp))
+                    } else if (index == THEME_MATERIAL_YOU) {
+                        Icon(Icons.Default.Wallpaper, null, tint = Color.White,
+                            modifier = Modifier.size(20.dp))
                     }
                 }
+                Spacer(Modifier.height(4.dp))
+                Text(theme.name, style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1)
             }
-
-            Spacer(Modifier.height(16.dp))
         }
     }
 }
