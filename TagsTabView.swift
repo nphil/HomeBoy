@@ -22,7 +22,6 @@ struct TagsTabView: View {
     @State private var tags: [HBTag] = []
     @State private var isLoading = false
     @State private var showCreate = false
-    @State private var showFilters = false
     @State private var isSearchActive = false
 
     var body: some View {
@@ -30,25 +29,8 @@ struct TagsTabView: View {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
 
-                ZStack(alignment: .top) {
-                    content
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if showFilters {
-                        tagsFilterPanel
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                            .padding(.bottom, 8)
-                            .background(
-                                LinearGradient(
-                                    colors: [theme.current.backgroundColor, theme.current.backgroundColor.opacity(0.95), theme.current.backgroundColor.opacity(0)],
-                                    startPoint: .top, endPoint: .bottom
-                                )
-                            )
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -87,11 +69,15 @@ struct TagsTabView: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    // Direct list/tiles toggle — icon shows the mode you'd switch TO.
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            viewMode = viewMode == .list ? .tile : .list
+                        }
                     } label: {
-                        Image(systemName: showFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
                     }
+                    .accessibilityLabel(viewMode == .list ? "Switch to tile view" : "Switch to list view")
                 }
             }
             .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search tags…"))
@@ -122,32 +108,6 @@ struct TagsTabView: View {
             })
             .environmentObject(store)
             .environmentObject(theme)
-        }
-    }
-
-    // MARK: - Filter panel
-
-    private var tagsFilterPanel: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 4) {
-                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                    .foregroundStyle(theme.current.accentColor)
-                    .font(.caption)
-                Text(viewMode == .list ? "List" : "Tiles")
-                    .font(.caption.weight(.medium))
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.15))
-            .foregroundStyle(.primary)
-            .clipShape(Capsule())
-            .contentShape(Capsule())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewMode = viewMode == .list ? .tile : .list
-                }
-            }
-
-            Spacer()
         }
     }
 
@@ -196,7 +156,6 @@ struct TagsTabView: View {
         .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
         .refreshable { await load() }
-        .safeAreaPadding(.top, showFilters ? 50 : 0)
     }
 
     private var tileContent: some View {
@@ -219,7 +178,6 @@ struct TagsTabView: View {
         .scrollDismissesKeyboard(.interactively)
         .scrollIndicators(.hidden)
         .refreshable { await load() }
-        .safeAreaPadding(.top, showFilters ? 50 : 0)
     }
 
     private var filteredTags: [HBTag] {

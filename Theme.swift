@@ -33,111 +33,125 @@ extension Color {
     }
 }
 
-// MARK: - Theme colours (mirrors Homebox web app)
+// MARK: - Theme colours
 
 struct ThemeColors {
     let background: Color
     let foreground: Color
     let primary: Color
     let accent: Color
+    /// Legible text/icon colour on top of `primary` fills (FABs, chips, badges).
+    let onAccent: Color
     /// Lightness of the background (0..1). > 0.5 → light scheme, ≤ 0.5 → dark.
     let backgroundLightness: Double
 
     var preferredColorScheme: ColorScheme { backgroundLightness > 0.5 ? .light : .dark }
 }
 
-/// Themes ported 1:1 from Homebox's web frontend (`assets/css/main.css`).
-/// The CSS uses HSL triplets like `139 16% 43%` — we feed those directly into
-/// `Color(h:s:l:)` here.
+/// 30 hand-curated palettes — 15 light + 15 dark — shared 1:1 with the Android
+/// app (Theme.kt uses the same names and hex values), so a household running
+/// both platforms can match them.
 enum AppTheme: String, CaseIterable, Identifiable, Hashable {
-    case homebox
-    case light, dark
-    case forest, garden, emerald, aqua, ocean
-    case night, dracula, synthwave, halloween, coffee, business, luxury, black
-    case cupcake, valentine, pastel, fantasy, retro, bumblebee, lemonade
-    case corporate, cmyk, autumn, winter, acid, cyberpunk, wireframe, lofi
+    // Light
+    case indigoDawn, porcelainTeal, rosewater, amberGrove, meadow
+    case skyHarbor, lavenderMist, coralReef, sandstone, sakura
+    case glacier, oliveGrove, copperSlate, cobalt, graphite
+    // Dark
+    case midnightIndigo, obsidianTeal, ember, deepForest, midnightOcean
+    case velvetGrape, carbonRose, nordicNight, espresso, neonNoir
+    case abyss, pitchBlack, aurora, honeyAmber, steel
 
     var id: String { rawValue }
 
     var name: String {
         switch self {
-        case .homebox: return "Homebox"
-        case .light: return "Light"
-        case .dark: return "Dark"
-        case .forest: return "Forest"
-        case .garden: return "Garden"
-        case .emerald: return "Emerald"
-        case .aqua: return "Aqua"
-        case .ocean: return "Ocean"
-        case .night: return "Night"
-        case .dracula: return "Dracula"
-        case .synthwave: return "Synthwave"
-        case .halloween: return "Halloween"
-        case .coffee: return "Coffee"
-        case .business: return "Business"
-        case .luxury: return "Luxury"
-        case .black: return "Black"
-        case .cupcake: return "Cupcake"
-        case .valentine: return "Valentine"
-        case .pastel: return "Pastel"
-        case .fantasy: return "Fantasy"
-        case .retro: return "Retro"
-        case .bumblebee: return "Bumblebee"
-        case .lemonade: return "Lemonade"
-        case .corporate: return "Corporate"
-        case .cmyk: return "CMYK"
-        case .autumn: return "Autumn"
-        case .winter: return "Winter"
-        case .acid: return "Acid"
-        case .cyberpunk: return "Cyberpunk"
-        case .wireframe: return "Wireframe"
-        case .lofi: return "Lofi"
+        case .indigoDawn:     return "Indigo Dawn"
+        case .porcelainTeal:  return "Porcelain Teal"
+        case .rosewater:      return "Rosewater"
+        case .amberGrove:     return "Amber Grove"
+        case .meadow:         return "Meadow"
+        case .skyHarbor:      return "Sky Harbor"
+        case .lavenderMist:   return "Lavender Mist"
+        case .coralReef:      return "Coral Reef"
+        case .sandstone:      return "Sandstone"
+        case .sakura:         return "Sakura"
+        case .glacier:        return "Glacier"
+        case .oliveGrove:     return "Olive Grove"
+        case .copperSlate:    return "Copper Slate"
+        case .cobalt:         return "Cobalt"
+        case .graphite:       return "Graphite"
+        case .midnightIndigo: return "Midnight Indigo"
+        case .obsidianTeal:   return "Obsidian Teal"
+        case .ember:          return "Ember"
+        case .deepForest:     return "Deep Forest"
+        case .midnightOcean:  return "Midnight Ocean"
+        case .velvetGrape:    return "Velvet Grape"
+        case .carbonRose:     return "Carbon Rose"
+        case .nordicNight:    return "Nordic Night"
+        case .espresso:       return "Espresso"
+        case .neonNoir:       return "Neon Noir"
+        case .abyss:          return "Abyss"
+        case .pitchBlack:     return "Pitch Black"
+        case .aurora:         return "Aurora"
+        case .honeyAmber:     return "Honey Amber"
+        case .steel:          return "Steel"
         }
     }
 
-    var colors: ThemeColors {
-        // Helper: theme(bgH,bgS,bgL, fgH,fgS,fgL, pH,pS,pL, aH,aS,aL)
-        func hsl(_ h: Double, _ s: Double, _ l: Double) -> Color {
-            Color(h: h, s: s / 100, l: l / 100)
+    var isDark: Bool { colors.backgroundLightness <= 0.5 }
+
+    static var lightThemes: [AppTheme] { allCases.filter { !$0.isDark } }
+    static var darkThemes: [AppTheme] { allCases.filter { $0.isDark } }
+
+    /// Palettes are immutable — build every ThemeColors once. Rows read
+    /// `theme.current.accentColor` many times per render; without this cache
+    /// each access re-converted four colours.
+    private static let paletteCache: [AppTheme: ThemeColors] =
+        Dictionary(uniqueKeysWithValues: allCases.map { ($0, $0.buildColors()) })
+
+    var colors: ThemeColors { Self.paletteCache[self] ?? buildColors() }
+
+    private func buildColors() -> ThemeColors {
+        // t(bg, fg, primary, accent, onAccent, bgLightness)
+        func t(_ bg: String, _ fg: String, _ p: String, _ a: String, _ on: String, _ l: Double) -> ThemeColors {
+            ThemeColors(background: Color(hex: bg), foreground: Color(hex: fg),
+                        primary: Color(hex: p), accent: Color(hex: a),
+                        onAccent: Color(hex: on), backgroundLightness: l)
         }
+        let dark = "#101014", white = "#FFFFFF"
         switch self {
-        // Default Homebox theme — muted forest green on white.
-        case .homebox:    return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(0, 0, 20),   primary: hsl(139, 16, 43),  accent: hsl(97, 37, 93),  backgroundLightness: 1.00)
-        // Standard light/dark.
-        case .light:      return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(215, 28, 17),primary: hsl(259, 94, 51),  accent: hsl(314, 100, 47), backgroundLightness: 1.00)
-        case .dark:       return ThemeColors(background: hsl(0, 0, 11),   foreground: hsl(0, 0, 90),   primary: hsl(259, 94, 70),  accent: hsl(314, 100, 70), backgroundLightness: 0.11)
-        // Greens.
-        case .forest:     return ThemeColors(background: hsl(0, 12, 8),   foreground: hsl(0, 12, 82),  primary: hsl(141, 72, 42),  accent: hsl(141, 75, 48), backgroundLightness: 0.08)
-        case .garden:     return ThemeColors(background: hsl(0, 4, 91),   foreground: hsl(0, 3, 6),    primary: hsl(139, 16, 43),  accent: hsl(97, 37, 93),  backgroundLightness: 0.91)
-        case .emerald:    return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(219, 20, 25),primary: hsl(141, 50, 60),  accent: hsl(219, 96, 60), backgroundLightness: 1.00)
-        case .aqua:       return ThemeColors(background: hsl(219, 53, 43),foreground: hsl(218, 100, 89),primary: hsl(182, 93, 49), accent: hsl(274, 31, 57), backgroundLightness: 0.43)
-        case .ocean:      return ThemeColors(background: hsl(207, 50, 14),foreground: hsl(207, 30, 90),primary: hsl(199, 89, 64),  accent: hsl(259, 50, 67), backgroundLightness: 0.14)
-        // Darks.
-        case .night:      return ThemeColors(background: hsl(222, 47, 11),foreground: hsl(222, 65, 82),primary: hsl(198, 93, 60),  accent: hsl(234, 89, 74), backgroundLightness: 0.11)
-        case .dracula:    return ThemeColors(background: hsl(231, 15, 18),foreground: hsl(60, 30, 96), primary: hsl(326, 100, 74), accent: hsl(265, 89, 78), backgroundLightness: 0.18)
-        case .synthwave:  return ThemeColors(background: hsl(254, 59, 26),foreground: hsl(260, 60, 98),primary: hsl(321, 70, 69),  accent: hsl(197, 87, 65), backgroundLightness: 0.26)
-        case .halloween:  return ThemeColors(background: hsl(0, 0, 13),   foreground: hsl(0, 0, 83),   primary: hsl(32, 89, 52),   accent: hsl(271, 46, 42), backgroundLightness: 0.13)
-        case .coffee:     return ThemeColors(background: hsl(306, 19, 11),foreground: hsl(37, 30, 70), primary: hsl(30, 67, 58),   accent: hsl(182, 25, 50), backgroundLightness: 0.11)
-        case .business:   return ThemeColors(background: hsl(0, 0, 13),   foreground: hsl(0, 0, 82),   primary: hsl(210, 64, 55),  accent: hsl(200, 13, 65), backgroundLightness: 0.13)
-        case .luxury:     return ThemeColors(background: hsl(240, 10, 4), foreground: hsl(37, 67, 58), primary: hsl(0, 0, 100),    accent: hsl(218, 54, 50), backgroundLightness: 0.04)
-        case .black:      return ThemeColors(background: hsl(0, 0, 0),    foreground: hsl(0, 0, 80),   primary: hsl(0, 0, 70),     accent: hsl(0, 0, 50),    backgroundLightness: 0.00)
-        // Lights (warm).
-        case .cupcake:    return ThemeColors(background: hsl(24, 33, 97), foreground: hsl(280, 46, 14),primary: hsl(183, 47, 59),  accent: hsl(338, 71, 78), backgroundLightness: 0.97)
-        case .valentine:  return ThemeColors(background: hsl(318, 46, 89),foreground: hsl(344, 38, 28),primary: hsl(353, 74, 67),  accent: hsl(254, 86, 77), backgroundLightness: 0.89)
-        case .pastel:     return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(0, 0, 20),   primary: hsl(284, 22, 70),  accent: hsl(352, 70, 80), backgroundLightness: 1.00)
-        case .fantasy:    return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(215, 28, 17),primary: hsl(296, 83, 35),  accent: hsl(200, 100, 37), backgroundLightness: 1.00)
-        case .retro:      return ThemeColors(background: hsl(45, 47, 80), foreground: hsl(345, 5, 15), primary: hsl(3, 60, 55),    accent: hsl(145, 35, 50), backgroundLightness: 0.80)
-        case .bumblebee:  return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(0, 0, 20),   primary: hsl(41, 74, 53),   accent: hsl(50, 94, 58),  backgroundLightness: 1.00)
-        case .lemonade:   return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(0, 0, 20),   primary: hsl(89, 96, 31),   accent: hsl(60, 81, 45),  backgroundLightness: 1.00)
-        // Lights (neutral).
-        case .corporate:  return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(233, 27, 13),primary: hsl(229, 96, 64),  accent: hsl(215, 26, 59), backgroundLightness: 1.00)
-        case .cmyk:       return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(0, 0, 20),   primary: hsl(203, 83, 60),  accent: hsl(335, 78, 60), backgroundLightness: 1.00)
-        case .autumn:     return ThemeColors(background: hsl(0, 0, 95),   foreground: hsl(0, 0, 19),   primary: hsl(344, 96, 38),  accent: hsl(0, 63, 50),   backgroundLightness: 0.95)
-        case .winter:     return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(214, 30, 32),primary: hsl(212, 100, 51), accent: hsl(247, 47, 43), backgroundLightness: 1.00)
-        case .acid:       return ThemeColors(background: hsl(0, 0, 98),   foreground: hsl(0, 0, 20),   primary: hsl(303, 90, 45),  accent: hsl(27, 100, 50), backgroundLightness: 0.98)
-        case .cyberpunk:  return ThemeColors(background: hsl(56, 100, 50),foreground: hsl(56, 100, 10),primary: hsl(345, 100, 50), accent: hsl(195, 80, 55), backgroundLightness: 0.50)
-        case .wireframe:  return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(0, 0, 20),   primary: hsl(0, 0, 40),     accent: hsl(0, 0, 60),    backgroundLightness: 1.00)
-        case .lofi:       return ThemeColors(background: hsl(0, 0, 100),  foreground: hsl(0, 0, 0),    primary: hsl(0, 0, 5),      accent: hsl(0, 2, 30),    backgroundLightness: 1.00)
+        // ---- Light (15) ----
+        case .indigoDawn:     return t("#F4F5FE", "#1E1B4B", "#4F46E5", "#7C3AED", white, 0.98)
+        case .porcelainTeal:  return t("#F0FAF8", "#134E4A", "#0F766E", "#0891B2", white, 0.96)
+        case .rosewater:      return t("#FDF2F4", "#4C0519", "#BE123C", "#FB7185", white, 0.97)
+        case .amberGrove:     return t("#FDF8EF", "#451A03", "#D97706", "#B45309", white, 0.97)
+        case .meadow:         return t("#F2FAF2", "#14532D", "#16A34A", "#65A30D", white, 0.97)
+        case .skyHarbor:      return t("#EFF7FF", "#0C4A6E", "#0284C7", "#38BDF8", white, 0.97)
+        case .lavenderMist:   return t("#F7F4FD", "#3B0764", "#7C3AED", "#C084FC", white, 0.97)
+        case .coralReef:      return t("#FFF4F0", "#431407", "#EA580C", "#F97316", white, 0.97)
+        case .sandstone:      return t("#FAF6F0", "#422006", "#A16207", "#CA8A04", white, 0.96)
+        case .sakura:         return t("#FDF2F8", "#500724", "#DB2777", "#F472B6", white, 0.97)
+        case .glacier:        return t("#F0F9FB", "#164E63", "#0891B2", "#06B6D4", white, 0.96)
+        case .oliveGrove:     return t("#F7F8EC", "#1A2E05", "#4D7C0F", "#84CC16", white, 0.95)
+        case .copperSlate:    return t("#F6F7F8", "#292524", "#B45309", "#57534E", white, 0.97)
+        case .cobalt:         return t("#F2F6FF", "#172554", "#2563EB", "#3B82F6", white, 0.97)
+        case .graphite:       return t("#F7F7F8", "#18181B", "#3F3F46", "#71717A", white, 0.97)
+        // ---- Dark (15) ----
+        case .midnightIndigo: return t("#11122B", "#E0E7FF", "#818CF8", "#A5B4FC", dark, 0.12)
+        case .obsidianTeal:   return t("#091514", "#CCFBF1", "#2DD4BF", "#5EEAD4", dark, 0.06)
+        case .ember:          return t("#1B100C", "#FFEDD5", "#F97316", "#FB923C", white, 0.08)
+        case .deepForest:     return t("#0B140E", "#DCFCE7", "#4ADE80", "#86EFAC", dark, 0.06)
+        case .midnightOcean:  return t("#081420", "#E0F2FE", "#38BDF8", "#7DD3FC", dark, 0.08)
+        case .velvetGrape:    return t("#16101F", "#F3E8FF", "#A78BFA", "#C4B5FD", dark, 0.09)
+        case .carbonRose:     return t("#1A0E13", "#FFE4E6", "#FB7185", "#FDA4AF", dark, 0.08)
+        case .nordicNight:    return t("#10151D", "#ECEFF4", "#88C0D0", "#81A1C1", dark, 0.09)
+        case .espresso:       return t("#171210", "#F5E9DC", "#E0A458", "#C68A4E", dark, 0.08)
+        case .neonNoir:       return t("#0D0B14", "#FAE8FF", "#E879F9", "#F0ABFC", dark, 0.06)
+        case .abyss:          return t("#061218", "#D1FAE5", "#34D399", "#6EE7B7", dark, 0.06)
+        case .pitchBlack:     return t("#000000", "#E4E4E7", "#60A5FA", "#93C5FD", dark, 0.00)
+        case .aurora:         return t("#0C1322", "#CCFBF1", "#5EEAD4", "#A78BFA", dark, 0.09)
+        case .honeyAmber:     return t("#15110A", "#FEF3C7", "#FBBF24", "#FCD34D", dark, 0.06)
+        case .steel:          return t("#0D1117", "#C9D1D9", "#58A6FF", "#79C0FF", dark, 0.07)
         }
     }
 
@@ -146,6 +160,8 @@ enum AppTheme: String, CaseIterable, Identifiable, Hashable {
     var foregroundColor: Color { colors.foreground }
     var accentColor: Color { colors.primary }
     var secondaryColor: Color { colors.accent }
+    /// Legible content colour on accent-filled surfaces.
+    var onAccentColor: Color { colors.onAccent }
     var preferredColorScheme: ColorScheme { colors.preferredColorScheme }
 }
 
@@ -158,15 +174,45 @@ final class ThemeManager: ObservableObject {
     }
 
     init() {
-        if let raw = UserDefaults.standard.string(forKey: "homebox.theme"),
-           let saved = AppTheme(rawValue: raw) {
-            current = saved
+        if let raw = UserDefaults.standard.string(forKey: "homebox.theme") {
+            current = AppTheme(rawValue: raw) ?? Self.migrated(from: raw) ?? .indigoDawn
         } else {
-            current = .homebox
+            current = .indigoDawn
         }
     }
 
     func set(_ theme: AppTheme) { current = theme }
+
+    /// Users upgrading from the DaisyUI-era palette keep the closest new theme
+    /// instead of being silently reset.
+    private static func migrated(from old: String) -> AppTheme? {
+        switch old {
+        case "homebox", "garden", "emerald": return .meadow
+        case "light":                        return .indigoDawn
+        case "dark", "night":                return .midnightIndigo
+        case "forest":                       return .deepForest
+        case "aqua":                         return .glacier
+        case "ocean":                        return .midnightOcean
+        case "dracula":                      return .velvetGrape
+        case "synthwave", "acid":            return .neonNoir
+        case "halloween":                    return .ember
+        case "coffee":                       return .espresso
+        case "business":                     return .steel
+        case "luxury":                       return .honeyAmber
+        case "black":                        return .pitchBlack
+        case "cupcake":                      return .porcelainTeal
+        case "valentine", "autumn":          return .rosewater
+        case "pastel", "fantasy":            return .lavenderMist
+        case "retro":                        return .sandstone
+        case "bumblebee":                    return .amberGrove
+        case "lemonade":                     return .oliveGrove
+        case "corporate", "winter":          return .cobalt
+        case "cmyk":                         return .skyHarbor
+        case "cyberpunk":                    return .neonNoir
+        case "wireframe", "lofi":            return .graphite
+        default:                             return nil
+        }
+    }
 }
 
 // MARK: - Theme swatch
@@ -184,7 +230,7 @@ struct ThemeSwatch: View {
                     Circle()
                         .fill(theme.backgroundColor)
                         .frame(width: 48, height: 48)
-                    // Two stacked half-discs hint at the foreground + accent colour.
+                    // Two stacked discs hint at the primary + secondary accent.
                     Circle()
                         .fill(theme.accentColor)
                         .frame(width: 22, height: 22)
@@ -216,5 +262,7 @@ struct ThemeSwatch: View {
             }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(theme.name) theme")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

@@ -11,7 +11,6 @@ struct LocationsTabView: View {
     @State private var collapsedIds: Set<String> = []
     @State private var didInitializeCollapse = false
     @AppStorage("locationsViewMode") private var viewMode: LocViewMode = .list
-    @State private var showFilters = false
     @State private var indexLetter: String? = nil
     @State private var isSearchActive = false
 
@@ -22,25 +21,8 @@ struct LocationsTabView: View {
             ZStack {
                 theme.current.backgroundColor.ignoresSafeArea()
 
-                ZStack(alignment: .top) {
-                    content
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                    if showFilters {
-                        locationFilterPanel
-                            .padding(.horizontal, 16)
-                            .padding(.top, 8)
-                            .padding(.bottom, 8)
-                            .background(
-                                LinearGradient(
-                                    colors: [theme.current.backgroundColor, theme.current.backgroundColor.opacity(0.95), theme.current.backgroundColor.opacity(0)],
-                                    startPoint: .top, endPoint: .bottom
-                                )
-                            )
-                            .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if store.isAuthenticated {
                     VStack {
@@ -80,11 +62,15 @@ struct LocationsTabView: View {
                         }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
+                        // Direct list/tiles toggle — icon shows the mode you'd switch TO.
                         Button {
-                            withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                viewMode = viewMode == .list ? .tile : .list
+                            }
                         } label: {
-                            Image(systemName: showFilters ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                            Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
                         }
+                        .accessibilityLabel(viewMode == .list ? "Switch to tile view" : "Switch to list view")
                     }
                 }
             }
@@ -157,32 +143,6 @@ struct LocationsTabView: View {
         }
     }
 
-    // MARK: - Filter panel
-
-    private var locationFilterPanel: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 4) {
-                Image(systemName: viewMode == .list ? "square.grid.2x2" : "list.bullet")
-                    .foregroundStyle(theme.current.accentColor)
-                    .font(.caption)
-                Text(viewMode == .list ? "List" : "Tiles")
-                    .font(.caption.weight(.medium))
-            }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(Color.secondary.opacity(0.15))
-            .foregroundStyle(.primary)
-            .clipShape(Capsule())
-            .contentShape(Capsule())
-            .onTapGesture {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    viewMode = viewMode == .list ? .tile : .list
-                }
-            }
-
-            Spacer()
-        }
-    }
-
     // MARK: - List view
 
     private var listContent: some View {
@@ -207,7 +167,7 @@ struct LocationsTabView: View {
             .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
             .refreshable { try? await store.refreshLocations() }
-            .safeAreaPadding(.top, showFilters ? 50 : 0)
+
             .overlay(alignment: .trailing) {
                 if !locationIndexLetters.isEmpty {
                     AlphabetIndexBar(letters: locationIndexLetters, currentLetter: $indexLetter) { letter in
@@ -252,7 +212,7 @@ struct LocationsTabView: View {
         .scrollContentBackground(.hidden)
         .background(theme.current.backgroundColor)
         .refreshable { try? await store.refreshLocations() }
-        .safeAreaPadding(.top, showFilters ? 50 : 0)
+
     }
 
     // MARK: - Data helpers

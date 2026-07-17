@@ -74,9 +74,18 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("Theme") {
+                Section("Light Themes") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
-                        ForEach(AppTheme.allCases) { t in
+                        ForEach(AppTheme.lightThemes) { t in
+                            ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+
+                Section("Dark Themes") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 5), spacing: 14) {
+                        ForEach(AppTheme.darkThemes) { t in
                             ThemeSwatch(theme: t, isSelected: theme.current == t, onTap: { theme.set(t) })
                         }
                     }
