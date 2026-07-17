@@ -115,8 +115,16 @@ struct ItemsListView: View {
 
     var body: some View {
         NavigationStack {
-            rootStack
-            .toolbar { mainToolbar }
+            listChrome(listPresentations(listEventHandlers(rootStack.toolbar { mainToolbar })))
+        }
+    }
+
+    // The list's modifier chain is split into two helpers taking `some View` so
+    // each is a bounded expression the Swift type-checker can handle in time.
+
+    @ViewBuilder
+    private func listEventHandlers(_ content: some View) -> some View {
+        content
             .task { recomputeDisplay(); await load() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await load(force: true) }
@@ -146,6 +154,11 @@ struct ItemsListView: View {
                 filterTagIds = []
                 Task { await load(force: true) }
             }
+    }
+
+    @ViewBuilder
+    private func listPresentations(_ content: some View) -> some View {
+        content
             .navigationDestination(for: ItemDetailRoute.self) { route in
                 ItemDetailView(itemId: route.id, onChange: { Task { await load(force: true) } })
                     .environmentObject(store)
@@ -171,7 +184,6 @@ struct ItemsListView: View {
                 }
                 .environmentObject(store).environmentObject(theme)
             }
-
             .sheet(isPresented: $showQRScanner) {
                 BarcodeScannerSheet(mode: .qr) { code in
                     showQRScanner = false
@@ -190,6 +202,11 @@ struct ItemsListView: View {
                     }
                 }
             }
+    }
+
+    @ViewBuilder
+    private func listChrome(_ content: some View) -> some View {
+        content
             .confirmationDialog(
                 "Archive \(selectedIds.count) item\(selectedIds.count == 1 ? "" : "s")?",
                 isPresented: $showArchiveConfirm,
@@ -224,7 +241,6 @@ struct ItemsListView: View {
                     .environmentObject(store)
                     .environmentObject(theme)
             }
-        }
     }
 
     // MARK: - FAB + toolbar (extracted to keep `body` type-checkable)
