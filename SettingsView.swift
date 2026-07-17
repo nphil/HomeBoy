@@ -65,11 +65,12 @@ struct SettingsView: View {
                     if store.pendingOpsCount > 0 {
                         HStack {
                             Image(systemName: "clock.arrow.circlepath").foregroundStyle(.orange)
-                            Text("\(store.pendingOpsCount) item(s) pending sync")
+                            Text("\(store.pendingOpsCount) change(s) pending sync")
                                 .foregroundStyle(.secondary)
                             Spacer()
                             Button("Sync now") { Task { await store.syncPendingOps() } }
                                 .buttonStyle(.bordered)
+                                .disabled(store.isSyncing)
                         }
                     }
                 }

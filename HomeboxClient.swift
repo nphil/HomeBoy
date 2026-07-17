@@ -254,7 +254,7 @@ struct HBItemSummary: Codable, Identifiable, Hashable {
     let name: String
 }
 
-struct HBMaintenanceEntry: Decodable, Identifiable {
+struct HBMaintenanceEntry: Codable, Identifiable {
     let id: String
     let name: String
     var description: String?
@@ -278,6 +278,25 @@ struct HBMaintenanceEntry: Decodable, Identifiable {
             cost = Double(s)
         } else {
             cost = try? c.decodeIfPresent(Double.self, forKey: .cost)
+        }
+    }
+
+    /// Mirror of `init(from:)` for the offline cache: cost round-trips as a JSON
+    /// string, matching the server's `json:"cost,string"` encoding.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(description, forKey: .description)
+        try c.encodeIfPresent(completedDate, forKey: .completedDate)
+        try c.encodeIfPresent(scheduledDate, forKey: .scheduledDate)
+        try c.encodeIfPresent(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(updatedAt, forKey: .updatedAt)
+        if let cost {
+            let costStr = cost.truncatingRemainder(dividingBy: 1) == 0
+                ? "\(Int(cost))"
+                : "\(cost)"
+            try c.encode(costStr, forKey: .cost)
         }
     }
 

@@ -31,7 +31,7 @@ struct FlatLocation: Identifiable, Hashable {
 
 /// Cached (locations, items) count for a group — used in the popover to show
 /// totals on every collection card, not just the active one.
-struct GroupStats: Equatable {
+struct GroupStats: Equatable, Codable {
     let locationCount: Int
     let itemTotal: Int
 }
@@ -56,7 +56,7 @@ final class HomeboxStore: ObservableObject {
     @Published var isOfflineModeEnabled: Bool {
         didSet {
             UserDefaults.standard.set(isOfflineModeEnabled, forKey: Keys.offlineMode)
-            if !isOfflineModeEnabled && isConnectedToNetwork && (localDB.pendingOps.count > 0 || localDB.pendingMaintenance.count > 0) {
+            if !isOfflineModeEnabled && isConnectedToNetwork && hasPendingChanges {
                 Task { await syncPendingOps() }
             }
         }
@@ -66,6 +66,17 @@ final class HomeboxStore: ObservableObject {
     }
     @Published private(set) var isConnectedToNetwork: Bool = true
     @Published private(set) var pendingOpsCount: Int = 0
+    @Published private(set) var isSyncing = false
+
+    private var hasPendingChanges: Bool {
+        localDB.pendingOps.count > 0 || localDB.pendingMaintenance.count > 0 || localDB.pendingPhotos.count > 0
+    }
+
+    /// Recompute the unified pending-change count (item ops + maintenance + photos).
+    /// Call after every enqueue/dequeue against `localDB`.
+    func refreshPendingCount() {
+        pendingOpsCount = localDB.pendingOps.count + localDB.pendingMaintenance.count + localDB.pendingPhotos.count
+    }
 
     var isOffline: Bool { isOfflineModeEnabled || !isConnectedToNetwork }
 
@@ -130,6 +141,8 @@ final class HomeboxStore: ObservableObject {
         static let activeGroupId = "homebox.activeGroupId"
         static let offlineMode   = "homebox.offlineMode"
         static let offlineAuth   = "homebox.offlineAuth"
+        static let cachedGroups     = "homebox.cachedGroups"
+        static let cachedGroupStats = "homebox.cachedGroupStats"
     }
 
     // MARK: - Init
@@ -149,13 +162,25 @@ final class HomeboxStore: ObservableObject {
             token = Keychain.get(Keys.token)
         }
 
-        pendingOpsCount = localDB.pendingOps.count
+        refreshPendingCount()
+
+        // Hydrate groups + per-group stats from the last successful refresh so
+        // the collections menu works offline.
+        if let data = UserDefaults.standard.data(forKey: Keys.cachedGroups),
+           let savedGroups = try? JSONDecoder().decode([HBGroup].self, from: data) {
+            groups = savedGroups
+            groupName = savedGroups.first { $0.id == activeGroupId }?.name ?? savedGroups.first?.name
+        }
+        if let data = UserDefaults.standard.data(forKey: Keys.cachedGroupStats),
+           let savedStats = try? JSONDecoder().decode([String: GroupStats].self, from: data) {
+            cachedGroupStats = savedStats
+        }
 
         syncEngine.onConnectionChange = { [weak self] connected in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isConnectedToNetwork = connected
-                if connected && !self.isOfflineModeEnabled && (self.localDB.pendingOps.count > 0 || self.localDB.pendingMaintenance.count > 0) {
+                if connected && !self.isOfflineModeEnabled && self.hasPendingChanges {
                     await self.syncPendingOps()
                 }
             }
@@ -192,28 +217,59 @@ final class HomeboxStore: ObservableObject {
         isAuthenticatedOffline = true
     }
 
-    /// Submit all queued offline creates to the server and remove local placeholders.
+    /// Replay all queued offline changes (item creates/updates/deletes, photos,
+    /// maintenance) against the server, in enqueue order. Failed ops stay queued.
     func syncPendingOps() async {
         guard let client else { return }
-        let ops = localDB.pendingOps
+        guard !isSyncing else { return }
+        isSyncing = true
+        defer { isSyncing = false }
+
         var syncedCount = 0
+
+        // 1. Item operations (array order = enqueue order)
+        let ops = localDB.pendingOps
         for op in ops {
             do {
                 switch op.kind {
                 case .createItem:
                     let payload = try JSONDecoder().decode(HBItemCreate.self, from: op.payload)
-                    _ = try await client.createItem(payload)
-                    if let localId = op.localId { localDB.removeItem(id: localId) }
-                case .updateItem, .deleteItem:
-                    break
+                    let serverId = try await client.createItem(payload)
+                    if let localId = op.localId {
+                        localDB.remapPendingPhotos(fromItemId: localId, to: serverId)
+                        localDB.removeItem(id: localId)
+                    }
+                case .updateItem:
+                    let payload = try JSONDecoder().decode(HBItemUpdate.self, from: op.payload)
+                    try await client.updateItem(payload)
+                case .deleteItem:
+                    if let itemId = op.localId {
+                        try await client.deleteItem(id: itemId)
+                    }
                 }
                 localDB.dequeue(id: op.id)
                 syncedCount += 1
             } catch {}
         }
-        pendingOpsCount = localDB.pendingOps.count
 
-        // Sync pending maintenance operations
+        // 2. Queued photos — after creates so "local-" ids have been remapped to
+        //    server ids. Ops still pointing at a "local-" item wait for its create.
+        let photoOps = localDB.pendingPhotos
+        for op in photoOps {
+            guard !op.itemId.hasPrefix("local-") else { continue }
+            guard let data = localDB.pendingPhotoData(id: op.id) else {
+                localDB.dequeuePhoto(id: op.id)   // bytes are gone — drop the op
+                continue
+            }
+            do {
+                try await client.uploadAttachment(itemId: op.itemId, fileData: data,
+                                                  filename: op.fileName, primary: op.primary)
+                localDB.dequeuePhoto(id: op.id)
+                syncedCount += 1
+            } catch {}
+        }
+
+        // 3. Pending maintenance operations
         let maintOps = localDB.pendingMaintenance
         for op in maintOps {
             do {
@@ -231,9 +287,27 @@ final class HomeboxStore: ObservableObject {
             } catch {}
         }
 
+        refreshPendingCount()
+
         if syncedCount > 0 {
+            await refreshCachesAfterSync()
+            NotificationCenter.default.post(name: .offlineSyncCompleted, object: nil)
             NotificationCenter.default.post(name: .showToast, object: nil,
-                                            userInfo: ["message": "Synced \(syncedCount) offline item(s)"])
+                                            userInfo: ["message": "Synced \(syncedCount) offline change(s)"])
+        }
+    }
+
+    /// After a successful sync pass, pull fresh data into the offline caches so
+    /// they reflect what the server accepted.
+    private func refreshCachesAfterSync() async {
+        guard let client, !isOffline else { return }
+        if let resp = try? await client.listItems(pageSize: 1000) {
+            localDB.cacheItems(resp.items)
+            cachedItemTotal = resp.total ?? resp.items.count
+        }
+        try? await refreshLocations()
+        if let tags = try? await client.listTags() {
+            localDB.cacheTags(tags)
         }
     }
 
@@ -244,9 +318,69 @@ final class HomeboxStore: ObservableObject {
                 id: UUID().uuidString, kind: .createItem,
                 payload: data, localId: item.id, createdAt: Date()
             ))
-            pendingOpsCount = localDB.pendingOps.count
+            refreshPendingCount()
         }
         localDB.addItem(item)
+    }
+
+    /// Queue an offline edit and apply it optimistically to the local cache.
+    /// Edits to an item that only exists as a queued create ("local-" id) rewrite
+    /// that create's payload instead of queueing a PUT the server can't resolve.
+    func enqueueOfflineUpdate(_ update: HBItemUpdate) {
+        if update.id.hasPrefix("local-") {
+            if let createOp = localDB.pendingOps.first(where: { $0.kind == .createItem && $0.localId == update.id }) {
+                let payload = HBItemCreate(
+                    name: update.name, quantity: update.quantity,
+                    description: update.description,
+                    parentId: update.parentId, tagIds: update.tagIds
+                )
+                if let data = try? JSONEncoder().encode(payload) {
+                    localDB.replacePendingOpPayload(id: createOp.id, payload: data)
+                }
+            }
+        } else if let data = try? JSONEncoder().encode(update) {
+            localDB.enqueue(PendingOperation(
+                id: UUID().uuidString, kind: .updateItem,
+                payload: data, localId: update.id, createdAt: Date()
+            ))
+        }
+
+        let location = update.parentId.flatMap { pid in
+            locationsFlat.first(where: { $0.id == pid }).map {
+                HBLocationSummary(id: $0.id, name: $0.name, description: nil)
+            }
+        }
+        // Resolve tag ids against the cache; keep the old labels if we can't.
+        let resolved = localDB.tags.filter { update.tagIds.contains($0.id) }
+        let newTags: [HBTag]? = update.tagIds.isEmpty ? [] : (resolved.isEmpty ? nil : resolved)
+        localDB.applyUpdate(update, location: location, tags: newTags)
+        refreshPendingCount()
+    }
+
+    /// Queue an offline delete. Deleting an item that was created offline simply
+    /// cancels the queued create (and any photos queued against it).
+    func enqueueOfflineDelete(itemId: String) {
+        if itemId.hasPrefix("local-") {
+            for op in localDB.pendingOps where op.kind == .createItem && op.localId == itemId {
+                localDB.dequeue(id: op.id)
+            }
+            for photo in localDB.pendingPhotoOps(for: itemId) {
+                localDB.dequeuePhoto(id: photo.id)
+            }
+        } else {
+            localDB.enqueue(PendingOperation(
+                id: UUID().uuidString, kind: .deleteItem,
+                payload: Data(), localId: itemId, createdAt: Date()
+            ))
+        }
+        localDB.removeItem(id: itemId)
+        refreshPendingCount()
+    }
+
+    /// Persist JPEG bytes for a photo taken offline; uploads on the next sync.
+    func enqueueOfflinePhoto(itemId: String, jpegData: Data, primary: Bool) {
+        localDB.enqueuePhoto(itemId: itemId, jpegData: jpegData, primary: primary)
+        refreshPendingCount()
     }
 
     // MARK: - Group switching (the X-Tenant story)
@@ -295,6 +429,18 @@ final class HomeboxStore: ObservableObject {
             )
         }
         cachedGroupStats = newStats
+        persistGroupCaches()
+    }
+
+    /// Persist groups + per-group stats (small payloads) so the collections
+    /// menu and its counts survive offline restarts.
+    private func persistGroupCaches() {
+        if let data = try? JSONEncoder().encode(groups) {
+            UserDefaults.standard.set(data, forKey: Keys.cachedGroups)
+        }
+        if let data = try? JSONEncoder().encode(cachedGroupStats) {
+            UserDefaults.standard.set(data, forKey: Keys.cachedGroupStats)
+        }
     }
 
     // MARK: - Data fetching
@@ -311,6 +457,7 @@ final class HomeboxStore: ObservableObject {
             activeGroupId = fetched.first?.id
         }
         groupName = fetched.first { $0.id == activeGroupId }?.name ?? fetched.first?.name
+        persistGroupCaches()
     }
 
     /// Fetch only the total item count (pageSize=1 is enough — we just want the `total` field).
@@ -324,17 +471,41 @@ final class HomeboxStore: ObservableObject {
 
     func refreshLocations() async throws {
         guard let client else { throw HBError.notConfigured }
+        if isOffline {
+            hydrateLocationsFromCache()
+            return
+        }
         isLoadingLocations = true
         defer { Task { @MainActor in self.isLoadingLocations = false } }
 
-        async let treeTask = client.locationTree()
-        async let listTask = client.listLocations()
-        let (tree, list) = try await (treeTask, listTask)
+        do {
+            async let treeTask = client.locationTree()
+            async let listTask = client.listLocations()
+            let (tree, list) = try await (treeTask, listTask)
 
+            var countMap: [String: Int] = [:]
+            for loc in list { countMap[loc.id] = Int(loc.itemCount ?? 0) }
+
+            self.locationsFlat = Self.flatten(tree: tree, countMap: countMap)
+            localDB.cacheLocations(list)
+            localDB.cacheLocationTree(tree)
+        } catch {
+            // Fetch failed (flaky/absent network) — fall back to the last good cache.
+            if hydrateLocationsFromCache() { return }
+            throw error
+        }
+    }
+
+    /// Rebuild `locationsFlat` from the cached tree + list. Returns false when
+    /// nothing has been cached yet.
+    @discardableResult
+    private func hydrateLocationsFromCache() -> Bool {
+        let tree = localDB.locationTree
+        guard !tree.isEmpty else { return false }
         var countMap: [String: Int] = [:]
-        for loc in list { countMap[loc.id] = Int(loc.itemCount ?? 0) }
-
-        self.locationsFlat = Self.flatten(tree: tree, countMap: countMap)
+        for loc in localDB.locations { countMap[loc.id] = Int(loc.itemCount ?? 0) }
+        locationsFlat = Self.flatten(tree: tree, countMap: countMap)
+        return true
     }
 
     func updateCachedItemTotal(_ total: Int) {

@@ -194,6 +194,11 @@ struct ItemsListView: View {
                     }
                     if store.isAuthenticated {
                         ToolbarItem(placement: .topBarTrailing) {
+                            ConnectionStatusBadge()
+                                .environmentObject(store)
+                                .environmentObject(theme)
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
                             Button {
                                 isSearchActive = true
                             } label: {
@@ -215,6 +220,9 @@ struct ItemsListView: View {
             .task { await load() }
             .onAppear { Task { await load() } }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task { await load(force: true) }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .offlineSyncCompleted)) { _ in
                 Task { await load(force: true) }
             }
             .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
@@ -963,7 +971,7 @@ private struct ItemTileContent: View {
         }
         .task(id: item.id) {
             guard let client = store.client else { return }
-            let attId = await thumbStore.load(itemId: item.id, client: client)
+            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: store.localDB)
             thumbAttId = attId
             thumbLoaded = true
         }

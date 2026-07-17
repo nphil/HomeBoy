@@ -632,6 +632,12 @@ struct AddItemView: View {
         }
         let offlineItem = store.localDB.makeOfflineItem(from: payload, location: locationSummary)
         store.enqueueOfflineCreate(payload: payload, item: offlineItem)
+        // Queue photos against the "local-" id; sync remaps them to the server id.
+        for (index, photo) in photos.enumerated() {
+            if let data = photo.jpegData(compressionQuality: 0.82) {
+                store.enqueueOfflinePhoto(itemId: offlineItem.id, jpegData: data, primary: index == 0)
+            }
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         showSuccessPill("\"\(trimmedName)\" saved offline")
         resetForm()
@@ -702,8 +708,16 @@ struct AddItemView: View {
     }
 
     private func loadTags() async {
+        if store.isOffline {
+            availableTags = store.localDB.tags
+            return
+        }
         guard let client = store.client else { return }
-        if let tags = try? await client.listTags() { availableTags = tags }
+        if let tags = try? await client.listTags() {
+            availableTags = tags
+        } else if !store.localDB.tags.isEmpty {
+            availableTags = store.localDB.tags
+        }
     }
 
     @MainActor

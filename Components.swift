@@ -62,6 +62,86 @@ struct GroupMenuButton: View {
     }
 }
 
+// MARK: - Connection Status Badge
+
+/// Toolbar indicator for connectivity + sync state: green cloud check when
+/// online and fully synced, red slashed cloud when offline, spinning orange
+/// arrows while a sync pass runs. A small orange count bubble overlays the
+/// icon while local changes are waiting to sync. Tapping shows a plain-language
+/// status line with a "Sync Now" action when applicable.
+struct ConnectionStatusBadge: View {
+    @EnvironmentObject var store: HomeboxStore
+    @EnvironmentObject var theme: ThemeManager
+
+    @State private var showStatusDialog = false
+    @State private var isSpinning = false
+
+    private var pendingCount: Int { store.pendingOpsCount }
+
+    private var statusLine: String {
+        let changes = "\(pendingCount) change\(pendingCount == 1 ? "" : "s")"
+        if store.isSyncing {
+            return "Syncing offline changes…"
+        }
+        if store.isOffline {
+            return pendingCount > 0
+                ? "Offline — \(changes) will sync when the connection returns"
+                : "Offline — changes you make will sync when the connection returns"
+        }
+        return pendingCount > 0
+            ? "Online — \(changes) waiting to sync"
+            : "Online — everything is synced"
+    }
+
+    var body: some View {
+        Button {
+            showStatusDialog = true
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                statusIcon
+                if pendingCount > 0 && !store.isSyncing {
+                    Text("\(min(pendingCount, 99))")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(3)
+                        .background(Circle().fill(Color.orange))
+                        .offset(x: 8, y: -7)
+                }
+            }
+        }
+        .accessibilityLabel(statusLine)
+        .confirmationDialog("Connection Status", isPresented: $showStatusDialog, titleVisibility: .visible) {
+            if pendingCount > 0 && !store.isSyncing {
+                Button("Sync Now") { Task { await store.syncPendingOps() } }
+            }
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(statusLine)
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        if store.isSyncing {
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .foregroundStyle(.orange)
+                .rotationEffect(.degrees(isSpinning ? 360 : 0))
+                .animation(.linear(duration: 1).repeatForever(autoreverses: false), value: isSpinning)
+                .onAppear { isSpinning = true }
+                .onDisappear { isSpinning = false }
+        } else if store.isOffline {
+            Image(systemName: "icloud.slash")
+                .foregroundStyle(.red)
+        } else if pendingCount > 0 {
+            Image(systemName: "icloud.fill")
+                .foregroundStyle(.orange)
+        } else {
+            Image(systemName: "checkmark.icloud")
+                .foregroundStyle(Color(hex: "#4CAF50").opacity(0.85))
+        }
+    }
+}
+
 // MARK: - Floating Card Modal
 
 struct FloatingCardContainer<Content: View>: View {
@@ -388,7 +468,7 @@ class ThumbnailStore {
         return map
     }()
 
-    func load(itemId: String, client: HomeboxClient) async -> String? {
+    func load(itemId: String, client: HomeboxClient, localDB: LocalDatabase? = nil) async -> String? {
         if let v = memCache[itemId] { return v.isEmpty ? nil : v }
         if let task = inFlight[itemId] { return await task.value }
 
@@ -404,18 +484,27 @@ class ThumbnailStore {
         }
         inFlight[itemId] = task
         let result = await task.value
+        inFlight[itemId] = nil
 
-        memCache[itemId] = result ?? ""
         if let result {
+            memCache[itemId] = result
             diskMap[itemId] = result
             let map = diskMap
             Task.detached(priority: .background) {
                 guard let data = try? JSONEncoder().encode(map) else { return }
                 try? data.write(to: ThumbnailStore.diskURL, options: .atomic)
             }
+            return result
         }
-        inFlight[itemId] = nil
-        return result
+
+        // No attachment known — resolve a photo queued offline for this item.
+        // Deliberately NOT cached: once the photo uploads, the real id takes over.
+        if let pending = localDB?.pendingPhotoOps(for: itemId).first {
+            return "pendingphoto-\(pending.id)"
+        }
+
+        memCache[itemId] = ""
+        return nil
     }
 }
 
@@ -520,7 +609,7 @@ struct ItemListRowContent: View {
         .padding(.horizontal, 10).padding(.vertical, 8)
         .task(id: item.id) {
             guard let client = store.client else { return }
-            let attId = await thumbStore.load(itemId: item.id, client: client)
+            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: store.localDB)
             thumbAttId = attId
             thumbLoaded = true
         }

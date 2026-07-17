@@ -349,9 +349,15 @@ struct ItemDetailView: View {
         let pending = store.localDB.pendingMaintenanceOps(for: itemId).map { $0.asDisplayEntry() }
         if store.isOffline {
             if let cached = store.localDB.items.first(where: { $0.id == itemId }) {
-                item = HBItemDetail(offline: cached)
+                var detail = HBItemDetail(offline: cached)
+                detail.attachments = offlineAttachments()
+                item = detail
             }
-            maintenance = pending
+            maintenance = (store.localDB.maintenanceEntries(for: itemId) + pending).sorted {
+                let a = $0.scheduledDate ?? $0.completedDate ?? $0.createdAt ?? ""
+                let b = $1.scheduledDate ?? $1.completedDate ?? $1.createdAt ?? ""
+                return a > b
+            }
             isLoading = false
             return
         }
@@ -360,9 +366,15 @@ struct ItemDetailView: View {
             async let itemTask  = client.getItem(id: itemId)
             async let childTask = client.listItems(parentIds: [itemId], pageSize: 500)
             async let maintTask = client.listMaintenance(itemId: itemId)
-            item     = try await itemTask
+            let fetchedItem = try await itemTask
+            item = fetchedItem
+            store.localDB.cacheAttachments(itemId: itemId, attachments: fetchedItem.attachments ?? [])
             children = (try? await childTask)?.items ?? []
-            let fetched = (try? await maintTask) ?? []
+            var fetched: [HBMaintenanceEntry] = []
+            if let fetchedMaint = try? await maintTask {
+                fetched = fetchedMaint
+                store.localDB.cacheMaintenance(itemId: itemId, entries: fetchedMaint)
+            }
             maintenance = (fetched + pending).sorted {
                 let a = $0.scheduledDate ?? $0.completedDate ?? $0.createdAt ?? ""
                 let b = $1.scheduledDate ?? $1.completedDate ?? $1.createdAt ?? ""
@@ -374,12 +386,35 @@ struct ItemDetailView: View {
         isLoading = false
     }
 
+    /// Cached attachment refs plus queued offline photos (as "pendingphoto-" pseudo-refs)
+    /// so the gallery renders offline from ImageCache's disk layer / pending files.
+    private func offlineAttachments() -> [HBAttachmentRef]? {
+        var refs = store.localDB.attachments(for: itemId)
+        for op in store.localDB.pendingPhotoOps(for: itemId) {
+            refs.append(HBAttachmentRef(
+                id: "pendingphoto-\(op.id)", type: "photo",
+                primary: op.primary, title: op.fileName,
+                mimeType: "image/jpeg", createdAt: nil
+            ))
+        }
+        return refs.isEmpty ? nil : refs
+    }
+
     private func toggleArchive() async {
-        guard !store.isOffline else {
-            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Not available in offline mode"])
+        guard let current = item else { return }
+        if store.isOffline {
+            var update = HBItemUpdate(from: current)
+            update.archived = !(current.archived ?? false)
+            store.enqueueOfflineUpdate(update)
+            var updated = current
+            updated.archived = update.archived
+            item = updated
+            let msg = update.archived ? "Item archived — will sync when online" : "Item unarchived — will sync when online"
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": msg])
+            onChange()
             return
         }
-        guard let client = store.client, let current = item else { return }
+        guard let client = store.client else { return }
         var update = HBItemUpdate(from: current)
         update.archived = !(current.archived ?? false)
         do {
@@ -402,6 +437,7 @@ struct ItemDetailView: View {
         if entry.id.hasPrefix("pending-") {
             let localId = String(entry.id.dropFirst("pending-".count))
             store.localDB.dequeueMaintenance(id: localId)
+            store.refreshPendingCount()
             maintenance.removeAll { $0.id == entry.id }
             return
         }
@@ -444,8 +480,13 @@ struct ItemDetailView: View {
     }
 
     private func performDelete() async {
-        guard !store.isOffline else {
-            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": "Not available in offline mode"])
+        if store.isOffline {
+            store.enqueueOfflineDelete(itemId: itemId)
+            let msg = itemId.hasPrefix("local-") ? "Item removed" : "Item deleted — will sync when online"
+            NotificationCenter.default.post(name: .showToast, object: nil, userInfo: ["message": msg])
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            onChange()
+            dismiss()
             return
         }
         guard let client = store.client else { return }
@@ -722,9 +763,8 @@ struct EditItemSheet: View {
     }
 
     private func save() async {
-        guard !store.isOffline else { errorMsg = "Not available in offline mode"; return }
-        guard let client = store.client, let locId = locationId else { return }
-        errorMsg = nil; isSaving = true
+        guard let locId = locationId else { return }
+        errorMsg = nil
         var update = HBItemUpdate(from: original, overrideLocationId: locId, overrideTagIds: Array(tagIds))
         update.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         update.quantity = Double(quantity)
@@ -733,6 +773,14 @@ struct EditItemSheet: View {
         update.serialNumber = serial
         update.modelNumber = model
         update.manufacturer = manufacturer
+
+        if store.isOffline {
+            saveOffline(update, locationId: locId)
+            return
+        }
+
+        guard let client = store.client else { return }
+        isSaving = true
         do {
             try await client.updateItem(update)
             
@@ -760,6 +808,54 @@ struct EditItemSheet: View {
             }
         }
         isSaving = false
+    }
+
+    /// Queue the edit (and any new photo) for later sync, apply it optimistically,
+    /// and hand the caller an updated detail so the screen reflects the change.
+    private func saveOffline(_ update: HBItemUpdate, locationId locId: String) {
+        // Deleting already-synced photos needs the server; queued offline photos
+        // can simply be dequeued locally.
+        let serverDeletes = attachmentsToDelete.filter { !$0.hasPrefix("pendingphoto-") }
+        guard serverDeletes.isEmpty else {
+            errorMsg = "Removing synced photos isn't available offline"
+            return
+        }
+        for attId in attachmentsToDelete where attId.hasPrefix("pendingphoto-") {
+            store.localDB.dequeuePhoto(id: String(attId.dropFirst("pendingphoto-".count)))
+        }
+
+        store.enqueueOfflineUpdate(update)
+
+        if let photo, let data = photo.jpegData(compressionQuality: 0.82) {
+            let hasExistingPhotos = (original.attachments ?? [])
+                .contains { $0.type.lowercased() == "photo" && !attachmentsToDelete.contains($0.id) }
+            store.enqueueOfflinePhoto(itemId: original.id, jpegData: data, primary: !hasExistingPhotos)
+        }
+        store.refreshPendingCount()
+
+        var updated = original
+        updated.name = update.name
+        updated.description = description.isEmpty ? nil : description
+        updated.quantity = Double(quantity)
+        updated.notes = notes.isEmpty ? nil : notes
+        updated.serialNumber = serial.isEmpty ? nil : serial
+        updated.modelNumber = model.isEmpty ? nil : model
+        updated.manufacturer = manufacturer.isEmpty ? nil : manufacturer
+        if let loc = store.locationsFlat.first(where: { $0.id == locId }) {
+            updated.location = HBLocationSummary(id: loc.id, name: loc.name, description: nil)
+        }
+        if tagIds.isEmpty {
+            updated.tags = []
+        } else {
+            let resolved = store.localDB.tags.filter { tagIds.contains($0.id) }
+            if !resolved.isEmpty { updated.tags = resolved }
+        }
+
+        onSaved(updated)
+        NotificationCenter.default.post(name: .showToast, object: nil,
+                                        userInfo: ["message": "Saved offline — will sync when connected"])
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        dismiss()
     }
 }
 
@@ -803,6 +899,17 @@ struct AuthImage: View {
             }
         }
         .task(id: attachmentId) {
+            // 0. Photos queued offline — load bytes straight from the pending file
+            if attachmentId.hasPrefix("pendingphoto-") {
+                let opId = String(attachmentId.dropFirst("pendingphoto-".count))
+                if let data = store.localDB.pendingPhotoData(id: opId),
+                   let img = UIImage(data: data) {
+                    self.image = img
+                } else {
+                    self.failed = true
+                }
+                return
+            }
             // 1. Memory — instant, no I/O
             if let img = ImageCache.shared.cachedImage(for: attachmentId) {
                 self.image = img; return
@@ -1305,6 +1412,7 @@ struct MaintenanceEntrySheet: View {
                 localCreatedAt: Date()
             )
             store.localDB.enqueueMaintenance(op)
+            store.refreshPendingCount()
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             dismiss()
             return

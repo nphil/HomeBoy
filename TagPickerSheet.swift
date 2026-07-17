@@ -137,10 +137,20 @@ struct TagPickerSheet: View {
     }
 
     private func load() async {
+        if store.isOffline {
+            tags = store.localDB.tags
+            return
+        }
         guard let client = store.client else { return }
         isLoading = true; loadError = nil
         do { tags = try await client.listTags() }
-        catch { loadError = error.localizedDescription }
+        catch {
+            if !store.localDB.tags.isEmpty {
+                tags = store.localDB.tags
+            } else {
+                loadError = error.localizedDescription
+            }
+        }
         isLoading = false
     }
 

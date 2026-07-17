@@ -42,6 +42,19 @@ struct PendingMaintenanceOp: Codable, Identifiable {
     }
 }
 
+// MARK: - Pending Photo Operation
+
+/// A photo captured while offline, waiting to be uploaded. The JPEG bytes live
+/// in Documents/pending_photos/<id>.jpg; `itemId` may be a "local-" placeholder
+/// until the matching create syncs and the op is remapped to the server id.
+struct PendingPhotoOp: Codable, Identifiable {
+    let id: String
+    var itemId: String
+    let fileName: String
+    let primary: Bool
+    let createdAt: Date
+}
+
 // MARK: - LocalDatabase
 
 /// JSON-backed local store for offline use. Plain @MainActor class (not ObservableObject)
@@ -51,15 +64,24 @@ final class LocalDatabase {
 
     private(set) var items: [HBItem] = []
     private(set) var locations: [HBLocation] = []
+    private(set) var locationTree: [HBTreeItem] = []
     private(set) var tags: [HBTag] = []
     private(set) var pendingOps: [PendingOperation] = []
     private(set) var pendingMaintenance: [PendingMaintenanceOp] = []
+    private(set) var pendingPhotos: [PendingPhotoOp] = []
+    private(set) var maintenanceByItem: [String: [HBMaintenanceEntry]] = [:]
+    private(set) var attachmentsByItem: [String: [HBAttachmentRef]] = [:]
 
     private let itemsURL: URL
     private let locationsURL: URL
+    private let locationTreeURL: URL
     private let tagsURL: URL
     private let pendingOpsURL: URL
     private let pendingMaintenanceURL: URL
+    private let pendingPhotosURL: URL
+    private let maintenanceURL: URL
+    private let attachmentsURL: URL
+    private let pendingPhotosDir: URL
 
     private let encoder: JSONEncoder = {
         let e = JSONEncoder()
@@ -77,9 +99,15 @@ final class LocalDatabase {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         itemsURL             = docs.appendingPathComponent("homebox_items.json")
         locationsURL         = docs.appendingPathComponent("homebox_locations.json")
+        locationTreeURL      = docs.appendingPathComponent("homebox_location_tree.json")
         tagsURL              = docs.appendingPathComponent("homebox_tags.json")
         pendingOpsURL        = docs.appendingPathComponent("homebox_pending.json")
         pendingMaintenanceURL = docs.appendingPathComponent("homebox_pending_maint.json")
+        pendingPhotosURL     = docs.appendingPathComponent("homebox_pending_photos.json")
+        maintenanceURL       = docs.appendingPathComponent("homebox_maintenance.json")
+        attachmentsURL       = docs.appendingPathComponent("homebox_attachments.json")
+        pendingPhotosDir     = docs.appendingPathComponent("pending_photos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: pendingPhotosDir, withIntermediateDirectories: true)
         load()
     }
 
@@ -88,9 +116,13 @@ final class LocalDatabase {
     private func load() {
         items              = loadJSON(from: itemsURL)              ?? []
         locations          = loadJSON(from: locationsURL)          ?? []
+        locationTree       = loadJSON(from: locationTreeURL)       ?? []
         tags               = loadJSON(from: tagsURL)               ?? []
         pendingOps         = loadJSON(from: pendingOpsURL)         ?? []
         pendingMaintenance = loadJSON(from: pendingMaintenanceURL) ?? []
+        pendingPhotos      = loadJSON(from: pendingPhotosURL)      ?? []
+        maintenanceByItem  = loadJSON(from: maintenanceURL)        ?? [:]
+        attachmentsByItem  = loadJSON(from: attachmentsURL)        ?? [:]
     }
 
     private func loadJSON<T: Decodable>(from url: URL) -> T? {
@@ -115,9 +147,32 @@ final class LocalDatabase {
         persist(locations, to: locationsURL)
     }
 
+    func cacheLocationTree(_ tree: [HBTreeItem]) {
+        locationTree = tree
+        persist(locationTree, to: locationTreeURL)
+    }
+
     func cacheTags(_ newTags: [HBTag]) {
         tags = newTags
         persist(tags, to: tagsURL)
+    }
+
+    func cacheMaintenance(itemId: String, entries: [HBMaintenanceEntry]) {
+        maintenanceByItem[itemId] = entries
+        persist(maintenanceByItem, to: maintenanceURL)
+    }
+
+    func maintenanceEntries(for itemId: String) -> [HBMaintenanceEntry] {
+        maintenanceByItem[itemId] ?? []
+    }
+
+    func cacheAttachments(itemId: String, attachments: [HBAttachmentRef]) {
+        attachmentsByItem[itemId] = attachments
+        persist(attachmentsByItem, to: attachmentsURL)
+    }
+
+    func attachments(for itemId: String) -> [HBAttachmentRef] {
+        attachmentsByItem[itemId] ?? []
     }
 
     // MARK: - Local CRUD (offline mode)
@@ -132,6 +187,27 @@ final class LocalDatabase {
         persist(items, to: itemsURL)
     }
 
+    /// Optimistically apply an offline edit to the cached list item so the UI
+    /// reflects it immediately. `location`/`tags` are pre-resolved summaries;
+    /// pass nil to keep the item's existing values.
+    func applyUpdate(_ update: HBItemUpdate, location: HBLocationSummary?, tags newTags: [HBTag]?) {
+        guard let idx = items.firstIndex(where: { $0.id == update.id }) else { return }
+        let old = items[idx]
+        items[idx] = HBItem(
+            id: old.id,
+            name: update.name,
+            description: update.description.isEmpty ? nil : update.description,
+            quantity: update.quantity,
+            archived: update.archived,
+            createdAt: old.createdAt,
+            location: location ?? old.location,
+            parent: old.parent,
+            labels: newTags ?? old.labels,
+            tags: old.tags
+        )
+        persist(items, to: itemsURL)
+    }
+
     // MARK: - Pending operations queue
 
     func enqueue(_ op: PendingOperation) {
@@ -141,6 +217,18 @@ final class LocalDatabase {
 
     func dequeue(id: String) {
         pendingOps.removeAll { $0.id == id }
+        persist(pendingOps, to: pendingOpsURL)
+    }
+
+    /// Swap the payload of a queued op in place (keeps queue order) — used when
+    /// an offline-created item is edited again before it ever reaches the server.
+    func replacePendingOpPayload(id: String, payload: Data) {
+        guard let idx = pendingOps.firstIndex(where: { $0.id == id }) else { return }
+        let old = pendingOps[idx]
+        pendingOps[idx] = PendingOperation(
+            id: old.id, kind: old.kind, payload: payload,
+            localId: old.localId, createdAt: old.createdAt
+        )
         persist(pendingOps, to: pendingOpsURL)
     }
 
@@ -159,6 +247,52 @@ final class LocalDatabase {
 
     func pendingMaintenanceOps(for itemId: String) -> [PendingMaintenanceOp] {
         pendingMaintenance.filter { $0.itemId == itemId }
+    }
+
+    // MARK: - Pending photo queue
+
+    /// Persist JPEG bytes to Documents/pending_photos and queue the upload.
+    func enqueuePhoto(itemId: String, jpegData: Data, primary: Bool) {
+        let id = UUID().uuidString
+        let fileURL = pendingPhotosDir.appendingPathComponent("\(id).jpg")
+        guard (try? jpegData.write(to: fileURL, options: .atomic)) != nil else { return }
+        let op = PendingPhotoOp(
+            id: id,
+            itemId: itemId,
+            fileName: "photo-\(Int(Date().timeIntervalSince1970))-\(id.prefix(8)).jpg",
+            primary: primary,
+            createdAt: Date()
+        )
+        pendingPhotos.append(op)
+        persist(pendingPhotos, to: pendingPhotosURL)
+    }
+
+    func dequeuePhoto(id: String) {
+        pendingPhotos.removeAll { $0.id == id }
+        try? FileManager.default.removeItem(at: pendingPhotoFileURL(id: id))
+        persist(pendingPhotos, to: pendingPhotosURL)
+    }
+
+    func pendingPhotoOps(for itemId: String) -> [PendingPhotoOp] {
+        pendingPhotos.filter { $0.itemId == itemId }
+    }
+
+    func pendingPhotoData(id: String) -> Data? {
+        try? Data(contentsOf: pendingPhotoFileURL(id: id))
+    }
+
+    func pendingPhotoFileURL(id: String) -> URL {
+        pendingPhotosDir.appendingPathComponent("\(id).jpg")
+    }
+
+    /// After an offline create syncs, point its queued photos at the real server id.
+    func remapPendingPhotos(fromItemId: String, to newItemId: String) {
+        var changed = false
+        for i in pendingPhotos.indices where pendingPhotos[i].itemId == fromItemId {
+            pendingPhotos[i].itemId = newItemId
+            changed = true
+        }
+        if changed { persist(pendingPhotos, to: pendingPhotosURL) }
     }
 
     // MARK: - Factory

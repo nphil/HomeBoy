@@ -55,6 +55,11 @@ struct LocationsTabView: View {
                 }
                 if store.isAuthenticated {
                     ToolbarItem(placement: .topBarTrailing) {
+                        ConnectionStatusBadge()
+                            .environmentObject(store)
+                            .environmentObject(theme)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button {
                             isSearchActive = true
                         } label: {
@@ -81,6 +86,11 @@ struct LocationsTabView: View {
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                if store.isAuthenticated {
+                    Task { try? await store.refreshLocations() }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .offlineSyncCompleted)) { _ in
                 if store.isAuthenticated {
                     Task { try? await store.refreshLocations() }
                 }

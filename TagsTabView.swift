@@ -62,6 +62,11 @@ struct TagsTabView: View {
                         .environmentObject(theme)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    ConnectionStatusBadge()
+                        .environmentObject(store)
+                        .environmentObject(theme)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         isSearchActive = true
                     } label: {
@@ -83,6 +88,9 @@ struct TagsTabView: View {
             .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search tags…"))
             .task { await load() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+                Task { await load() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .offlineSyncCompleted)) { _ in
                 Task { await load() }
             }
             .onChange(of: store.activeGroupId) { _, _ in
@@ -187,13 +195,17 @@ struct TagsTabView: View {
     }
 
     private func load() async {
+        if store.isOffline {
+            tags = store.localDB.tags
+            return
+        }
         guard let client = store.client else { return }
         isLoading = true
         do {
             async let tagsTask = client.listTags()
             async let itemsTask = client.listItems(pageSize: 1000)
             let (fetchedTags, fetchedItems) = try await (tagsTask, itemsTask)
-            
+
             var counts: [String: Int] = [:]
             for item in fetchedItems.items {
                 if let labels = item.effectiveLabels {
@@ -202,14 +214,20 @@ struct TagsTabView: View {
                     }
                 }
             }
-            
+
             self.tags = fetchedTags.map { tag in
                 var t = tag
                 t.itemCount = Double(counts[tag.id] ?? 0)
                 return t
             }
+            store.localDB.cacheTags(self.tags)
         } catch {
-            if let fetched = try? await client.listTags() { tags = fetched }
+            if let fetched = try? await client.listTags() {
+                tags = fetched
+                store.localDB.cacheTags(fetched)
+            } else if !store.localDB.tags.isEmpty {
+                tags = store.localDB.tags
+            }
         }
         isLoading = false
     }
@@ -395,6 +413,15 @@ struct TagDetailView: View {
     }
 
     private func load() async {
+        if store.isOffline {
+            tag = store.localDB.tags.first { $0.id == tagId }
+            // Filtering the full local cache here (not a server-filtered list), so
+            // items whose summaries omit labels simply can't be matched offline.
+            items = store.localDB.items
+                .filter { item in (item.effectiveLabels ?? []).contains { $0.id == tagId } }
+                .sorted { $0.name.lowercased() < $1.name.lowercased() }
+            return
+        }
         guard let client = store.client else { return }
         isLoading = true
         async let tagsTask = client.listTags()
