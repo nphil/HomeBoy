@@ -115,128 +115,8 @@ struct ItemsListView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                theme.current.backgroundColor.ignoresSafeArea()
-                contentArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if store.isAuthenticated && !selectMode {
-                    VStack {
-                        Spacer()
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 12) {
-                                if showQRScannerFAB {
-                                    Button { showQRScanner = true } label: {
-                                        Image(systemName: "qrcode.viewfinder")
-                                            .font(.title3.weight(.semibold))
-                                            .foregroundStyle(theme.current.onAccentColor)
-                                            .frame(width: 46, height: 46)
-                                            .background(theme.current.accentColor.opacity(0.85))
-                                            .clipShape(Circle())
-                                            .shadow(color: theme.current.accentColor.opacity(0.3), radius: 4, x: 0, y: 3)
-                                    }
-                                    .accessibilityLabel("Scan QR code")
-                                }
-                                Button {
-                                    withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
-                                        showAddSheet = true
-                                    }
-                                } label: {
-                                    Image(systemName: "plus")
-                                        .font(.title2.weight(.semibold))
-                                        .foregroundStyle(theme.current.onAccentColor)
-                                        .frame(width: 56, height: 56)
-                                        .background(theme.current.accentColor)
-                                        .clipShape(Circle())
-                                        .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
-                                }
-                                .accessibilityLabel("Add item")
-                            }
-                            .padding()
-                        }
-                    }
-                }
-            }
-            .toolbar {
-                if selectMode {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button("Archive") {
-                            showArchiveConfirm = true
-                        }
-                        .foregroundStyle(.orange)
-                        .disabled(selectedIds.isEmpty)
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button("Done") {
-                            withAnimation {
-                                selectMode = false
-                                selectedIds = []
-                            }
-                        }
-                        .font(.body.bold())
-                        .foregroundStyle(theme.current.accentColor)
-                    }
-                    ToolbarItemGroup(placement: .bottomBar) {
-                        Button("Select All") {
-                            selectedIds = Set(displayItems.map { $0.id })
-                        }
-                        
-                        Spacer()
-                        
-                        Button("Deselect All") {
-                            selectedIds = []
-                        }
-                        .disabled(selectedIds.isEmpty)
-                        
-                        Spacer()
-                        
-                        Button("Edit") {
-                            showBulkEdit = true
-                        }
-                        .bold()
-                        .disabled(selectedIds.isEmpty)
-                    }
-                } else {
-                    ToolbarItem(placement: .topBarLeading) {
-                        GroupMenuButton()
-                            .environmentObject(store)
-                            .environmentObject(theme)
-                    }
-                    if store.isAuthenticated {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            ConnectionStatusBadge()
-                                .environmentObject(store)
-                                .environmentObject(theme)
-                        }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button {
-                                isSearchActive = true
-                            } label: {
-                                Image(systemName: "magnifyingglass")
-                            }
-                            .accessibilityLabel("Search")
-                        }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
-                            } label: {
-                                Image(systemName: (hasActiveFilters || showFilters)
-                                      ? "line.3.horizontal.decrease.circle.fill"
-                                      : "line.3.horizontal.decrease.circle")
-                            }
-                            .accessibilityLabel("Filters")
-                        }
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Select") {
-                                withAnimation { selectMode = true }
-                            }
-                            .disabled(allItems.isEmpty)
-                            .accessibilityLabel("Select items")
-                        }
-                    }
-                }
-            }
+            rootStack
+            .toolbar { mainToolbar }
             .task { recomputeDisplay(); await load() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await load(force: true) }
@@ -343,6 +223,122 @@ struct ItemsListView: View {
                 AddItemView(onDismiss: { showAddSheet = false })
                     .environmentObject(store)
                     .environmentObject(theme)
+            }
+        }
+    }
+
+    // MARK: - FAB + toolbar (extracted to keep `body` type-checkable)
+
+    @ViewBuilder
+    private var rootStack: some View {
+        ZStack {
+            theme.current.backgroundColor.ignoresSafeArea()
+            contentArea
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if store.isAuthenticated && !selectMode {
+                fabOverlay
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var fabOverlay: some View {
+        VStack {
+            Spacer()
+            HStack {
+                Spacer()
+                VStack(spacing: 12) {
+                    if showQRScannerFAB {
+                        Button { showQRScanner = true } label: {
+                            Image(systemName: "qrcode.viewfinder")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(theme.current.onAccentColor)
+                                .frame(width: 46, height: 46)
+                                .background(theme.current.accentColor.opacity(0.85))
+                                .clipShape(Circle())
+                                .shadow(color: theme.current.accentColor.opacity(0.3), radius: 4, x: 0, y: 3)
+                        }
+                        .accessibilityLabel("Scan QR code")
+                    }
+                    Button {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                            showAddSheet = true
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.title2.weight(.semibold))
+                            .foregroundStyle(theme.current.onAccentColor)
+                            .frame(width: 56, height: 56)
+                            .background(theme.current.accentColor)
+                            .clipShape(Circle())
+                            .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
+                    }
+                    .accessibilityLabel("Add item")
+                }
+                .padding()
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var mainToolbar: some ToolbarContent {
+        if selectMode {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Archive") { showArchiveConfirm = true }
+                    .foregroundStyle(.orange)
+                    .disabled(selectedIds.isEmpty)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Done") {
+                    withAnimation { selectMode = false; selectedIds = [] }
+                }
+                .font(.body.bold())
+                .foregroundStyle(theme.current.accentColor)
+            }
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button("Select All") { selectedIds = Set(displayItems.map { $0.id }) }
+                Spacer()
+                Button("Deselect All") { selectedIds = [] }
+                    .disabled(selectedIds.isEmpty)
+                Spacer()
+                Button("Edit") { showBulkEdit = true }
+                    .bold()
+                    .disabled(selectedIds.isEmpty)
+            }
+        } else {
+            ToolbarItem(placement: .topBarLeading) {
+                GroupMenuButton()
+                    .environmentObject(store)
+                    .environmentObject(theme)
+            }
+            if store.isAuthenticated {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ConnectionStatusBadge()
+                        .environmentObject(store)
+                        .environmentObject(theme)
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { isSearchActive = true } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .accessibilityLabel("Search")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
+                    } label: {
+                        Image(systemName: (hasActiveFilters || showFilters)
+                              ? "line.3.horizontal.decrease.circle.fill"
+                              : "line.3.horizontal.decrease.circle")
+                    }
+                    .accessibilityLabel("Filters")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Select") { withAnimation { selectMode = true } }
+                        .disabled(allItems.isEmpty)
+                        .accessibilityLabel("Select items")
+                }
             }
         }
     }

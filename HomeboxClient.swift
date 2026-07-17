@@ -121,7 +121,7 @@ struct HBAttachmentRef: Codable, Identifiable, Hashable {
 /// All fields are optional except `id` and `name` to tolerate older versions.
 struct HBItemDetail: Codable, Identifiable, Hashable {
     let id: String
-    let name: String
+    var name: String
     var description: String?
     var quantity: Double?
     var notes: String?

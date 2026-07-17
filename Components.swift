@@ -561,9 +561,12 @@ class ThumbnailStore {
 
     private func persistDiskMap() {
         let map = diskMap
+        // Read the main-actor-isolated static into a local (URL is Sendable) so the
+        // detached write doesn't touch actor-isolated state from off the main actor.
+        let url = ThumbnailStore.diskURL
         Task.detached(priority: .background) {
             guard let data = try? JSONEncoder().encode(map) else { return }
-            try? data.write(to: ThumbnailStore.diskURL, options: .atomic)
+            try? data.write(to: url, options: .atomic)
         }
     }
 
