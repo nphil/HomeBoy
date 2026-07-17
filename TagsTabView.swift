@@ -188,15 +188,19 @@ struct TagsTabView: View {
         .refreshable { await load() }
     }
 
+    // `tags` is kept sorted by load(), so this only filters per body pass.
     private var filteredTags: [HBTag] {
         let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        let base = q.isEmpty ? tags : tags.filter { $0.name.lowercased().contains(q) }
-        return base.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        return q.isEmpty ? tags : tags.filter { $0.name.lowercased().contains(q) }
+    }
+
+    private func sortedByName(_ tags: [HBTag]) -> [HBTag] {
+        tags.sorted { $0.name.lowercased() < $1.name.lowercased() }
     }
 
     private func load() async {
         if store.isOffline {
-            tags = store.localDB.tags
+            tags = sortedByName(store.localDB.tags)
             return
         }
         guard let client = store.client else { return }
@@ -215,18 +219,18 @@ struct TagsTabView: View {
                 }
             }
 
-            self.tags = fetchedTags.map { tag in
+            self.tags = sortedByName(fetchedTags.map { tag in
                 var t = tag
                 t.itemCount = Double(counts[tag.id] ?? 0)
                 return t
-            }
+            })
             store.localDB.cacheTags(self.tags)
         } catch {
             if let fetched = try? await client.listTags() {
-                tags = fetched
+                tags = sortedByName(fetched)
                 store.localDB.cacheTags(fetched)
             } else if !store.localDB.tags.isEmpty {
-                tags = store.localDB.tags
+                tags = sortedByName(store.localDB.tags)
             }
         }
         isLoading = false
@@ -265,11 +269,10 @@ private struct TagTileCell: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+        .background(
             RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.06))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.current.accentColor.opacity(0.18), lineWidth: 1))
     }
 }
 
@@ -303,11 +306,10 @@ private struct TagRow: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+        .background(
             RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.06))
-        }
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1))
+        )
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(theme.current.accentColor.opacity(0.18), lineWidth: 1))
     }
 }
 
@@ -350,12 +352,13 @@ struct TagDetailView: View {
                 } else {
                     ForEach(items) { item in
                         NavigationLink(value: ItemDetailRoute(id: item.id)) {
-                            ItemListRowContent(item: item, thumbStore: thumbStore)
-                                .background {
-                                    RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+                            ItemListRowContent(item: item, thumbStore: thumbStore,
+                                               breadcrumb: store.breadcrumb(for: item),
+                                               client: store.client, localDB: store.localDB)
+                                .background(
                                     RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.05))
-                                }
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.15), lineWidth: 1))
+                                )
+                                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.current.accentColor.opacity(0.15), lineWidth: 1))
                         }.buttonStyle(.plain)
                     }
                 }

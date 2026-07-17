@@ -14,6 +14,11 @@ struct LocationsTabView: View {
     @State private var indexLetter: String? = nil
     @State private var isSearchActive = false
 
+    // Child lookup tables rebuilt when locationsFlat changes — replaces the
+    // O(L) contains/filter per row that made body passes O(L²).
+    @State private var childCountById: [String: Int] = [:]
+    @State private var childrenByParent: [String: [FlatLocation]] = [:]
+
     enum LocViewMode: String { case list, tile }
 
     var body: some View {
@@ -96,11 +101,13 @@ struct LocationsTabView: View {
                 }
             }
             .onChange(of: store.locationsFlat) { _, flat in
+                rebuildChildIndex(flat)
                 guard !didInitializeCollapse, !flat.isEmpty else { return }
                 collapsedIds = Set(flat.compactMap { $0.parentId })
                 didInitializeCollapse = true
             }
             .onAppear {
+                rebuildChildIndex(store.locationsFlat)
                 if !didInitializeCollapse && !store.locationsFlat.isEmpty {
                     collapsedIds = Set(store.locationsFlat.compactMap { $0.parentId })
                     didInitializeCollapse = true
@@ -156,10 +163,14 @@ struct LocationsTabView: View {
     // MARK: - List view
 
     private var listContent: some View {
-        ScrollViewReader { proxy in
+        // Hoisted once per body pass — visibleRows was previously recomputed
+        // three times (ForEach, index letters, index-bar tap).
+        let rows = visibleRows
+        let letters = indexLetters(for: rows)
+        return ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 6) {
-                    ForEach(visibleRows, id: \.id) { loc in
+                    ForEach(rows, id: \.id) { loc in
                         LocationListRow(
                             loc: loc,
                             isCollapsed: collapsedIds.contains(loc.id),
@@ -179,9 +190,9 @@ struct LocationsTabView: View {
             .refreshable { try? await store.refreshLocations() }
 
             .overlay(alignment: .trailing) {
-                if !locationIndexLetters.isEmpty {
-                    AlphabetIndexBar(letters: locationIndexLetters, currentLetter: $indexLetter) { letter in
-                        if let loc = visibleRows.first(where: {
+                if !letters.isEmpty {
+                    AlphabetIndexBar(letters: letters, currentLetter: $indexLetter) { letter in
+                        if let loc = rows.first(where: {
                             String($0.name.prefix(1)).uppercased() == letter
                         }) {
                             withAnimation { proxy.scrollTo(loc.id, anchor: .center) }
@@ -210,7 +221,7 @@ struct LocationsTabView: View {
                 spacing: 12
             ) {
                 ForEach(tileRows, id: \.id) { loc in
-                    LocationTile(loc: loc, store: store)
+                    LocationTile(loc: loc, children: childrenByParent[loc.id] ?? [])
                 }
             }
             .padding(16)
@@ -245,10 +256,10 @@ struct LocationsTabView: View {
         return all.filter { $0.depth == 0 }
     }
 
-    private var locationIndexLetters: [String] {
+    private func indexLetters(for rows: [FlatLocation]) -> [String] {
         var seen = Set<String>()
         var result: [String] = []
-        for loc in visibleRows {
+        for loc in rows {
             let key = loc.name.first.map { $0.isLetter ? String($0).uppercased() : "#" } ?? "#"
             if seen.insert(key).inserted { result.append(key) }
         }
@@ -259,12 +270,25 @@ struct LocationsTabView: View {
         }
     }
 
+    /// Single O(L) pass over the flat list; consumed by hasChildren/LocationTile.
+    private func rebuildChildIndex(_ flat: [FlatLocation]) {
+        var counts: [String: Int] = [:]
+        var children: [String: [FlatLocation]] = [:]
+        for loc in flat {
+            guard let pid = loc.parentId else { continue }
+            counts[pid, default: 0] += 1
+            children[pid, default: []].append(loc)
+        }
+        childCountById = counts
+        childrenByParent = children
+    }
+
     private func hasChildren(_ loc: FlatLocation) -> Bool {
-        store.locationsFlat.contains { $0.parentId == loc.id }
+        childCountById[loc.id] != nil
     }
 
     private func childCount(_ loc: FlatLocation) -> Int {
-        store.locationsFlat.filter { $0.parentId == loc.id }.count
+        childCountById[loc.id] ?? 0
     }
 
     private func toggleCollapse(_ id: String) {
@@ -359,12 +383,11 @@ private struct LocationListRow: View {
         .padding(.trailing, 10)
         .padding(.leading, 0)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
+        .background(
             RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(0.06))
-        }
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 12).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12).strokeBorder(theme.current.accentColor.opacity(0.18), lineWidth: 1)
         )
         .padding(.leading, CGFloat(loc.depth) * 8)
     }
@@ -373,13 +396,11 @@ private struct LocationListRow: View {
 private struct LocationTile: View {
     @EnvironmentObject var theme: ThemeManager
     let loc: FlatLocation
-    let store: HomeboxStore
-    
-    @State private var isExpanded = false
+    /// Precomputed by the parent from childrenByParent — was a filter over the
+    /// whole flat list, evaluated up to 5× per tile body.
+    let children: [FlatLocation]
 
-    private var children: [FlatLocation] {
-        store.locationsFlat.filter { $0.parentId == loc.id }
-    }
+    @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -399,12 +420,11 @@ private struct LocationTile: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
+        .background(
             RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(0.06))
-        }
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: 14).stroke(theme.current.accentColor.opacity(0.18), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14).strokeBorder(theme.current.accentColor.opacity(0.18), lineWidth: 1)
         )
     }
     

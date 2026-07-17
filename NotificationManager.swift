@@ -171,26 +171,41 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     private let cadenceKey = "homebox.maint.cadence"
 
+    /// In-memory copy of the persisted cadence map. `cadence(for:)` runs per
+    /// maintenance row per render, so avoid a UserDefaults dictionary read each
+    /// time. Guarded by a lock — notification-delegate writes can come off-main.
+    private let cadenceLock = NSLock()
+    private var cachedCadences: [String: String]?
+
     func saveCadence(_ cadence: MaintenanceCadence, for entryId: String) {
-        var dict = cadenceDict()
+        cadenceLock.lock(); defer { cadenceLock.unlock() }
+        var dict = loadCadenceDictLocked()
         if cadence.isOneTime { dict.removeValue(forKey: entryId) }
         else                 { dict[entryId] = cadence.rawValue }
+        cachedCadences = dict
         UserDefaults.standard.set(dict, forKey: cadenceKey)
     }
 
     func cadence(for entryId: String) -> MaintenanceCadence {
-        guard let raw = cadenceDict()[entryId] else { return .oneTime }
+        cadenceLock.lock(); defer { cadenceLock.unlock() }
+        guard let raw = loadCadenceDictLocked()[entryId] else { return .oneTime }
         return MaintenanceCadence(rawValue: raw) ?? .oneTime
     }
 
     private func removeCadence(for entryId: String) {
-        var dict = cadenceDict()
+        cadenceLock.lock(); defer { cadenceLock.unlock() }
+        var dict = loadCadenceDictLocked()
         dict.removeValue(forKey: entryId)
+        cachedCadences = dict
         UserDefaults.standard.set(dict, forKey: cadenceKey)
     }
 
-    private func cadenceDict() -> [String: String] {
-        (UserDefaults.standard.dictionary(forKey: cadenceKey) as? [String: String]) ?? [:]
+    /// Callers must hold `cadenceLock`.
+    private func loadCadenceDictLocked() -> [String: String] {
+        if let cachedCadences { return cachedCadences }
+        let dict = (UserDefaults.standard.dictionary(forKey: cadenceKey) as? [String: String]) ?? [:]
+        cachedCadences = dict
+        return dict
     }
 
     // MARK: Delegate — foreground presentation

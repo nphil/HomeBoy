@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 // MARK: - Group / Collections Menu Button
 
@@ -452,10 +453,31 @@ struct QuantityControl: View {
 
 // MARK: - Thumbnail cache (plain class — rows update via local @State, not @Published)
 
+/// Minimal async counting semaphore — caps how many thumbnail-resolution
+/// fetches run at once so a fast flick can't queue hundreds of requests.
+actor AsyncSemaphore {
+    private var available: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(limit: Int) { available = limit }
+
+    func wait() async {
+        if available > 0 { available -= 1; return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func signal() {
+        if waiters.isEmpty { available += 1 } else { waiters.removeFirst().resume() }
+    }
+}
+
 @MainActor
 class ThumbnailStore {
     private var memCache: [String: String] = [:]  // itemId → attId or "" (no photo)
     private var inFlight: [String: Task<String?, Never>] = [:]
+
+    /// Global cap on concurrent getItem calls made to resolve thumbnail ids.
+    private static let fetchLimiter = AsyncSemaphore(limit: 4)
 
     // Disk-backed id map: lets offline sessions resolve attachment ids without network
     private static let diskURL: URL =
@@ -470,17 +492,24 @@ class ThumbnailStore {
 
     func load(itemId: String, client: HomeboxClient, localDB: LocalDatabase? = nil) async -> String? {
         if let v = memCache[itemId] { return v.isEmpty ? nil : v }
+        // Persisted id map resolves synchronously — known items never touch the
+        // network during scroll (the map survives launches; only unknown ids fetch).
+        if let v = diskMap[itemId] {
+            memCache[itemId] = v
+            return v.isEmpty ? nil : v
+        }
         if let task = inFlight[itemId] { return await task.value }
 
-        let diskFallback = diskMap[itemId]   // capture before entering non-isolated Task
         let task = Task<String?, Never> {
+            await ThumbnailStore.fetchLimiter.wait()
+            var resolved: String? = nil
             if let detail = try? await client.getItem(id: itemId),
                let att = (detail.attachments ?? []).first(where: { $0.primary == true })
                        ?? (detail.attachments ?? []).first(where: { $0.type.lowercased() == "photo" }) {
-                return att.id
+                resolved = att.id
             }
-            // Network failed (offline) — fall back to persisted id
-            return diskFallback.flatMap { $0.isEmpty ? nil : $0 }
+            await ThumbnailStore.fetchLimiter.signal()
+            return resolved
         }
         inFlight[itemId] = task
         let result = await task.value
@@ -527,29 +556,58 @@ final class ImageCache {
         memory.countLimit = 300
     }
 
-    /// Synchronous memory-only lookup — call before any async work.
-    func cachedImage(for key: String) -> UIImage? {
-        memory.object(forKey: key as NSString)
+    /// Memory key: full-size images live under the raw attachment id; downsampled
+    /// decodes under "<id>@<pixelSize>". Disk always stores raw bytes under the id.
+    private func memoryKey(_ key: String, pixelSize: CGFloat?) -> NSString {
+        guard let pixelSize else { return key as NSString }
+        return "\(key)@\(Int(pixelSize))" as NSString
     }
 
-    /// Async: checks memory first, then disk. Returns nil on miss.
-    func image(for key: String) async -> UIImage? {
-        if let img = memory.object(forKey: key as NSString) { return img }
+    /// Decode raw bytes, downsampled via ImageIO when `maxPixelSize` is set so a
+    /// 12 MP photo never pays a full-resolution decode for a 48-pt thumbnail.
+    /// Safe to call off the main actor.
+    static func decode(data: Data, maxPixelSize: CGFloat?) -> UIImage? {
+        guard let maxPixelSize else { return UIImage(data: data) }
+        guard let source = CGImageSourceCreateWithData(
+            data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary
+        ) else { return UIImage(data: data) }
+        let options = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ] as CFDictionary
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else {
+            return UIImage(data: data)
+        }
+        return UIImage(cgImage: cg)
+    }
+
+    /// Synchronous memory-only lookup — call before any async work.
+    func cachedImage(for key: String, pixelSize: CGFloat? = nil) -> UIImage? {
+        memory.object(forKey: memoryKey(key, pixelSize: pixelSize))
+    }
+
+    /// Async: checks memory first, then disk (decoding at `pixelSize` when set).
+    /// Returns nil on miss.
+    func image(for key: String, pixelSize: CGFloat? = nil) async -> UIImage? {
+        if let img = memory.object(forKey: memoryKey(key, pixelSize: pixelSize)) { return img }
         let url = cacheDir.appendingPathComponent(key)
         let img = await Task.detached(priority: .userInitiated) { () -> UIImage? in
             guard let data = try? Data(contentsOf: url) else { return nil }
-            return UIImage(data: data)
+            return ImageCache.decode(data: data, maxPixelSize: pixelSize)
         }.value
         if let img {
-            memory.setObject(img, forKey: key as NSString,
+            memory.setObject(img, forKey: memoryKey(key, pixelSize: pixelSize),
                              cost: Int(img.size.width * img.size.height * 4))
         }
         return img
     }
 
-    /// Store image in memory and write raw bytes to disk (background).
-    func store(data: Data, image: UIImage, for key: String) {
-        memory.setObject(image, forKey: key as NSString,
+    /// Store a decoded image in memory (keyed by pixel size) and write the raw
+    /// bytes to disk (background) so other sizes can decode from the same file.
+    func store(data: Data, image: UIImage, for key: String, pixelSize: CGFloat? = nil) {
+        memory.setObject(image, forKey: memoryKey(key, pixelSize: pixelSize),
                          cost: Int(image.size.width * image.size.height * 4))
         let url = cacheDir.appendingPathComponent(key)
         Task.detached(priority: .background) {
@@ -575,14 +633,26 @@ final class ImageCache {
 }
 
 // MARK: - Reusable Item Row
+
+/// Single-write thumbnail resolution state — one @State invalidation per load
+/// instead of two.
+enum ThumbState {
+    case loading
+    case none
+    case attachment(String)
+}
+
+/// Value-only row content: no HomeboxStore observation, so a store publish
+/// doesn't re-render every materialized row. Parent passes precomputed values.
 struct ItemListRowContent: View {
-    @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
     let item: HBItem
     let thumbStore: ThumbnailStore
+    let breadcrumb: String?
+    let client: HomeboxClient?
+    let localDB: LocalDatabase?
 
-    @State private var thumbAttId: String? = nil
-    @State private var thumbLoaded = false
+    @State private var thumbState: ThumbState = .loading
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -608,34 +678,31 @@ struct ItemListRowContent: View {
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
         .task(id: item.id) {
-            guard let client = store.client else { return }
-            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: store.localDB)
-            thumbAttId = attId
-            thumbLoaded = true
+            guard let client else { return }
+            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+            if let attId { thumbState = .attachment(attId) } else { thumbState = .none }
         }
     }
 
     @ViewBuilder
     private var thumbnailView: some View {
-        if !thumbLoaded {
+        switch thumbState {
+        case .loading:
             ZStack {
                 RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.10))
                 ProgressView().controlSize(.small)
             }
-        } else if let attId = thumbAttId {
-            AuthImage(itemId: item.id, attachmentId: attId, allowsFullScreen: false).scaledToFill()
-        } else {
+        case .attachment(let attId):
+            AuthImage(itemId: item.id, attachmentId: attId, client: client, localDB: localDB,
+                      allowsFullScreen: false, targetPixelSize: 192)
+                .scaledToFill()
+        case .none:
             ZStack {
                 RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.12))
                 Text("\(item.quantityInt)").font(.callout.weight(.semibold).monospacedDigit())
                     .foregroundStyle(theme.current.accentColor)
             }
         }
-    }
-
-    private var breadcrumb: String? {
-        if let id = item.effectiveLocation?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
-        return item.effectiveLocation?.name
     }
 }
 

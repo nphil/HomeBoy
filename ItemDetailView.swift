@@ -142,7 +142,8 @@ struct ItemDetailView: View {
             if photos.isEmpty {
                 EmptyView()
             } else if photos.count == 1, let only = photos.first {
-                AuthImage(itemId: item.id, attachmentId: only.id)
+                AuthImage(itemId: item.id, attachmentId: only.id,
+                          client: store.client, localDB: store.localDB, targetPixelSize: 1200)
                     .frame(maxWidth: .infinity)
                     .frame(height: 280)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -150,7 +151,8 @@ struct ItemDetailView: View {
             } else {
                 TabView {
                     ForEach(photos) { att in
-                        AuthImage(itemId: item.id, attachmentId: att.id)
+                        AuthImage(itemId: item.id, attachmentId: att.id,
+                                  client: store.client, localDB: store.localDB, targetPixelSize: 1200)
                             .frame(maxWidth: .infinity)
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
@@ -620,7 +622,9 @@ struct EditItemSheet: View {
             if !existingPhotos.isEmpty {
                 ForEach(existingPhotos) { att in
                     HStack {
-                        AuthImage(itemId: original.id, attachmentId: att.id, allowsFullScreen: false)
+                        AuthImage(itemId: original.id, attachmentId: att.id,
+                                  client: store.client, localDB: store.localDB,
+                                  allowsFullScreen: false, targetPixelSize: 192)
                             .frame(width: 50, height: 50)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         
@@ -863,15 +867,23 @@ struct EditItemSheet: View {
 
 /// AsyncImage doesn't allow custom headers; this fetches via HomeboxClient,
 /// which adds the Bearer token, and renders the UIImage.
+///
+/// Value-only: `client`/`localDB` arrive as lets so the view doesn't observe
+/// HomeboxStore (a store publish no longer re-renders every image on screen).
+/// `targetPixelSize` (longest side, in pixels) decodes through ImageIO
+/// thumbnailing; nil decodes at full resolution.
 struct AuthImage: View {
-    @EnvironmentObject var store: HomeboxStore
     let itemId: String
     let attachmentId: String
+    let client: HomeboxClient?
+    let localDB: LocalDatabase?
     var allowsFullScreen: Bool = true
+    var targetPixelSize: CGFloat? = nil
 
     @State private var image: UIImage?
     @State private var failed = false
     @State private var showFullScreen = false
+    @State private var fullResImage: UIImage?
 
     var body: some View {
         Group {
@@ -881,7 +893,7 @@ struct AuthImage: View {
                         .contentShape(Rectangle())
                         .onTapGesture { showFullScreen = true }
                         .fullScreenCover(isPresented: $showFullScreen) {
-                            FullScreenImageView(image: image)
+                            FullScreenImageView(image: fullResImage ?? image)
                         }
                 } else {
                     Image(uiImage: image).resizable().scaledToFill()
@@ -899,39 +911,51 @@ struct AuthImage: View {
             }
         }
         .task(id: attachmentId) {
-            // 0. Photos queued offline — load bytes straight from the pending file
-            if attachmentId.hasPrefix("pendingphoto-") {
-                let opId = String(attachmentId.dropFirst("pendingphoto-".count))
-                if let data = store.localDB.pendingPhotoData(id: opId),
-                   let img = UIImage(data: data) {
-                    self.image = img
-                } else {
-                    self.failed = true
-                }
-                return
-            }
-            // 1. Memory — instant, no I/O
-            if let img = ImageCache.shared.cachedImage(for: attachmentId) {
-                self.image = img; return
-            }
-            // 2. Disk — fast, works offline
-            if let img = await ImageCache.shared.image(for: attachmentId) {
-                self.image = img; return
-            }
-            // 3. Network
-            guard let client = store.client else { self.failed = true; return }
-            do {
-                let data = try await client.attachmentData(itemId: itemId, attachmentId: attachmentId)
-                if let img = UIImage(data: data) {
-                    ImageCache.shared.store(data: data, image: img, for: attachmentId)
-                    self.image = img
-                } else {
-                    self.failed = true
-                }
-            } catch {
+            if let img = await resolve(pixelSize: targetPixelSize) {
+                self.image = img
+            } else {
                 self.failed = true
             }
         }
+        .task(id: showFullScreen) {
+            // The full-screen viewer always gets a full-resolution decode,
+            // even when the inline rendition was downsampled.
+            guard showFullScreen, targetPixelSize != nil, fullResImage == nil else { return }
+            fullResImage = await resolve(pixelSize: nil)
+        }
+    }
+
+    /// Load pipeline: pending offline file → memory → disk → network.
+    /// Decoding happens off the main actor.
+    @MainActor
+    private func resolve(pixelSize: CGFloat?) async -> UIImage? {
+        // 0. Photos queued offline — load bytes straight from the pending file
+        if attachmentId.hasPrefix("pendingphoto-") {
+            let opId = String(attachmentId.dropFirst("pendingphoto-".count))
+            guard let data = localDB?.pendingPhotoData(id: opId) else { return nil }
+            return await Task.detached(priority: .userInitiated) {
+                ImageCache.decode(data: data, maxPixelSize: pixelSize)
+            }.value
+        }
+        // 1. Memory — instant, no I/O
+        if let img = ImageCache.shared.cachedImage(for: attachmentId, pixelSize: pixelSize) {
+            return img
+        }
+        // 2. Disk — fast, works offline
+        if let img = await ImageCache.shared.image(for: attachmentId, pixelSize: pixelSize) {
+            return img
+        }
+        // 3. Network
+        guard let client,
+              let data = try? await client.attachmentData(itemId: itemId, attachmentId: attachmentId)
+        else { return nil }
+        let img = await Task.detached(priority: .userInitiated) {
+            ImageCache.decode(data: data, maxPixelSize: pixelSize)
+        }.value
+        if let img {
+            ImageCache.shared.store(data: data, image: img, for: attachmentId, pixelSize: pixelSize)
+        }
+        return img
     }
 }
 
@@ -1051,25 +1075,58 @@ struct FullScreenImageView: View {
 private struct MaintenanceRow: View {
     let entry: HBMaintenanceEntry
 
-    private var isCompleted: Bool { !(entry.completedDate ?? "").isEmpty && !isEpoch(entry.completedDate) }
-    private var isOverdue: Bool {
-        guard !isCompleted,
-              let s = entry.scheduledDate, !s.isEmpty, !isEpoch(s),
-              let d = parseDate(s) else { return false }
-        return d < Date()
-    }
-    private var isScheduled: Bool { !isCompleted && !(entry.scheduledDate ?? "").isEmpty && !isEpoch(entry.scheduledDate) }
+    // Cached formatters — allocating these per call was measurable on rows
+    // that parse 2-4 dates per render.
+    private static let isoFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+    // date-only "YYYY-MM-DD" format (DateFormatter is main-actor-only here)
+    private static let dayOnly: DateFormatter = {
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd"
+        df.timeZone = TimeZone(identifier: "UTC")
+        return df
+    }()
 
-    private var dotColor: Color {
-        if isCompleted { return .green }
-        if isOverdue   { return .red }
-        if isScheduled { return .orange }
-        return Color.secondary.opacity(0.4)
+    /// Everything the row displays, derived in a single pass per body
+    /// evaluation instead of re-parsing dates for each accessor.
+    private struct DisplayState {
+        let isCompleted: Bool
+        let isOverdue: Bool
+        let isScheduled: Bool
+        let dateString: String?
+        let dotColor: Color
+    }
+
+    private func makeDisplayState() -> DisplayState {
+        let isCompleted = !(entry.completedDate ?? "").isEmpty && !isEpoch(entry.completedDate)
+        var isOverdue = false
+        if !isCompleted,
+           let s = entry.scheduledDate, !s.isEmpty, !isEpoch(s),
+           let d = Self.parseDate(s) {
+            isOverdue = d < Date()
+        }
+        let isScheduled = !isCompleted && !(entry.scheduledDate ?? "").isEmpty && !isEpoch(entry.scheduledDate)
+        let dateString = formatDate(isCompleted ? entry.completedDate : entry.scheduledDate)
+        let dotColor: Color = isCompleted ? .green
+            : isOverdue ? .red
+            : isScheduled ? .orange
+            : Color.secondary.opacity(0.4)
+        return DisplayState(isCompleted: isCompleted, isOverdue: isOverdue,
+                            isScheduled: isScheduled, dateString: dateString, dotColor: dotColor)
     }
 
     var body: some View {
+        let state = makeDisplayState()
         HStack(spacing: 10) {
-            Circle().fill(dotColor).frame(width: 9, height: 9)
+            Circle().fill(state.dotColor).frame(width: 9, height: 9)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
@@ -1086,17 +1143,17 @@ private struct MaintenanceRow: View {
                 if let d = entry.description, !d.isEmpty {
                     Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                if isCompleted, let ds = formatDate(entry.completedDate) {
+                if state.isCompleted, let ds = state.dateString {
                     HStack(spacing: 3) {
                         Image(systemName: "checkmark.circle.fill").font(.caption2).foregroundStyle(.green)
                         Text("Done \(ds)").font(.caption2).foregroundStyle(.secondary)
                     }
-                } else if isOverdue, let ds = formatDate(entry.scheduledDate) {
+                } else if state.isOverdue, let ds = state.dateString {
                     HStack(spacing: 3) {
                         Image(systemName: "exclamationmark.circle.fill").font(.caption2).foregroundStyle(.red)
                         Text("Overdue · \(ds)").font(.caption2).foregroundStyle(.red)
                     }
-                } else if isScheduled, let ds = formatDate(entry.scheduledDate) {
+                } else if state.isScheduled, let ds = state.dateString {
                     HStack(spacing: 3) {
                         Image(systemName: "calendar").font(.caption2)
                         Text(ds).font(.caption2)
@@ -1117,21 +1174,14 @@ private struct MaintenanceRow: View {
 
     private func isEpoch(_ s: String?) -> Bool { (s ?? "").hasPrefix("0001-01-01") }
 
-    private func parseDate(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f.date(from: s) { return d }
-        f.formatOptions = [.withInternetDateTime]
-        if let d = f.date(from: s) { return d }
-        // date-only "YYYY-MM-DD" format
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-        df.timeZone = TimeZone(identifier: "UTC")
-        return df.date(from: s)
+    private static func parseDate(_ s: String) -> Date? {
+        if let d = isoFrac.date(from: s) { return d }
+        if let d = iso.date(from: s) { return d }
+        return dayOnly.date(from: s)
     }
 
     private func formatDate(_ s: String?) -> String? {
-        guard let s, !s.isEmpty, !isEpoch(s), let d = parseDate(s) else { return nil }
+        guard let s, !s.isEmpty, !isEpoch(s), let d = Self.parseDate(s) else { return nil }
         return d.formatted(date: .abbreviated, time: .omitted)
     }
 }

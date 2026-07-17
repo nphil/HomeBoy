@@ -70,19 +70,21 @@ struct ArchivedItemsView: View {
                     .padding(.leading, 12)
                     .transition(.move(edge: .leading).combined(with: .opacity))
             }
-            ItemListRowContent(item: item, thumbStore: thumbStore)
+            ItemListRowContent(item: item, thumbStore: thumbStore,
+                               breadcrumb: store.breadcrumb(for: item),
+                               client: store.client, localDB: store.localDB)
                 .contentShape(Rectangle())
                 .onTapGesture {
                     if selectMode { toggleSelection(item) }
                 }
         }
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
-        }
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
+        )
         .overlay(RoundedRectangle(cornerRadius: 14)
-            .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                    lineWidth: isSelected ? 2 : 1))
+            .strokeBorder(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                          lineWidth: isSelected ? 2 : 1))
         .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             if !selectMode {
                 withAnimation { selectMode = true; selectedIds.insert(item.id) }

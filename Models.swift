@@ -109,7 +109,17 @@ final class HomeboxStore: ObservableObject {
     // MARK: In-memory caches
 
     @Published private(set) var groups: [HBGroup] = []
-    @Published private(set) var locationsFlat: [FlatLocation] = []
+    @Published private(set) var locationsFlat: [FlatLocation] = [] {
+        didSet {
+            // Rebuilt on every assignment (network refresh, offline hydrate,
+            // logout/group switch) so pathString(forLocationId:) stays a
+            // dictionary lookup instead of a per-row linear scan.
+            var map = [String: String](minimumCapacity: locationsFlat.count)
+            for loc in locationsFlat { map[loc.id] = loc.pathString }
+            pathByLocationId = map
+        }
+    }
+    private var pathByLocationId: [String: String] = [:]
     @Published var lastError: String?
     @Published private(set) var isLoadingLocations = false
     @Published private(set) var cachedItemTotal: Int? = nil
@@ -408,11 +418,15 @@ final class HomeboxStore: ObservableObject {
     /// Fetch (locationCount, itemTotal) for every group in `self.groups` using
     /// each group's own `X-Tenant` header. Results populate `cachedGroupStats`
     /// so the popover can show numbers on every card, not just the active one.
+    /// Throttled: GroupMenuButton fires this on every tab appear, so skip when
+    /// the last pass ran recently and only publish when the values changed.
     func refreshAllGroupStats() async {
         guard let serverURL else { return }
+        if let last = lastGroupStatsRefresh, Date().timeIntervalSince(last) < 300 { return }
         let snapshotToken  = token
         let snapshotGroups = groups
         guard !snapshotGroups.isEmpty else { return }
+        lastGroupStatsRefresh = Date()
 
         var newStats: [String: GroupStats] = cachedGroupStats
         for group in snapshotGroups {
@@ -428,9 +442,14 @@ final class HomeboxStore: ObservableObject {
                 itemTotal:     itemRes?.total ?? 0
             )
         }
-        cachedGroupStats = newStats
-        persistGroupCaches()
+        if newStats != cachedGroupStats {
+            cachedGroupStats = newStats
+            persistGroupCaches()
+        }
     }
+
+    /// Timestamp of the last completed group-stats pass (see refreshAllGroupStats).
+    private var lastGroupStatsRefresh: Date? = nil
 
     /// Persist groups + per-group stats (small payloads) so the collections
     /// menu and its counts survive offline restarts.
@@ -514,8 +533,18 @@ final class HomeboxStore: ObservableObject {
 
     /// Breadcrumb path (e.g. "Garage / Shelf A") for a given location id.
     func pathString(forLocationId id: String?) -> String {
-        guard let id, let loc = locationsFlat.first(where: { $0.id == id }) else { return "" }
-        return loc.pathString
+        guard let id else { return "" }
+        return pathByLocationId[id] ?? ""
+    }
+
+    /// Breadcrumb for an item row: the full location path when the location is
+    /// known, else the raw location name from the item summary.
+    func breadcrumb(for item: HBItem) -> String? {
+        if let id = item.effectiveLocation?.id {
+            let p = pathString(forLocationId: id)
+            if !p.isEmpty { return p }
+        }
+        return item.effectiveLocation?.name
     }
 
     /// DFS flatten the location tree into a depth-annotated list.

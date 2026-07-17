@@ -98,6 +98,13 @@ struct ItemsListView: View {
     @State private var isSemanticSearching = false
     @State private var isSearchActive = false
 
+    // Derived list state — recomputed once per input change (recomputeDisplay()),
+    // so body passes read stored values instead of re-filtering/sorting 2-4×.
+    @State private var displayItems: [HBItem] = []
+    @State private var displaySections: [ItemSection] = []
+    @State private var sectionLetters: [String] = []
+    @State private var isShowingSemanticResults = false
+
     @AppStorage("showQRScannerFAB") private var showQRScannerFAB = true
     @State private var showQRScanner = false
     @State private var qrFoundItemId: String? = nil
@@ -168,7 +175,7 @@ struct ItemsListView: View {
                     }
                     ToolbarItemGroup(placement: .bottomBar) {
                         Button("Select All") {
-                            selectedIds = Set(filteredItems.map { $0.id })
+                            selectedIds = Set(displayItems.map { $0.id })
                         }
                         
                         Spacer()
@@ -217,16 +224,25 @@ struct ItemsListView: View {
                     }
                 }
             }
-            .task { await load() }
-            .onAppear { Task { await load() } }
+            .task { recomputeDisplay(); await load() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await load(force: true) }
             }
             .onReceive(NotificationCenter.default.publisher(for: .offlineSyncCompleted)) { _ in
                 Task { await load(force: true) }
             }
-            .onChange(of: filterTagIds) { _, _ in Task { await load(force: true) } }
-            .onChange(of: globalSearchQuery) { _, newQuery in updateSemanticSearch(for: newQuery) }
+            .onChange(of: allItems) { _, _ in recomputeDisplay() }
+            .onChange(of: sortOption) { _, _ in recomputeDisplay() }
+            .onChange(of: filterLocationId) { _, _ in recomputeDisplay() }
+            .onChange(of: semanticResults) { _, _ in recomputeDisplay() }
+            .onChange(of: filterTagIds) { _, _ in
+                recomputeDisplay()
+                Task { await load(force: true) }
+            }
+            .onChange(of: globalSearchQuery) { _, newQuery in
+                updateSemanticSearch(for: newQuery)
+                recomputeDisplay()
+            }
             .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search items…"))
             .onChange(of: store.activeGroupId) { _, _ in
                 // Collection switched — wipe local caches and re-fetch with the new tenant
@@ -402,7 +418,7 @@ struct ItemsListView: View {
             emptyState
         } else {
             ZStack(alignment: .top) {
-                if filteredItems.isEmpty {
+                if displayItems.isEmpty {
                     if isSemanticSearching {
                         searchingState.padding(.top, showFilters ? 50 : 0)
                     } else {
@@ -444,7 +460,7 @@ struct ItemsListView: View {
             ScrollView {
                 LazyVStack(spacing: 6, pinnedViews: .sectionHeaders) {
                     if isSortedAlphabetically && !isShowingSemanticResults {
-                        ForEach(itemSections) { section in
+                        ForEach(displaySections) { section in
                             Section {
                                 ForEach(section.items) { item in
                                     itemListRow(item)
@@ -470,7 +486,7 @@ struct ItemsListView: View {
                             }
                         }
                     } else {
-                        ForEach(sortedItems) { item in
+                        ForEach(displayItems) { item in
                             itemListRow(item)
                                 .padding(.horizontal, 16)
                         }
@@ -511,7 +527,7 @@ struct ItemsListView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
                 spacing: 10
             ) {
-                ForEach(sortedItems) { item in
+                ForEach(displayItems) { item in
                     itemTile(item)
                 }
             }
@@ -542,22 +558,26 @@ struct ItemsListView: View {
             }
             Group {
                 if selectMode {
-                    ItemListRowContent(item: item, thumbStore: thumbStore)
+                    ItemListRowContent(item: item, thumbStore: thumbStore,
+                                       breadcrumb: store.breadcrumb(for: item),
+                                       client: store.client, localDB: store.localDB)
                         .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
                 } else {
                     NavigationLink(value: ItemDetailRoute(id: item.id)) {
-                        ItemListRowContent(item: item, thumbStore: thumbStore)
+                        ItemListRowContent(item: item, thumbStore: thumbStore,
+                                           breadcrumb: store.breadcrumb(for: item),
+                                           client: store.client, localDB: store.localDB)
                     }.buttonStyle(.plain)
                 }
             }
         }
-        .background {
-            RoundedRectangle(cornerRadius: 14).fill(.ultraThinMaterial)
-            RoundedRectangle(cornerRadius: 14).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
-        }
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
+        )
         .overlay(RoundedRectangle(cornerRadius: 14)
-            .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                    lineWidth: isSelected ? 2 : 1))
+            .strokeBorder(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                          lineWidth: isSelected ? 2 : 1))
         .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
             if !selectMode {
                 withAnimation { selectMode = true; selectedIds.insert(item.id) }
@@ -574,21 +594,25 @@ struct ItemsListView: View {
         ZStack(alignment: .topLeading) {
             Group {
                 if selectMode {
-                    ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns)
+                    ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns,
+                                    breadcrumb: store.breadcrumb(for: item),
+                                    client: store.client, localDB: store.localDB)
                         .contentShape(Rectangle()).onTapGesture { toggleSelection(item) }
                 } else {
                     NavigationLink(value: ItemDetailRoute(id: item.id)) {
-                        ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns)
+                        ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns,
+                                        breadcrumb: store.breadcrumb(for: item),
+                                        client: store.client, localDB: store.localDB)
                     }.buttonStyle(.plain)
                 }
             }
-            .background {
-                RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial)
-                RoundedRectangle(cornerRadius: 12).fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
-            }
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(theme.current.accentColor.opacity(isSelected ? 0.15 : 0.06))
+            )
             .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
-                        lineWidth: isSelected ? 2 : 1))
+                .strokeBorder(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
+                              lineWidth: isSelected ? 2 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 12))
             if selectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
@@ -648,53 +672,51 @@ struct ItemsListView: View {
 
     // MARK: - Filtering & sections
 
-    private var locationTagFiltered: [HBItem] {
-        var items = allItems
+    /// Recompute the derived pipeline (filter → semantic check → sort → sections)
+    /// exactly once per input change. Called from .onChange(of:) for every actual
+    /// input, so body passes never re-run filters or sorts.
+    private func recomputeDisplay() {
+        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
+
+        var base = allItems
         if let locId = filterLocationId {
-            items = items.filter { $0.effectiveLocation?.id == locId }
+            base = base.filter { $0.effectiveLocation?.id == locId }
         }
         if !filterTagIds.isEmpty {
-            items = items.filter { item in
+            base = base.filter { item in
                 guard let labels = item.effectiveLabels else { return true }
                 return !Set(labels.map { $0.id }).isDisjoint(with: filterTagIds)
             }
         }
-        return items
-    }
 
-    private var filteredItems: [HBItem] {
-        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        let items = locationTagFiltered
+        // A query with no literal matches falls back to AI relevance-ranked
+        // results, whose order must NOT be re-sorted or grouped into A-Z
+        // sections, or that ranking is lost.
+        var filtered = base
+        var semantic = false
         if !q.isEmpty {
-            let textMatches = items.filter {
+            let textMatches = base.filter {
                 $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
             }
-            if textMatches.isEmpty, let semantic = semanticResults {
-                return semantic
+            if textMatches.isEmpty, let semanticItems = semanticResults {
+                filtered = semanticItems
+                semantic = true
+            } else {
+                filtered = textMatches
             }
-            return textMatches
         }
-        return items
-    }
 
-    /// True when the list is showing AI relevance-ranked results (a query with no literal
-    /// matches). In that case the items are ordered by relevance and must NOT be re-sorted
-    /// or grouped into A-Z sections, or that ranking is lost.
-    private var isShowingSemanticResults: Bool {
-        let q = globalSearchQuery.trimmingCharacters(in: .whitespaces).lowercased()
-        guard !q.isEmpty, semanticResults != nil else { return false }
-        return !locationTagFiltered.contains {
-            $0.name.lowercased().contains(q) || ($0.description ?? "").lowercased().contains(q)
-        }
+        isShowingSemanticResults = semantic
+        displayItems = semantic ? filtered : sortItems(filtered)
+        displaySections = (isSortedAlphabetically && !semantic) ? makeSections(from: filtered) : []
+        sectionLetters = displaySections.map { $0.letter }
     }
 
     private var isSortedAlphabetically: Bool {
         sortOption == .nameAZ || sortOption == .nameZA
     }
 
-    private var sortedItems: [HBItem] {
-        let items = filteredItems
-        if isShowingSemanticResults { return items }   // preserve AI relevance order
+    private func sortItems(_ items: [HBItem]) -> [HBItem] {
         switch sortOption {
         case .nameAZ:
             return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -729,16 +751,16 @@ struct ItemsListView: View {
         }
     }
 
-    private var itemSections: [ItemSection] {
+    private func makeSections(from items: [HBItem]) -> [ItemSection] {
         var groups: [String: [HBItem]] = [:]
-        for item in filteredItems {
+        for item in items {
             let key: String
             if let c = item.name.first, c.isLetter { key = String(c).uppercased() } else { key = "#" }
             groups[key, default: []].append(item)
         }
-        
+
         let isZA = sortOption == .nameZA
-        
+
         let sortedKeys = groups.keys.sorted { a, b in
             if isZA {
                 if a == "#" { return true }
@@ -750,7 +772,7 @@ struct ItemsListView: View {
                 return a < b
             }
         }
-        
+
         return sortedKeys.map { key in
             let sortedSectionItems = groups[key]!.sorted { a, b in
                 if isZA {
@@ -763,8 +785,6 @@ struct ItemsListView: View {
         }
     }
 
-    private var sectionLetters: [String] { itemSections.map { $0.letter } }
-
     private func toggleSelection(_ item: HBItem) {
         if selectedIds.contains(item.id) { selectedIds.remove(item.id) } else { selectedIds.insert(item.id) }
     }
@@ -775,7 +795,7 @@ struct ItemsListView: View {
         isLoading = true; loadError = nil
 
         if store.isOffline {
-            allItems = store.localDB.items
+            if store.localDB.items != allItems { allItems = store.localDB.items }
             isLoading = false
             return
         }
@@ -783,13 +803,15 @@ struct ItemsListView: View {
         guard let client = store.client else { isLoading = false; return }
         do {
             let resp = try await client.listItems(labelIds: Array(filterTagIds), pageSize: 1000)
-            allItems = resp.items
+            // Skip the assignment when nothing changed — avoids a full-list
+            // diff (and pipeline recompute) after every foreground/refresh.
+            if resp.items != allItems { allItems = resp.items }
             store.localDB.cacheItems(resp.items)
             store.updateCachedItemTotal(resp.total ?? resp.items.count)
             lastLoadedAt = Date()
         } catch {
             if !store.localDB.items.isEmpty {
-                allItems = store.localDB.items
+                if store.localDB.items != allItems { allItems = store.localDB.items }
             } else {
                 loadError = error.localizedDescription
             }
@@ -938,15 +960,18 @@ struct ItemsListView: View {
 
 // MARK: - Tile content (same local @State pattern)
 
+/// Value-only tile content (mirrors ItemListRowContent): no HomeboxStore
+/// observation, single-write thumbnail state.
 private struct ItemTileContent: View {
-    @EnvironmentObject var store: HomeboxStore
     @EnvironmentObject var theme: ThemeManager
     let item: HBItem
     let thumbStore: ThumbnailStore
     let columns: Int
+    let breadcrumb: String?
+    let client: HomeboxClient?
+    let localDB: LocalDatabase?
 
-    @State private var thumbAttId: String? = nil
-    @State private var thumbLoaded = false
+    @State private var thumbState: ThumbState = .loading
 
     private var thumbHeight: CGFloat { columns <= 2 ? 108 : columns == 3 ? 80 : 62 }
     private var namePad: CGFloat { columns <= 3 ? 8 : 6 }
@@ -970,20 +995,22 @@ private struct ItemTileContent: View {
             .padding(namePad)
         }
         .task(id: item.id) {
-            guard let client = store.client else { return }
-            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: store.localDB)
-            thumbAttId = attId
-            thumbLoaded = true
+            guard let client else { return }
+            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+            if let attId { thumbState = .attachment(attId) } else { thumbState = .none }
         }
     }
 
     @ViewBuilder
     private var thumbnailView: some View {
-        if !thumbLoaded {
+        switch thumbState {
+        case .loading:
             ZStack { theme.current.accentColor.opacity(0.10); ProgressView().controlSize(.small) }
-        } else if let attId = thumbAttId {
-            AuthImage(itemId: item.id, attachmentId: attId, allowsFullScreen: false).scaledToFill()
-        } else {
+        case .attachment(let attId):
+            AuthImage(itemId: item.id, attachmentId: attId, client: client, localDB: localDB,
+                      allowsFullScreen: false, targetPixelSize: 400)
+                .scaledToFill()
+        case .none:
             ZStack {
                 theme.current.accentColor.opacity(0.10)
                 Image(systemName: "shippingbox.fill")
@@ -991,11 +1018,6 @@ private struct ItemTileContent: View {
                     .foregroundStyle(theme.current.accentColor.opacity(0.35))
             }
         }
-    }
-
-    private var breadcrumb: String? {
-        if let id = item.effectiveLocation?.id { let p = store.pathString(forLocationId: id); if !p.isEmpty { return p } }
-        return item.effectiveLocation?.name
     }
 }
 
