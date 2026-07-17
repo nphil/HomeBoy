@@ -12,8 +12,8 @@ android {
         applicationId = "com.homeboy.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 36
-        versionName = "1.0.35"
+        versionCode = 37
+        versionName = "1.0.36"
     }
 
     // Permanent self-signed key committed to the repo so every CI build has an
