@@ -20,7 +20,7 @@ struct PendingOperation: Codable, Identifiable {
 
 struct PendingMaintenanceOp: Codable, Identifiable {
     let id: String            // local UUID; "pending-\(id)" is the display entry ID
-    let itemId: String
+    var itemId: String        // may be a "local-" placeholder until its item's create syncs
     let entryId: String?      // nil = create new, non-nil = update existing
     let name: String
     let description: String
@@ -235,7 +235,9 @@ final class LocalDatabase {
     // MARK: - Maintenance pending ops
 
     func enqueueMaintenance(_ op: PendingMaintenanceOp) {
-        pendingMaintenance.removeAll { $0.entryId == op.entryId && op.entryId != nil }
+        // Replace a prior op that targets the same thing: same local op id (re-editing
+        // a not-yet-synced entry) or the same server entry (a queued update).
+        pendingMaintenance.removeAll { $0.id == op.id || ($0.entryId == op.entryId && op.entryId != nil) }
         pendingMaintenance.append(op)
         persist(pendingMaintenance, to: pendingMaintenanceURL)
     }
@@ -247,6 +249,17 @@ final class LocalDatabase {
 
     func pendingMaintenanceOps(for itemId: String) -> [PendingMaintenanceOp] {
         pendingMaintenance.filter { $0.itemId == itemId }
+    }
+
+    /// After an offline item create syncs, point its queued maintenance ops at the
+    /// real server id so they can be created against a resolvable item.
+    func remapPendingMaintenance(fromItemId: String, to newItemId: String) {
+        var changed = false
+        for i in pendingMaintenance.indices where pendingMaintenance[i].itemId == fromItemId {
+            pendingMaintenance[i].itemId = newItemId
+            changed = true
+        }
+        if changed { persist(pendingMaintenance, to: pendingMaintenanceURL) }
     }
 
     // MARK: - Pending photo queue

@@ -485,7 +485,10 @@ actor AsyncSemaphore {
 @MainActor
 class ThumbnailStore {
     private var memCache: [String: String] = [:]  // itemId → attId or "" (no photo)
-    private var inFlight: [String: Task<String?, Never>] = [:]
+    // Task result: (fetched, attId). fetched == false means the getItem call
+    // failed (offline/flaky) — such a result must NOT be negative-cached, or the
+    // row stays blank for the whole session even after connectivity returns.
+    private var inFlight: [String: Task<(Bool, String?), Never>] = [:]
 
     /// Global cap on concurrent getItem calls made to resolve thumbnail ids.
     private static let fetchLimiter = AsyncSemaphore(limit: 4)
@@ -509,43 +512,79 @@ class ThumbnailStore {
             memCache[itemId] = v
             return v.isEmpty ? nil : v
         }
-        if let task = inFlight[itemId] { return await task.value }
+        if let task = inFlight[itemId] {
+            let (_, id) = await task.value
+            return id
+        }
 
-        let task = Task<String?, Never> {
+        let task = Task<(Bool, String?), Never> {
             await ThumbnailStore.fetchLimiter.wait()
-            var resolved: String? = nil
-            if let detail = try? await client.getItem(id: itemId),
-               let att = (detail.attachments ?? []).first(where: { $0.primary == true })
-                       ?? (detail.attachments ?? []).first(where: { $0.type.lowercased() == "photo" }) {
-                resolved = att.id
+            defer { Task { await ThumbnailStore.fetchLimiter.signal() } }
+            guard let detail = try? await client.getItem(id: itemId) else {
+                return (false, nil)   // fetch failed — caller must not negative-cache
             }
-            await ThumbnailStore.fetchLimiter.signal()
-            return resolved
+            let att = (detail.attachments ?? []).first(where: { $0.primary == true })
+                    ?? (detail.attachments ?? []).first(where: { $0.type.lowercased() == "photo" })
+            return (true, att?.id)
         }
         inFlight[itemId] = task
-        let result = await task.value
+        let (fetched, result) = await task.value
         inFlight[itemId] = nil
 
         if let result {
             memCache[itemId] = result
             diskMap[itemId] = result
-            let map = diskMap
-            Task.detached(priority: .background) {
-                guard let data = try? JSONEncoder().encode(map) else { return }
-                try? data.write(to: ThumbnailStore.diskURL, options: .atomic)
-            }
+            persistDiskMap()
             return result
         }
 
-        // No attachment known — resolve a photo queued offline for this item.
+        // No server attachment — resolve a photo queued offline for this item.
         // Deliberately NOT cached: once the photo uploads, the real id takes over.
         if let pending = localDB?.pendingPhotoOps(for: itemId).first {
             return "pendingphoto-\(pending.id)"
         }
 
-        memCache[itemId] = ""
+        // Only remember "no photo" when the server actually answered. A failed
+        // fetch (offline) is left uncached so the row refetches after reconnect.
+        if fetched { memCache[itemId] = "" }
         return nil
     }
+
+    /// Forget this store's resolved id for [itemId] so its next load re-resolves.
+    func invalidate(itemId: String) {
+        memCache[itemId] = nil
+        if diskMap[itemId] != nil {
+            diskMap[itemId] = nil
+            persistDiskMap()
+        }
+    }
+
+    private func persistDiskMap() {
+        let map = diskMap
+        Task.detached(priority: .background) {
+            guard let data = try? JSONEncoder().encode(map) else { return }
+            try? data.write(to: ThumbnailStore.diskURL, options: .atomic)
+        }
+    }
+
+    /// Call when an item's photos change: drops the persisted id (so any store,
+    /// this launch or the next, re-resolves) and tells live rows to refresh.
+    static func invalidate(itemId: String) {
+        if var map = (try? Data(contentsOf: diskURL)).flatMap({ try? JSONDecoder().decode([String: String].self, from: $0) }),
+           map[itemId] != nil {
+            map.removeValue(forKey: itemId)
+            if let data = try? JSONEncoder().encode(map) {
+                try? data.write(to: diskURL, options: .atomic)
+            }
+        }
+        NotificationCenter.default.post(name: .thumbnailInvalidated, object: nil,
+                                        userInfo: ["itemId": itemId])
+    }
+}
+
+extension Notification.Name {
+    /// Posted with userInfo["itemId"] when an item's photos change.
+    static let thumbnailInvalidated = Notification.Name("homebox.thumbnailInvalidated")
 }
 
 // MARK: - Image disk + memory cache
@@ -692,6 +731,15 @@ struct ItemListRowContent: View {
             guard let client else { return }
             let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
             if let attId { thumbState = .attachment(attId) } else { thumbState = .none }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .thumbnailInvalidated)) { note in
+            guard (note.userInfo?["itemId"] as? String) == item.id, let client else { return }
+            thumbStore.invalidate(itemId: item.id)
+            thumbState = .loading
+            Task {
+                let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+                thumbState = attId.map { .attachment($0) } ?? ThumbState.none
+            }
         }
     }
 

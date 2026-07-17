@@ -839,6 +839,10 @@ struct EditItemSheet: View {
             }
             let fresh = try await client.getItem(id: original.id)
             await MainActor.run {
+                // Photos changed → drop the cached list thumbnail so it re-resolves.
+                if photo != nil || !attachmentsToDelete.isEmpty {
+                    ThumbnailStore.invalidate(itemId: original.id)
+                }
                 onSaved(fresh)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
                 dismiss()
@@ -1555,14 +1559,28 @@ struct MaintenanceEntrySheet: View {
     private var canSave: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty }
 
     private func save() async {
-        guard !store.isOffline else {
+        // Queue (don't hit the server) when offline, OR when the target ids are
+        // still local placeholders — the item's create ("local-") or this entry's
+        // create ("pending-") hasn't synced, so the server can't resolve them yet.
+        let mustQueue = store.isOffline
+            || itemId.hasPrefix("local-")
+            || (existing?.id.hasPrefix("pending-") ?? false)
+        guard !mustQueue else {
             let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedDesc = description.trimmingCharacters(in: .whitespacesAndNewlines)
             let cost = Double(costStr.replacingOccurrences(of: ",", with: ".")) ?? 0
+            // Editing an entry that itself is still a queued offline create: its
+            // display id is "pending-<localOpId>". Reuse that op id and keep
+            // entryId nil so it stays a create (enqueueMaintenance replaces it by
+            // id) — never queue an update against an id the server can't resolve.
+            let editingPendingLocalId: String? = {
+                guard let eid = existing?.id, eid.hasPrefix("pending-") else { return nil }
+                return String(eid.dropFirst("pending-".count))
+            }()
             let op = PendingMaintenanceOp(
-                id: UUID().uuidString,
+                id: editingPendingLocalId ?? UUID().uuidString,
                 itemId: itemId,
-                entryId: existing?.id,
+                entryId: editingPendingLocalId == nil ? existing?.id : nil,
                 name: trimmedName,
                 description: trimmedDesc,
                 completedDate: existing.flatMap { e -> String? in

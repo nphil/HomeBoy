@@ -247,6 +247,7 @@ final class HomeboxStore: ObservableObject {
                     let serverId = try await client.createItem(payload)
                     if let localId = op.localId {
                         localDB.remapPendingPhotos(fromItemId: localId, to: serverId)
+                        localDB.remapPendingMaintenance(fromItemId: localId, to: serverId)
                         localDB.removeItem(id: localId)
                     }
                 case .updateItem:
@@ -279,9 +280,14 @@ final class HomeboxStore: ObservableObject {
             } catch {}
         }
 
-        // 3. Pending maintenance operations
+        // 3. Pending maintenance operations. Skip any still pointing at a "local-"
+        //    item whose create hasn't synced yet (a create failure left it unmapped)
+        //    or at a "pending-" entry id the server can't resolve — both would 404
+        //    forever; they wait for the create to land and remap them.
         let maintOps = localDB.pendingMaintenance
         for op in maintOps {
+            guard !op.itemId.hasPrefix("local-"),
+                  !(op.entryId?.hasPrefix("pending-") ?? false) else { continue }
             do {
                 let entry = HBMaintenanceCreate(
                     name: op.name, description: op.description,
@@ -370,14 +376,22 @@ final class HomeboxStore: ObservableObject {
     /// Queue an offline delete. Deleting an item that was created offline simply
     /// cancels the queued create (and any photos queued against it).
     func enqueueOfflineDelete(itemId: String) {
-        if itemId.hasPrefix("local-") {
-            for op in localDB.pendingOps where op.kind == .createItem && op.localId == itemId {
-                localDB.dequeue(id: op.id)
-            }
-            for photo in localDB.pendingPhotoOps(for: itemId) {
-                localDB.dequeuePhoto(id: photo.id)
-            }
-        } else {
+        // Whatever kind of item this is, its queued photos and maintenance can no
+        // longer be applied once it's gone — drop them so they don't 404 forever
+        // against a deleted (or never-created) item on every sync.
+        for photo in localDB.pendingPhotoOps(for: itemId) {
+            localDB.dequeuePhoto(id: photo.id)
+        }
+        for m in localDB.pendingMaintenanceOps(for: itemId) {
+            localDB.dequeueMaintenance(id: m.id)
+        }
+        // Drop any queued create/update for this item; a server item additionally
+        // needs a delete op so the server row is removed on the next sync.
+        for op in localDB.pendingOps where op.localId == itemId
+            && (op.kind == .createItem || op.kind == .updateItem) {
+            localDB.dequeue(id: op.id)
+        }
+        if !itemId.hasPrefix("local-") {
             localDB.enqueue(PendingOperation(
                 id: UUID().uuidString, kind: .deleteItem,
                 payload: Data(), localId: itemId, createdAt: Date()
@@ -489,11 +503,13 @@ final class HomeboxStore: ObservableObject {
     }
 
     func refreshLocations() async throws {
-        guard let client else { throw HBError.notConfigured }
+        // Offline path needs no client — serve the cached tree before the guard,
+        // so a cleared/blank server URL doesn't mask cached data with an error.
         if isOffline {
             hydrateLocationsFromCache()
             return
         }
+        guard let client else { throw HBError.notConfigured }
         isLoadingLocations = true
         defer { Task { @MainActor in self.isLoadingLocations = false } }
 

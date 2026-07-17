@@ -1068,6 +1068,15 @@ private struct ItemTileContent: View {
             let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
             if let attId { thumbState = .attachment(attId) } else { thumbState = .none }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .thumbnailInvalidated)) { note in
+            guard (note.userInfo?["itemId"] as? String) == item.id, let client else { return }
+            thumbStore.invalidate(itemId: item.id)
+            thumbState = .loading
+            Task {
+                let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+                thumbState = attId.map { .attachment($0) } ?? ThumbState.none
+            }
+        }
     }
 
     @ViewBuilder
