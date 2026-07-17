@@ -23,6 +23,17 @@ data class PendingMaintenancePayload(
     val entry: HBMaintenanceCreate
 )
 
+/**
+ * Payload for a queued photo upload. The image bytes are NOT in the payload —
+ * they live at pending_photos/<targetId>.jpg (the mutation's targetId is the
+ * "pending-…" attachment id) so the mutation queue file stays small.
+ */
+data class PendingAttachmentPayload(
+    val itemId: String,
+    val fileName: String,
+    val primary: Boolean
+)
+
 class LocalCacheManager(private val context: Context) {
     private val gson = Gson()
 
@@ -66,6 +77,33 @@ class LocalCacheManager(private val context: Context) {
 
     inline fun <reified T> getBlob(key: String): T? =
         getBlob(key, object : TypeToken<T>() {}.type)
+
+    // -------------------------------------------------------------------------
+    // Pending photo store (offline-queued attachment uploads)
+    // -------------------------------------------------------------------------
+
+    // NOT wiped on group switch: like pending mutations, queued photos belong to
+    // the user and upload against whichever tenant queued them at replay time.
+    private val pendingPhotosDir = File(context.filesDir, "pending_photos")
+
+    fun savePendingPhoto(attachmentId: String, bytes: ByteArray): Boolean {
+        return try {
+            pendingPhotosDir.mkdirs()
+            File(pendingPhotosDir, "$attachmentId.jpg").writeBytes(bytes)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    fun pendingPhotoFile(attachmentId: String): File? =
+        File(pendingPhotosDir, "$attachmentId.jpg").takeIf { it.exists() }
+
+    fun deletePendingPhoto(attachmentId: String) {
+        try {
+            File(pendingPhotosDir, "$attachmentId.jpg").delete()
+        } catch (_: Exception) {}
+    }
 
     /**
      * Wipe every cached dataset (items, details, locations, tags, and all blob
@@ -256,7 +294,13 @@ class LocalCacheManager(private val context: Context) {
                 }
             }
         }
-        return cached
+        // Items whose only photo is a queued offline upload get that pending
+        // attachment as their list thumbnail.
+        return cached.map { item ->
+            if (item.previewAttachmentId != null) item
+            else pendingPhotoAttachments(mutations, item.id).firstOrNull()
+                ?.let { item.copy(imageId = it.id) } ?: item
+        }
     }
 
     fun getAppliedItemDetail(id: String): HBItemDetail? {
@@ -325,8 +369,27 @@ class LocalCacheManager(private val context: Context) {
                 }
             }
         }
-        return detail
+        // Photos queued offline for this item show as attachments under their
+        // "pending-" id; the UI resolves those ids to the local file.
+        val d = detail ?: return null
+        val pendingPhotos = pendingPhotoAttachments(mutations, id)
+        return if (pendingPhotos.isEmpty()) d
+        else d.copy(attachments = d.attachments.orEmpty() + pendingPhotos)
     }
+
+    /** Synthetic attachment rows for queued photo uploads of [itemId], primary first. */
+    private fun pendingPhotoAttachments(mutations: List<PendingMutation>, itemId: String): List<HBAttachment> =
+        mutations.filter { it.type == "UPLOAD_ATTACHMENT" }
+            .mapNotNull { m ->
+                val p = try {
+                    gson.fromJson(m.payloadJson, PendingAttachmentPayload::class.java)
+                } catch (_: Exception) { null }
+                if (p?.itemId == itemId && pendingPhotoFile(m.targetId) != null) {
+                    Pair(p.primary, HBAttachment(id = m.targetId, fileName = p.fileName, type = "photo"))
+                } else null
+            }
+            .sortedByDescending { it.first }
+            .map { it.second }
 
     fun getAppliedLocations(): List<HBLocation> {
         val cached = getCachedLocations().toMutableList()

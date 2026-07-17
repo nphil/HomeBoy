@@ -4,6 +4,15 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.35 — 2026-07-17
+
+### Offline photos
+- **Photo uploads now work offline**: a photo added while the server is unreachable is stored on-device (`pending_photos/`), counted in the status badge, and uploaded automatically when the connection returns — including photos attached to items that were themselves created offline. Previously an offline photo upload failed silently and the photo was lost.
+- **Pending photos are visible immediately**: they appear in the item's detail gallery, the fullscreen viewer, and as the list thumbnail (served from the local file) until the upload syncs.
+- **Photos render offline**: every sync now caches the item details the list view doesn't carry and warms Coil's disk cache with all known photos, so galleries and thumbnails work with no connection — not just for photos you happened to view before.
+
+---
+
 ## v1.0.34 — 2026-07-16
 
 ### Offline mode & sync

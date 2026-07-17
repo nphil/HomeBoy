@@ -69,10 +69,11 @@ fun ItemDetailScreen(
     var showAddMaintenance by remember { mutableStateOf(false) }
     var editingMaintenance by remember { mutableStateOf<HBMaintenanceEntry?>(null) }
     var menuExpanded by remember { mutableStateOf(false) }
-    var fullscreenPhotoUrl by remember { mutableStateOf<String?>(null) }
+    // String URL for server photos, java.io.File for offline-pending ones.
+    var fullscreenPhotoUrl by remember { mutableStateOf<Any?>(null) }
 
     fullscreenPhotoUrl?.let { url ->
-        FullScreenPhotoViewer(url = url, onDismiss = { fullscreenPhotoUrl = null })
+        FullScreenPhotoViewer(model = url, onDismiss = { fullscreenPhotoUrl = null })
     }
 
     LaunchedEffect(snackbar) {
@@ -173,7 +174,8 @@ fun ItemDetailScreen(
             }
             if (photos.isNotEmpty() && SessionHolder.apiBase.isNotBlank()) {
                 item {
-                    val heroUrl = SessionHolder.attachmentUrl(detail.id, photos.first().id)
+                    // photoModel resolves "pending-" ids (offline-queued photos) to their local file
+                    val heroUrl = app.repository.photoModel(detail.id, photos.first().id)
                     Box(
                         Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -199,7 +201,7 @@ fun ItemDetailScreen(
                         Spacer(Modifier.height(8.dp))
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             items(photos.drop(1), key = { it.id }) { att ->
-                                val url = SessionHolder.attachmentUrl(detail.id, att.id)
+                                val url = app.repository.photoModel(detail.id, att.id)
                                 AsyncImage(
                                     model = ImageRequest.Builder(LocalContext.current)
                                         .data(url).crossfade(true).build(),
@@ -648,7 +650,7 @@ private fun millisToDateString(millis: Long): String =
     SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(millis))
 
 @Composable
-private fun FullScreenPhotoViewer(url: String, onDismiss: () -> Unit) {
+private fun FullScreenPhotoViewer(model: Any, onDismiss: () -> Unit) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -664,7 +666,7 @@ private fun FullScreenPhotoViewer(url: String, onDismiss: () -> Unit) {
             }
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
-                    .data(url).crossfade(true).build(),
+                    .data(model).crossfade(true).build(),
                 contentDescription = null,
                 contentScale = ContentScale.Fit,
                 modifier = Modifier

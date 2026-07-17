@@ -782,7 +782,8 @@ private fun ItemThumbnail(
         if (currentAttId != null && SessionHolder.apiBase.isNotBlank()) {
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(ctx)
-                    .data(SessionHolder.attachmentUrl(item.id, currentAttId))
+                    // photoModel resolves "pending-" ids (offline-queued photos) to their local file
+                    .data(app.repository.photoModel(item.id, currentAttId))
                     .crossfade(true)
                     .build(),
                 contentDescription = item.name,

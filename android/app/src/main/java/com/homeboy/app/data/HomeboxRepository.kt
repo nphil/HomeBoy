@@ -1,10 +1,14 @@
 package com.homeboy.app.data
 
 import android.content.Context
+import coil.imageLoader
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.homeboy.app.api.*
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -97,8 +101,29 @@ class HomeboxRepository(
         cache.clearAllCachedData()
     }
 
-    suspend fun uploadAttachment(itemId: String, bytes: ByteArray, filename: String, primary: Boolean) =
-        online(retries = 0) { it.uploadAttachment(real(itemId), bytes, filename, primary) }
+    suspend fun uploadAttachment(itemId: String, bytes: ByteArray, filename: String, primary: Boolean): HBAttachment {
+        return try {
+            online(retries = 0) { it.uploadAttachment(real(itemId), bytes, filename, primary) }
+        } catch (e: Exception) {
+            if (!e.isTransient()) throw e
+            // Park the photo on disk and queue the upload for the reconnect replay.
+            val pendingId = "pending-" + UUID.randomUUID().toString()
+            if (!cache.savePendingPhoto(pendingId, bytes)) throw e   // disk full etc. — surface the failure
+            cache.queueMutation("UPLOAD_ATTACHMENT", pendingId, PendingAttachmentPayload(itemId, filename, primary))
+            HBAttachment(id = pendingId, fileName = filename, type = "photo")
+        }
+    }
+
+    /**
+     * Coil model for an item photo: the attachment URL, or the local file when the
+     * photo is an offline-queued upload (its "pending-" id never resolves on the server).
+     */
+    fun photoModel(itemId: String, attachmentId: String): Any =
+        if (attachmentId.startsWith("pending-")) {
+            cache.pendingPhotoFile(attachmentId) ?: SessionHolder.attachmentUrl(itemId, attachmentId)
+        } else {
+            SessionHolder.attachmentUrl(real(itemId), attachmentId)
+        }
 
     suspend fun logout() { prefs.logout(); invalidate() }
 
@@ -179,9 +204,16 @@ class HomeboxRepository(
                 val items = async { c.listItems(pageSize = 1000).items }
                 val locs = async { c.listLocations() }
                 val tags = async { c.listTags() }
-                cache.saveCachedItems(items.await())
+                val itemList = items.await()
+                cache.saveCachedItems(itemList)
                 cache.saveCachedLocations(locs.await())
                 cache.saveCachedTags(tags.await())
+                // Best-effort: cache details + photo bytes so images render offline.
+                try {
+                    warmOfflinePhotoCache(c, itemList)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {}
             }
             ConnectionMonitor.syncFinished(online = true)
             ConnectionMonitor.requestRefresh()
@@ -196,6 +228,55 @@ class HomeboxRepository(
             false
         } finally {
             syncingNow.set(false)
+        }
+    }
+
+    /**
+     * Makes photos available offline. Fetches item details we've never cached
+     * (the entities list carries no attachment info, so without the detail we
+     * wouldn't even know a photo exists), then enqueues every known photo URL
+     * into Coil's disk cache — respectCacheHeaders(false) keeps them, so
+     * AsyncImage serves them with no network. Runs inside syncNow; best-effort.
+     */
+    private suspend fun warmOfflinePhotoCache(c: HomeboxClient, items: List<HBItem>) {
+        val known = cache.getCachedItemDetails()
+        val missing = items.filter { it.id !in known }
+        if (missing.isNotEmpty()) {
+            val fetched = coroutineScope {
+                missing.chunked(8).flatMap { chunk ->
+                    chunk.map { item ->
+                        async { runCatching { c.getItem(item.id) }.getOrNull() }
+                    }.awaitAll()
+                }
+            }.filterNotNull()
+            if (fetched.isNotEmpty()) {
+                cache.saveCachedItemDetails(known + fetched.associateBy { it.id })
+            }
+        }
+
+        if (SessionHolder.apiBase.isBlank()) return
+        val loader = context.imageLoader
+        val urls = buildSet {
+            cache.getCachedItemDetails().values.forEach { d ->
+                d.attachments.orEmpty()
+                    .filter { (it.type ?: "photo").equals("photo", true) && !it.id.startsWith("pending-") }
+                    .forEach { add(SessionHolder.attachmentUrl(d.id, it.id)) }
+            }
+            items.forEach { item ->
+                item.previewAttachmentId?.takeIf { !it.startsWith("pending-") }
+                    ?.let { add(SessionHolder.attachmentUrl(item.id, it)) }
+            }
+        }
+        urls.forEach { url ->
+            loader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(url)
+                    // Disk-cache warmup only — don't evict what's on screen, and
+                    // decode tiny: the disk cache keeps the original bytes either way.
+                    .memoryCachePolicy(CachePolicy.DISABLED)
+                    .size(64)
+                    .build()
+            )
         }
     }
 
@@ -282,6 +363,15 @@ class HomeboxRepository(
                     "DELETE_MAINTENANCE" -> {
                         client.deleteMaintenance(translatedTargetId)
                     }
+                    "UPLOAD_ATTACHMENT" -> {
+                        val payload = gson.fromJson(m.payloadJson, PendingAttachmentPayload::class.java)
+                        val file = cache.pendingPhotoFile(m.targetId)
+                        if (file != null) {
+                            val itemId = idMap[payload.itemId] ?: idAliases[payload.itemId] ?: payload.itemId
+                            client.uploadAttachment(itemId, file.readBytes(), payload.fileName, payload.primary)
+                            cache.deletePendingPhoto(m.targetId)
+                        } // file vanished (cleared storage) — nothing to upload, drop
+                    }
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
@@ -298,6 +388,7 @@ class HomeboxRepository(
                 if (serverChoked && m.attempts + 1 >= MAX_REPLAY_ATTEMPTS) {
                     // Poison pill: the server keeps answering this specific mutation
                     // with 5xx — drop it so it can't wedge the queue forever.
+                    if (m.type == "UPLOAD_ATTACHMENT") cache.deletePendingPhoto(m.targetId)
                     e.printStackTrace()
                 } else if (e.isTransient() || authExpired) {
                     // Unreachable, mid-restart, or logged-out: keep this mutation AND
@@ -309,6 +400,7 @@ class HomeboxRepository(
                     break
                 } else {
                     // Permanently rejected (validation 4xx) → drop; it can never succeed.
+                    if (m.type == "UPLOAD_ATTACHMENT") cache.deletePendingPhoto(m.targetId)
                     e.printStackTrace()
                 }
             }
@@ -348,6 +440,11 @@ class HomeboxRepository(
                         }
                         "CREATE_MAINTENANCE" -> {
                             val payload = gson.fromJson(m.payloadJson, PendingMaintenancePayload::class.java)
+                            val finalPayload = payload.copy(itemId = idMap[payload.itemId] ?: payload.itemId)
+                            newPayloadJson = gson.toJson(finalPayload)
+                        }
+                        "UPLOAD_ATTACHMENT" -> {
+                            val payload = gson.fromJson(m.payloadJson, PendingAttachmentPayload::class.java)
                             val finalPayload = payload.copy(itemId = idMap[payload.itemId] ?: payload.itemId)
                             newPayloadJson = gson.toJson(finalPayload)
                         }
