@@ -15,7 +15,9 @@ struct ItemDetailView: View {
     @State private var item: HBItemDetail?
     @State private var children: [HBItem] = []
     @State private var maintenance: [HBMaintenanceEntry] = []
-    @State private var isLoading = false
+    // Starts true so the first frame (before .task fires) shows the spinner
+    // instead of the terminal "unavailable" state.
+    @State private var isLoading = true
     @State private var loadError: String?
     @State private var showEdit = false
     @State private var confirmDelete = false
@@ -23,6 +25,7 @@ struct ItemDetailView: View {
     @State private var showAddSubItem = false
     @State private var showMaintenanceSheet = false
     @State private var editingEntry: HBMaintenanceEntry? = nil
+    @State private var maintEntryPendingDelete: HBMaintenanceEntry? = nil
 
     var body: some View {
         baseContent
@@ -60,6 +63,19 @@ struct ItemDetailView: View {
             } message: {
                 Text("This removes the item from Homebox permanently.")
             }
+            .alert(
+                "Delete maintenance entry?",
+                isPresented: Binding(
+                    get: { maintEntryPendingDelete != nil },
+                    set: { if !$0 { maintEntryPendingDelete = nil } }
+                ),
+                presenting: maintEntryPendingDelete
+            ) { entry in
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) { Task { await deleteMaintEntry(entry) } }
+            } message: { entry in
+                Text("This permanently removes \"\(entry.name)\".")
+            }
             .toolbar(showAddSubItem ? .hidden : .visible, for: .tabBar)
     }
 
@@ -87,6 +103,7 @@ struct ItemDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle").font(.title3)
                 }
+                .accessibilityLabel("More actions")
             }
         }
         .task { await load() }
@@ -124,11 +141,22 @@ struct ItemDetailView: View {
                 .padding(.bottom, 60)
             }
             .scrollIndicators(.hidden)
+            .refreshable { await load() }
         } else if let loadError {
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 32)).foregroundStyle(.orange)
                 Text("Couldn't load").font(.title3.weight(.semibold))
                 Text(loadError).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                Button("Try again") { Task { await load() } }.buttonStyle(.glass)
+            }
+        } else {
+            // Terminal state: load finished with no item and no error — offline
+            // with nothing cached (or no client). Never leave a blank screen.
+            VStack(spacing: 10) {
+                Image(systemName: "icloud.slash").font(.system(size: 32)).foregroundStyle(.secondary)
+                Text("Item unavailable offline").font(.title3.weight(.semibold))
+                Text("This item hasn't been cached on this device yet. Reconnect to load it.")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
                 Button("Try again") { Task { await load() } }.buttonStyle(.glass)
             }
         }
@@ -158,6 +186,8 @@ struct ItemDetailView: View {
                     }
                 }
                 .tabViewStyle(.page)
+                // Backed dots stay visible on light theme backgrounds.
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
                 .frame(height: 280)
             }
         }
@@ -285,7 +315,12 @@ struct ItemDetailView: View {
                     return a < b
                 }
                 ForEach(sorted) { entry in
-                    MaintenanceRow(entry: entry)
+                    MaintenanceRow(
+                        entry: entry,
+                        onMarkDone: entry.id.hasPrefix("pending-")
+                            ? nil
+                            : { Task { await markDone(entry) } }
+                    )
                         .contentShape(Rectangle())
                         .onTapGesture {
                             editingEntry = entry
@@ -297,7 +332,7 @@ struct ItemDetailView: View {
                             } label: { Label("Mark Done", systemImage: "checkmark.circle.fill") }
                             Divider()
                             Button(role: .destructive) {
-                                Task { await deleteMaintEntry(entry) }
+                                maintEntryPendingDelete = entry
                             } label: { Label("Delete", systemImage: "trash") }
                         }
                 }
@@ -565,6 +600,7 @@ struct EditItemSheet: View {
                         .foregroundStyle(theme.current.accentColor)
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Scan barcode")
             }
             Stepper("Quantity: \(quantity)", value: $quantity, in: 1...9999)
             TextField("Description", text: $description, axis: .vertical).lineLimit(1...4)
@@ -643,6 +679,7 @@ struct EditItemSheet: View {
                                 .foregroundStyle(.red)
                         }
                         .buttonStyle(.borderless)
+                        .accessibilityLabel("Delete photo")
                     }
                 }
             }
@@ -657,6 +694,7 @@ struct EditItemSheet: View {
                     Spacer()
                     Button(role: .destructive) { self.photo = nil; pickerItem = nil } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.borderless)
+                        .accessibilityLabel("Remove photo")
                 }
             } else {
                 HStack(spacing: 10) {
@@ -961,6 +999,29 @@ struct AuthImage: View {
 
 // MARK: - Full Screen Viewer
 
+/// Completion target for UIImageWriteToSavedPhotosAlbum — without it the write
+/// fails silently (e.g. Photos permission denied) while the UI claims success.
+private final class PhotoSaver: NSObject {
+    static let shared = PhotoSaver()
+    private var completions: [(Bool) -> Void] = []
+
+    func save(_ image: UIImage, completion: @escaping (Bool) -> Void) {
+        completions.append(completion)
+        UIImageWriteToSavedPhotosAlbum(
+            image, self,
+            #selector(PhotoSaver.image(_:didFinishSavingWithError:contextInfo:)), nil
+        )
+    }
+
+    @objc private func image(_ image: UIImage,
+                             didFinishSavingWithError error: Error?,
+                             contextInfo: UnsafeRawPointer) {
+        guard !completions.isEmpty else { return }
+        let completion = completions.removeFirst()
+        completion(error == nil)
+    }
+}
+
 struct FullScreenImageView: View {
     let image: UIImage
     @Environment(\.dismiss) var dismiss
@@ -970,6 +1031,7 @@ struct FullScreenImageView: View {
     @State private var offset: CGSize = .zero
     @State private var lastOffset: CGSize = .zero
     @State private var showToast = false
+    @State private var toastMessage = ""
 
     var body: some View {
         NavigationStack {
@@ -1028,7 +1090,7 @@ struct FullScreenImageView: View {
                 if showToast {
                     VStack {
                         Spacer()
-                        Text("Saved to Photos")
+                        Text(toastMessage)
                             .font(.callout.weight(.medium))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 20)
@@ -1050,22 +1112,36 @@ struct FullScreenImageView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        UIImageWriteToSavedPhotosAlbum(image, nil, nil, nil)
-                        UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        withAnimation { showToast = true }
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                            withAnimation { showToast = false }
+                        PhotoSaver.shared.save(image) { success in
+                            if success {
+                                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                                showLocalToast("Saved to Photos")
+                            } else {
+                                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                                showLocalToast("Couldn't save — allow Photos access in Settings")
+                            }
                         }
                     } label: {
                         Image(systemName: "arrow.down.to.line")
                     }
+                    .accessibilityLabel("Save to Photos")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     ShareLink(item: Image(uiImage: image), preview: SharePreview("Homebox Photo", image: Image(uiImage: image))) {
                         Image(systemName: "square.and.arrow.up")
                     }
+                    .accessibilityLabel("Share")
                 }
             }
+        }
+    }
+
+    private func showLocalToast(_ message: String) {
+        toastMessage = message
+        UIAccessibility.post(notification: .announcement, argument: message)
+        withAnimation { showToast = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation { showToast = false }
         }
     }
 }
@@ -1074,6 +1150,9 @@ struct FullScreenImageView: View {
 
 private struct MaintenanceRow: View {
     let entry: HBMaintenanceEntry
+    /// When set, incomplete entries get a trailing "mark done" button so the
+    /// primary action isn't hidden behind the long-press context menu alone.
+    var onMarkDone: (() -> Void)? = nil
 
     // Cached formatters — allocating these per call was measurable on rows
     // that parse 2-4 dates per render.
@@ -1167,6 +1246,16 @@ private struct MaintenanceRow: View {
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
+            if !state.isCompleted, let onMarkDone {
+                Button(action: onMarkDone) {
+                    Image(systemName: "checkmark.circle")
+                        .font(.title3)
+                        .foregroundStyle(.green)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Mark done")
+            }
             Image(systemName: "chevron.right").foregroundStyle(.tertiary).font(.caption)
         }
         .padding(.vertical, 4)
@@ -1205,8 +1294,10 @@ struct MaintenanceEntrySheet: View {
     @State private var isSaving = false
     @State private var costStr: String
     @State private var errorMsg: String?
+    @State private var confirmDelete = false
     @FocusState private var nameFocused: Bool
     @FocusState private var descFocused: Bool
+    @FocusState private var costFocused: Bool
 
     fileprivate static func dateOnly(_ date: Date) -> String {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
@@ -1254,6 +1345,7 @@ struct MaintenanceEntrySheet: View {
                         .font(.title3).foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close")
                 Spacer()
                 Text(existing == nil ? "Schedule Maintenance" : "Edit Maintenance")
                     .font(.headline)
@@ -1286,7 +1378,7 @@ struct MaintenanceEntrySheet: View {
                                 .focused($nameFocused)
                                 .textInputAutocapitalization(.sentences)
                         }
-                        .padding(.horizontal, 14).frame(height: 50)
+                        .padding(.horizontal, 14).frame(minHeight: 50)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
@@ -1301,7 +1393,7 @@ struct MaintenanceEntrySheet: View {
                                 .textInputAutocapitalization(.sentences)
                                 .font(.callout)
                         }
-                        .padding(.horizontal, 14).frame(height: 50)
+                        .padding(.horizontal, 14).frame(minHeight: 50)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
@@ -1313,9 +1405,10 @@ struct MaintenanceEntrySheet: View {
                                 .frame(width: 22)
                             TextField("0", text: $costStr)
                                 .keyboardType(.decimalPad)
+                                .focused($costFocused)
                                 .font(.body)
                         }
-                        .padding(.horizontal, 14).frame(height: 50)
+                        .padding(.horizontal, 14).frame(minHeight: 50)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
@@ -1331,7 +1424,7 @@ struct MaintenanceEntrySheet: View {
                                 .tint(theme.current.accentColor)
                             Spacer()
                         }
-                        .padding(.horizontal, 14).frame(height: 50)
+                        .padding(.horizontal, 14).frame(minHeight: 50)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 14))
                     }
 
@@ -1404,10 +1497,9 @@ struct MaintenanceEntrySheet: View {
                     .disabled(!canSave || isSaving)
 
                     // Delete button (edit mode only)
-                    if let onDelete {
-                        Button {
-                            onDelete()
-                            dismiss()
+                    if onDelete != nil {
+                        Button(role: .destructive) {
+                            confirmDelete = true
                         } label: {
                             Label("Delete", systemImage: "trash")
                                 .font(.body.weight(.semibold))
@@ -1425,7 +1517,27 @@ struct MaintenanceEntrySheet: View {
                 .padding(.bottom, 24)
             }
             .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
             .scrollIndicators(.hidden)
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    nameFocused = false
+                    descFocused = false
+                    costFocused = false
+                }
+            }
+        }
+        .alert("Delete maintenance entry?", isPresented: $confirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                onDelete?()
+                dismiss()
+            }
+        } message: {
+            Text("This permanently removes \"\(name)\".")
         }
     }
 

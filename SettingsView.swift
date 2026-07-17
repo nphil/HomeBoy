@@ -6,10 +6,13 @@ struct SettingsView: View {
     @EnvironmentObject var theme: ThemeManager
     @EnvironmentObject var ai: AIModelManager
 
+    @Environment(\.dismiss) private var dismiss
+
     @State private var password: String = ""
     @State private var isLoggingIn = false
     @State private var loginError: String?
     @State private var confirmLogout = false
+    @State private var confirmClearCache = false
     @State private var shareItems: [Any] = []
     @State private var showShareSheet = false
     @State private var imageCacheMB: Int = 0
@@ -140,8 +143,7 @@ struct SettingsView: View {
                     Text("Exports all locally cached items in Homebox import format. Open Items tab while connected to refresh the cache first.")
                         .font(.caption).foregroundStyle(.secondary)
                     Button(role: .destructive) {
-                        ImageCache.shared.clear()
-                        imageCacheMB = 0
+                        confirmClearCache = true
                     } label: {
                         HStack {
                             Label("Clear image cache", systemImage: "photo.stack")
@@ -151,6 +153,19 @@ struct SettingsView: View {
                                     .font(.callout).foregroundStyle(.secondary)
                             }
                         }
+                    }
+                    .confirmationDialog(
+                        "Clear image cache?",
+                        isPresented: $confirmClearCache,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Clear \(imageCacheMB) MB", role: .destructive) {
+                            ImageCache.shared.clear()
+                            imageCacheMB = 0
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Removes \(imageCacheMB) MB of downloaded images. They'll re-download when needed — cached photos won't be viewable offline until then.")
                     }
                 }
 
@@ -185,6 +200,12 @@ struct SettingsView: View {
             .scrollIndicators(.hidden)
             .background(theme.current.backgroundColor.ignoresSafeArea())
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .bold()
+                }
+            }
             .onAppear {
                 imageCacheMB = ImageCache.shared.diskSizeBytes / (1024 * 1024)
             }
@@ -245,12 +266,20 @@ struct SettingsView: View {
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
                 .keyboardType(.URL)
+                .textContentType(.URL)
+                .submitLabel(.next)
+                .onSubmit { focused = .username }
             TextField("Email or username", text: $store.savedUsername)
                 .focused($focused, equals: .username)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled(true)
+                .textContentType(.username)
+                .submitLabel(.next)
+                .onSubmit { focused = .password }
             SecureField("Password", text: $password)
                 .focused($focused, equals: .password)
+                .textContentType(.password)
+                .submitLabel(.go)
                 .onSubmit { performLogin() }
 
             if let loginError {

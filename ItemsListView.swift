@@ -90,6 +90,8 @@ struct ItemsListView: View {
     @State private var selectedIds: Set<String> = []
     @State private var showBulkEdit = false
     @State private var showAddSheet = false
+    @State private var showArchiveConfirm = false
+    @State private var itemPendingDelete: HBItem? = nil
 
     @State private var thumbStore = ThumbnailStore()
     @State private var indexLetter: String? = nil
@@ -128,12 +130,13 @@ struct ItemsListView: View {
                                     Button { showQRScanner = true } label: {
                                         Image(systemName: "qrcode.viewfinder")
                                             .font(.title3.weight(.semibold))
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(theme.current.onAccentColor)
                                             .frame(width: 46, height: 46)
                                             .background(theme.current.accentColor.opacity(0.85))
                                             .clipShape(Circle())
                                             .shadow(color: theme.current.accentColor.opacity(0.3), radius: 4, x: 0, y: 3)
                                     }
+                                    .accessibilityLabel("Scan QR code")
                                 }
                                 Button {
                                     withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
@@ -142,12 +145,13 @@ struct ItemsListView: View {
                                 } label: {
                                     Image(systemName: "plus")
                                         .font(.title2.weight(.semibold))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(theme.current.onAccentColor)
                                         .frame(width: 56, height: 56)
                                         .background(theme.current.accentColor)
                                         .clipShape(Circle())
                                         .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
                                 }
+                                .accessibilityLabel("Add item")
                             }
                             .padding()
                         }
@@ -158,7 +162,7 @@ struct ItemsListView: View {
                 if selectMode {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Archive") {
-                            Task { await archiveSelected() }
+                            showArchiveConfirm = true
                         }
                         .foregroundStyle(.orange)
                         .disabled(selectedIds.isEmpty)
@@ -211,6 +215,7 @@ struct ItemsListView: View {
                             } label: {
                                 Image(systemName: "magnifyingglass")
                             }
+                            .accessibilityLabel("Search")
                         }
                         ToolbarItem(placement: .topBarTrailing) {
                             Button {
@@ -220,6 +225,14 @@ struct ItemsListView: View {
                                       ? "line.3.horizontal.decrease.circle.fill"
                                       : "line.3.horizontal.decrease.circle")
                             }
+                            .accessibilityLabel("Filters")
+                        }
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button("Select") {
+                                withAnimation { selectMode = true }
+                            }
+                            .disabled(allItems.isEmpty)
+                            .accessibilityLabel("Select items")
                         }
                     }
                 }
@@ -297,6 +310,29 @@ struct ItemsListView: View {
                     }
                 }
             }
+            .confirmationDialog(
+                "Archive \(selectedIds.count) item\(selectedIds.count == 1 ? "" : "s")?",
+                isPresented: $showArchiveConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Archive") { Task { await archiveSelected() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Archived items are hidden from the list. You can unarchive them from Settings → Archived Items.")
+            }
+            .alert(
+                "Delete item?",
+                isPresented: Binding(
+                    get: { itemPendingDelete != nil },
+                    set: { if !$0 { itemPendingDelete = nil } }
+                ),
+                presenting: itemPendingDelete
+            ) { item in
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) { Task { await deleteItem(item) } }
+            } message: { item in
+                Text("This removes \"\(item.name)\" from Homebox permanently.")
+            }
             .toolbar(selectMode ? .hidden : .visible, for: .tabBar)
             .navigationTitle(selectMode ? (selectedIds.isEmpty ? "Select Items" : "\(selectedIds.count) Selected") : "")
             .navigationBarTitleDisplayMode(.inline)
@@ -341,18 +377,18 @@ struct ItemsListView: View {
             } label: {
                 HStack(spacing: 4) {
                     Image(systemName: sortOption.iconName)
-                        .foregroundStyle(sortOption != .nameAZ ? .white : theme.current.accentColor)
+                        .foregroundStyle(sortOption != .nameAZ ? theme.current.onAccentColor : theme.current.accentColor)
                         .font(.caption)
                     Text(sortOption.shortLabel)
                         .font(.caption.weight(.medium))
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
                         .font(.caption2)
-                        .foregroundStyle(sortOption != .nameAZ ? .white : .secondary)
+                        .foregroundStyle(sortOption != .nameAZ ? theme.current.onAccentColor : .secondary)
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
                 .background(sortOption != .nameAZ ? theme.current.accentColor : Color.secondary.opacity(0.15))
-                .foregroundStyle(sortOption != .nameAZ ? .white : .primary)
+                .foregroundStyle(sortOption != .nameAZ ? theme.current.onAccentColor : .primary)
                 .clipShape(Capsule())
             }
             .menuStyle(.button)
@@ -387,13 +423,13 @@ struct ItemsListView: View {
     private func filterChip(label: String, icon: String, isActive: Bool,
                             onTap: @escaping () -> Void, onLongPress: @escaping () -> Void) -> some View {
         HStack(spacing: 4) {
-            Image(systemName: icon).foregroundStyle(isActive ? .white : theme.current.accentColor).font(.caption)
+            Image(systemName: icon).foregroundStyle(isActive ? theme.current.onAccentColor : theme.current.accentColor).font(.caption)
             Text(label).font(.caption.weight(.medium)).lineLimit(1)
             if isActive { Image(systemName: "xmark").font(.caption2) }
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(isActive ? theme.current.accentColor : Color.secondary.opacity(0.15))
-        .foregroundStyle(isActive ? .white : .primary)
+        .foregroundStyle(isActive ? theme.current.onAccentColor : .primary)
         .clipShape(Capsule())
         .contentShape(Capsule())
         .onTapGesture {
@@ -411,7 +447,7 @@ struct ItemsListView: View {
         if !store.isAuthenticated {
             notSignedIn
         } else if isLoading && allItems.isEmpty {
-            Spacer(); ProgressView("Loading items…"); Spacer()
+            ProgressView("Loading items…")
         } else if let loadError, allItems.isEmpty {
             errorState(loadError)
         } else if allItems.isEmpty {
@@ -511,7 +547,8 @@ struct ItemsListView: View {
             }
             .overlay {
                 if isSortedAlphabetically, !isShowingSemanticResults, let letter = indexLetter {
-                    LetterPopupBox(letter: letter, accent: theme.current.accentColor)
+                    LetterPopupBox(letter: letter, accent: theme.current.accentColor,
+                                   onAccent: theme.current.onAccentColor)
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
@@ -567,7 +604,9 @@ struct ItemsListView: View {
                         ItemListRowContent(item: item, thumbStore: thumbStore,
                                            breadcrumb: store.breadcrumb(for: item),
                                            client: store.client, localDB: store.localDB)
-                    }.buttonStyle(.plain)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { itemContextMenu(item) }
                 }
             }
         }
@@ -578,12 +617,22 @@ struct ItemsListView: View {
         .overlay(RoundedRectangle(cornerRadius: 14)
             .strokeBorder(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
                           lineWidth: isSelected ? 2 : 1))
-        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-            if !selectMode {
-                withAnimation { selectMode = true; selectedIds.insert(item.id) }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            }
-        })
+    }
+
+    /// Shared long-press menu for list rows and tiles.
+    @ViewBuilder
+    private func itemContextMenu(_ item: HBItem) -> some View {
+        Button {
+            Task { await archiveItem(item) }
+        } label: { Label("Archive", systemImage: "archivebox") }
+        Button {
+            withAnimation { selectMode = true; selectedIds.insert(item.id) }
+            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        } label: { Label("Select", systemImage: "checkmark.circle") }
+        Divider()
+        Button(role: .destructive) {
+            itemPendingDelete = item
+        } label: { Label("Delete", systemImage: "trash") }
     }
 
     // MARK: - Tile
@@ -603,7 +652,9 @@ struct ItemsListView: View {
                         ItemTileContent(item: item, thumbStore: thumbStore, columns: tileColumns,
                                         breadcrumb: store.breadcrumb(for: item),
                                         client: store.client, localDB: store.localDB)
-                    }.buttonStyle(.plain)
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu { itemContextMenu(item) }
                 }
             }
             .background(
@@ -623,12 +674,6 @@ struct ItemsListView: View {
                     .padding(6)
             }
         }
-        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-            if !selectMode {
-                withAnimation { selectMode = true; selectedIds.insert(item.id) }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            }
-        })
     }
 
     // MARK: - Empty / error states
@@ -639,6 +684,10 @@ struct ItemsListView: View {
             Text("Not connected").font(.title3.weight(.semibold))
             Text("Open Settings to enter your Homebox server URL and sign in.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32)
+            Button("Open Settings") {
+                NotificationCenter.default.post(name: .showSettings, object: nil)
+            }
+            .buttonStyle(.glass)
         }
     }
 
@@ -646,7 +695,13 @@ struct ItemsListView: View {
         VStack(spacing: 12) {
             Image(systemName: "shippingbox").font(.system(size: 48)).foregroundStyle(.secondary)
             Text("No items yet").font(.title3.weight(.semibold))
-            Text("Add your first item from the Add tab.").font(.callout).foregroundStyle(.secondary)
+            Text("Tap + to add your first item.").font(.callout).foregroundStyle(.secondary)
+            Button("Add Item") {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.8)) {
+                    showAddSheet = true
+                }
+            }
+            .buttonStyle(.glass)
         }
     }
 
@@ -833,6 +888,20 @@ struct ItemsListView: View {
         } catch {
             NotificationCenter.default.post(name: .showToast, object: nil,
                                             userInfo: ["message": "Archive failed"])
+        }
+    }
+
+    private func deleteItem(_ item: HBItem) async {
+        guard let client = store.client else { return }
+        do {
+            try await client.deleteItem(id: item.id)
+            await MainActor.run {
+                withAnimation { allItems.removeAll { $0.id == item.id } }
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Delete failed"])
         }
     }
 

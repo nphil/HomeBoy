@@ -93,6 +93,7 @@ struct AddItemView: View {
                                     .foregroundStyle(.secondary)
                             }
                             .buttonStyle(.plain)
+                            .accessibilityLabel("Close")
                         }
                         .padding(.horizontal, 20)
                         .padding(.top, 14)
@@ -103,6 +104,7 @@ struct AddItemView: View {
                                 .padding(.horizontal, 20)
                         }
                         .scrollBounceBehavior(.basedOnSize)
+                        .scrollDismissesKeyboard(.interactively)
                         .scrollIndicators(.hidden)
                         .frame(maxHeight: .infinity)
 
@@ -146,6 +148,17 @@ struct AddItemView: View {
         }
         .animation(.spring(response: 0.38, dampingFraction: 0.68), value: showLocationPicker)
         .animation(.spring(response: 0.38, dampingFraction: 0.68), value: showTagPicker)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    nameFocused = false
+                    notesFocused = false
+                    locationSearchFocused = false
+                    tagSearchFocused = false
+                }
+            }
+        }
         .sheet(isPresented: $showCamera) {
             CameraSheet { img in photos.append(downscale(img)) }.ignoresSafeArea()
         }
@@ -246,9 +259,10 @@ struct AddItemView: View {
                     .foregroundStyle(theme.current.accentColor)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Scan barcode")
         }
         .padding(.horizontal, 18)
-        .frame(height: 56)
+        .frame(minHeight: 56)
         .glassEffect(in: RoundedRectangle(cornerRadius: 16))
     }
 
@@ -291,13 +305,13 @@ struct AddItemView: View {
                     }
                 }
                 .font(.callout)
-                inlinePinButton(isOn: $lockLocation)
+                inlinePinButton(isOn: $lockLocation, label: "Keep location for next item")
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14)
-            .frame(height: 50)
+            .frame(minHeight: 50)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -314,13 +328,13 @@ struct AddItemView: View {
                 Text(selectedTagIds.isEmpty ? "None" : "\(selectedTagIds.count) selected")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                inlinePinButton(isOn: $lockTags)
+                inlinePinButton(isOn: $lockTags, label: "Keep tags for next item")
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14)
-            .frame(height: 50)
+            .frame(minHeight: 50)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -347,6 +361,8 @@ struct AddItemView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(quantity <= 1)
+                .accessibilityLabel("Decrease quantity")
+                .accessibilityValue("\(quantity)")
 
                 Text("\(quantity)")
                     .font(.body.monospacedDigit().weight(.semibold))
@@ -363,10 +379,12 @@ struct AddItemView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Increase quantity")
+                .accessibilityValue("\(quantity)")
             }
         }
         .padding(.horizontal, 14)
-        .frame(height: 50)
+        .frame(minHeight: 50)
     }
 
     private func rowIcon(_ name: String) -> some View {
@@ -376,7 +394,7 @@ struct AddItemView: View {
             .frame(width: 24, alignment: .center)
     }
 
-    private func inlinePinButton(isOn: Binding<Bool>) -> some View {
+    private func inlinePinButton(isOn: Binding<Bool>, label: String) -> some View {
         Button {
             isOn.wrappedValue.toggle()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -388,6 +406,8 @@ struct AddItemView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityValue(isOn.wrappedValue ? "On" : "Off")
     }
 
     // MARK: Photos & Notes sections
@@ -469,6 +489,7 @@ struct AddItemView: View {
                                         .background(Circle().fill(Color.black.opacity(0.4)).padding(-2))
                                 }
                                 .buttonStyle(.plain)
+                                .accessibilityLabel("Remove photo")
                                 .offset(x: 6, y: -6)
                             }
                         }
@@ -666,7 +687,7 @@ struct AddItemView: View {
                                     suggestedTagIds.removeAll { $0 == tag.id }
                                 } label: {
                                     HStack(spacing: 4) {
-                                        Circle().fill(Color(hex: tag.color ?? "")).frame(width: 8, height: 8)
+                                        Circle().fill(tagColor(tag.color, fallback: theme.current.accentColor)).frame(width: 8, height: 8)
                                         Text(tag.name).font(.caption.weight(.medium))
                                     }
                                     .padding(.horizontal, 10).padding(.vertical, 5)
@@ -933,6 +954,7 @@ struct AddItemView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(newTagName.trimmingCharacters(in: .whitespaces).isEmpty || isCreatingTag)
+                .accessibilityLabel("Create tag")
             }
             .padding(.horizontal, 12).padding(.vertical, 9)
             .background(RoundedRectangle(cornerRadius: 10).fill(.ultraThinMaterial))
@@ -1018,7 +1040,10 @@ struct AddItemView: View {
                 selectedTagIds.insert(tag.id)
                 newTagName = ""
             }
-        } catch {}
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Couldn't create tag \"\(trimmed)\""])
+        }
         await MainActor.run { isCreatingTag = false }
     }
 
@@ -1031,7 +1056,10 @@ struct AddItemView: View {
             availableTags.append(tag)
             selectedTagIds.insert(tag.id)
             novelSuggestions.removeAll { $0.caseInsensitiveCompare(name) == .orderedSame }
-        } catch {}
+        } catch {
+            NotificationCenter.default.post(name: .showToast, object: nil,
+                                            userInfo: ["message": "Couldn't create tag \"\(name)\""])
+        }
     }
 }
 

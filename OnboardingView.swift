@@ -41,6 +41,7 @@ struct OnboardingView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
                         .keyboardType(.URL)
+                        .textContentType(.URL)
                         .submitLabel(.next)
                         .onSubmit { focused = .username }
                     Text("Just the host (https:// is added automatically) or a full URL. No trailing slash.")
@@ -52,10 +53,12 @@ struct OnboardingView: View {
                         .focused($focused, equals: .username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled(true)
+                        .textContentType(.username)
                         .submitLabel(.next)
                         .onSubmit { focused = .password }
                     SecureField("Password", text: $password)
                         .focused($focused, equals: .password)
+                        .textContentType(.password)
                         .submitLabel(.go)
                         .onSubmit { performLogin() }
 

@@ -6,6 +6,7 @@ struct ArchivedItemsView: View {
 
     @State private var items: [HBItem] = []
     @State private var isLoading = false
+    @State private var loadError: String?
     @State private var selectMode = false
     @State private var selectedIds: Set<String> = []
     @State private var thumbStore = ThumbnailStore()
@@ -29,6 +30,13 @@ struct ArchivedItemsView: View {
     private var content: some View {
         if isLoading && items.isEmpty {
             ProgressView("Loading…")
+        } else if let loadError, items.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundStyle(.orange)
+                Text("Couldn't load archived items").font(.title3.weight(.semibold))
+                Text(loadError).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                Button("Try again") { Task { await load() } }.buttonStyle(.glass)
+            }
         } else if items.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "archivebox").font(.system(size: 48)).foregroundStyle(.secondary)
@@ -43,6 +51,7 @@ struct ArchivedItemsView: View {
                             buttonLabel: "Unarchive",
                             buttonIcon: "arrow.uturn.up.circle.fill",
                             buttonColor: theme.current.accentColor,
+                            buttonForeground: theme.current.onAccentColor,
                             disabled: selectMode
                         ) {
                             Task { await unarchiveItem(item) }
@@ -85,12 +94,6 @@ struct ArchivedItemsView: View {
         .overlay(RoundedRectangle(cornerRadius: 14)
             .strokeBorder(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
                           lineWidth: isSelected ? 2 : 1))
-        .highPriorityGesture(LongPressGesture(minimumDuration: 0.4).onEnded { _ in
-            if !selectMode {
-                withAnimation { selectMode = true; selectedIds.insert(item.id) }
-                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            }
-        })
     }
 
     // MARK: - Toolbar
@@ -118,6 +121,14 @@ struct ArchivedItemsView: View {
                 }
                 .bold()
                 .disabled(selectedIds.isEmpty)
+            }
+        } else {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Select") {
+                    withAnimation { selectMode = true }
+                }
+                .disabled(items.isEmpty)
+                .accessibilityLabel("Select items")
             }
         }
     }
@@ -150,6 +161,7 @@ struct ArchivedItemsView: View {
         guard let client = store.client else { return }
         let ids = Array(selectedIds)
         var succeeded: [String] = []
+        var lastError: String? = nil
         for id in ids {
             do {
                 let detail = try await client.getItem(id: id)
@@ -157,24 +169,47 @@ struct ArchivedItemsView: View {
                 update.archived = false
                 try await client.updateItem(update)
                 succeeded.append(id)
-            } catch {}
+            } catch {
+                lastError = error.localizedDescription
+            }
         }
+        let successCount = succeeded.count
+        let totalCount = ids.count
+        let failureMsg = lastError
         await MainActor.run {
-            withAnimation { items.removeAll { succeeded.contains($0.id) } }
-            selectedIds = []
-            selectMode = false
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            withAnimation {
+                items.removeAll { succeeded.contains($0.id) }
+                selectedIds = []
+                selectMode = false
+            }
+            if successCount == totalCount {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "Unarchived \(successCount) item\(successCount == 1 ? "" : "s")"])
+            } else if successCount > 0 {
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "Unarchived \(successCount) of \(totalCount). Last error: \(failureMsg ?? "unknown")"])
+            } else {
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                NotificationCenter.default.post(name: .showToast, object: nil,
+                                                userInfo: ["message": "Unarchive failed: \(failureMsg ?? "unknown")"])
+            }
         }
     }
 
     private func load() async {
         guard let client = store.client else { return }
         isLoading = true
+        loadError = nil
         do {
             let resp = try await client.listItems(includeArchived: true, pageSize: 1000)
             items = resp.items.filter { $0.archived == true }
                 .sorted { $0.name.lowercased() < $1.name.lowercased() }
-        } catch {}
+        } catch {
+            // Surface the failure instead of masquerading as an empty archive.
+            loadError = error.localizedDescription
+        }
         isLoading = false
     }
 }

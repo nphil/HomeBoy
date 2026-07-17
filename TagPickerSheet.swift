@@ -55,6 +55,7 @@ struct TagPickerSheet: View {
                     Image(systemName: "plus.circle.fill").font(.title3)
                 }
                 .disabled(newTagName.trimmingCharacters(in: .whitespaces).isEmpty || isCreating)
+                .accessibilityLabel("Create tag")
             }
             .padding(12)
             .background(RoundedRectangle(cornerRadius: 12).fill(.ultraThinMaterial))
@@ -95,7 +96,7 @@ struct TagPickerSheet: View {
             Circle()
                 .fill(tagColor(tag))
                 .frame(width: 14, height: 14)
-                .overlay(Circle().stroke(Color.white.opacity(0.2), lineWidth: 1))
+                .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 1))
             VStack(alignment: .leading, spacing: 2) {
                 Text(tag.name).font(.body.weight(.medium))
                 if let d = tag.description, !d.isEmpty {

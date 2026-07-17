@@ -112,6 +112,8 @@ struct ContentView: View {
 
     private func showToast(_ message: String) {
         toastMessage = message
+        // The toast is visual-only; make sure VoiceOver users hear it too.
+        UIAccessibility.post(notification: .announcement, argument: message)
         Task {
             try? await Task.sleep(for: .seconds(2.5))
             toastMessage = nil
@@ -125,10 +127,10 @@ struct BrandMark: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "shippingbox.fill")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.headline)
                 .foregroundStyle(theme.current.accentColor)
             Text("HomeBoy")
-                .font(.system(size: 18, weight: .semibold))
+                .font(.headline)
                 .foregroundStyle(.primary)
         }
     }

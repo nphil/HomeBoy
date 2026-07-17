@@ -246,15 +246,33 @@ final class _ScannerVC: UIViewController, AVCaptureMetadataOutputObjectsDelegate
 
     private func showDenied() {
         let lbl = UILabel()
-        lbl.text = "Camera access required.\nGo to Settings → Privacy → Camera → HomeBoy."
+        lbl.text = "Camera access required.\nAllow camera access in Settings to scan codes."
         lbl.textColor = .white; lbl.numberOfLines = 0; lbl.textAlignment = .center
         lbl.font = .systemFont(ofSize: 15)
         lbl.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(lbl)
+
+        // Recovery path: jump straight to the app's Settings page.
+        var config = UIButton.Configuration.filled()
+        config.title = "Open Settings"
+        config.baseForegroundColor = .white
+        config.baseBackgroundColor = UIColor.white.withAlphaComponent(0.2)
+        config.cornerStyle = .medium
+        config.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 18, bottom: 10, trailing: 18)
+        let settingsButton = UIButton(configuration: config, primaryAction: UIAction { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        settingsButton.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(settingsButton)
+
         NSLayoutConstraint.activate([
             lbl.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             lbl.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             lbl.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -64),
+            settingsButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            settingsButton.topAnchor.constraint(equalTo: lbl.bottomAnchor, constant: 16),
         ])
     }
 

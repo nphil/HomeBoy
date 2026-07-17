@@ -41,12 +41,13 @@ struct LocationsTabView: View {
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.title2.weight(.semibold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(theme.current.onAccentColor)
                                     .frame(width: 56, height: 56)
                                     .background(theme.current.accentColor)
                                     .clipShape(Circle())
                                     .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
                             }
+                            .accessibilityLabel("Add location")
                             .padding()
                         }
                     }
@@ -70,6 +71,7 @@ struct LocationsTabView: View {
                         } label: {
                             Image(systemName: "magnifyingglass")
                         }
+                        .accessibilityLabel("Search")
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         // Direct list/tiles toggle — icon shows the mode you'd switch TO.
@@ -204,7 +206,8 @@ struct LocationsTabView: View {
             }
             .overlay {
                 if let letter = indexLetter {
-                    LetterPopupBox(letter: letter, accent: theme.current.accentColor)
+                    LetterPopupBox(letter: letter, accent: theme.current.accentColor,
+                                   onAccent: theme.current.onAccentColor)
                         .allowsHitTesting(false)
                         .transition(.opacity)
                 }
@@ -442,6 +445,7 @@ private struct LocationTile: View {
                         .foregroundStyle(theme.current.accentColor)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Location details")
             }
 
             VStack(alignment: .leading, spacing: 3) {
@@ -542,6 +546,7 @@ struct CreateLocationSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
@@ -556,7 +561,7 @@ struct CreateLocationSheet: View {
                             .submitLabel(.done)
                             .textInputAutocapitalization(.words)
                             .padding(.horizontal, 18)
-                            .frame(height: 56)
+                            .frame(minHeight: 56)
                             .glassEffect(in: RoundedRectangle(cornerRadius: 16))
 
                         Button { showParentPicker = true } label: {
@@ -585,7 +590,7 @@ struct CreateLocationSheet: View {
                                     .foregroundStyle(.tertiary)
                             }
                             .padding(.horizontal, 14)
-                            .frame(height: 50)
+                            .frame(minHeight: 50)
                             .glassEffect(in: RoundedRectangle(cornerRadius: 16))
                             .contentShape(Rectangle())
                         }
@@ -633,6 +638,7 @@ struct CreateLocationSheet: View {
                     .padding(.vertical, 4)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
                 .scrollIndicators(.hidden)
                 .frame(maxHeight: .infinity)
 
@@ -641,6 +647,16 @@ struct CreateLocationSheet: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .padding(.bottom, 16)
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    nameFocused = false
+                    descriptionFocused = false
+                    parentPickerSearchFocused = false
+                }
             }
         }
         .overlay(alignment: .center) {

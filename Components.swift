@@ -31,13 +31,7 @@ struct GroupMenuButton: View {
                     } label: {
                         Label(group.name, systemImage: isActive ? "checkmark.circle.fill" : "cube")
                     }
-                    Button { } label: {
-                        Label(
-                            "\(locCount) rooms, \(itemCount) items",
-                            systemImage: "info.circle"
-                        )
-                    }
-                    .disabled(true)
+                    Text("\(locCount) locations, \(itemCount) items")
                 }
             }
             Section {
@@ -188,6 +182,16 @@ extension View {
     }
 }
 
+// MARK: - Tag colour fallback
+
+/// Homebox tags may carry no colour. `Color(hex:)` is non-failable (empty
+/// string decodes to black — invisible on dark themes), so gate on the string
+/// and fall back to a visible colour instead (same pattern as TagPickerSheet).
+func tagColor(_ hex: String?, fallback: Color) -> Color {
+    if let hex, !hex.isEmpty { return Color(hex: hex) }
+    return fallback
+}
+
 // MARK: - Count Badge
 
 struct CountBadge: View {
@@ -300,7 +304,7 @@ struct DescriptionField: View {
             }
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .frame(minHeight: 44)
         }
         .buttonStyle(.glass)
         .sheet(isPresented: $showEditor) {
@@ -357,6 +361,9 @@ struct AlphabetIndexBar: View {
                 )
         }
         .frame(width: 32)
+        // Invisible gesture strip — meaningless to VoiceOver; the list itself
+        // stays fully navigable.
+        .accessibilityHidden(true)
     }
 }
 
@@ -364,11 +371,13 @@ struct AlphabetIndexBar: View {
 struct LetterPopupBox: View {
     let letter: String
     let accent: Color
+    /// Legible content colour on the accent fill (theme.current.onAccentColor).
+    var onAccent: Color = .white
 
     var body: some View {
         Text(letter)
             .font(.system(size: 80, weight: .bold, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(onAccent)
             .frame(width: 140, height: 140)
             .background(
                 ZStack {
@@ -376,7 +385,7 @@ struct LetterPopupBox: View {
                     RoundedRectangle(cornerRadius: 28).fill(accent.opacity(0.78))
                 }
             )
-            .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.3), lineWidth: 1.5))
+            .overlay(RoundedRectangle(cornerRadius: 28).stroke(onAccent.opacity(0.3), lineWidth: 1.5))
             .shadow(color: .black.opacity(0.3), radius: 16, x: 0, y: 6)
     }
 }
@@ -448,6 +457,8 @@ struct QuantityControl: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(systemImage == "minus" ? "Decrease" : "Increase")
+        .accessibilityValue("\(value)")
     }
 }
 
@@ -714,6 +725,7 @@ struct SwipeRevealRow<Content: View>: View {
     let buttonLabel: String
     let buttonIcon: String
     let buttonColor: Color
+    let buttonForeground: Color
     let disabled: Bool
     let action: () -> Void
     let content: Content
@@ -725,11 +737,13 @@ struct SwipeRevealRow<Content: View>: View {
     private let threshold: CGFloat = 52
 
     init(buttonLabel: String, buttonIcon: String, buttonColor: Color = .orange,
+         buttonForeground: Color = .white,
          disabled: Bool = false, action: @escaping () -> Void,
          @ViewBuilder content: () -> Content) {
         self.buttonLabel = buttonLabel
         self.buttonIcon = buttonIcon
         self.buttonColor = buttonColor
+        self.buttonForeground = buttonForeground
         self.disabled = disabled
         self.action = action
         self.content = content()
@@ -745,7 +759,7 @@ struct SwipeRevealRow<Content: View>: View {
                     Image(systemName: buttonIcon).font(.system(size: 18, weight: .semibold))
                     Text(buttonLabel).font(.caption2.weight(.medium))
                 }
-                .foregroundStyle(.white)
+                .foregroundStyle(buttonForeground)
                 .frame(width: revealWidth)
                 .frame(maxHeight: .infinity)
             }

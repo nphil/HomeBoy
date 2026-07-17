@@ -21,6 +21,7 @@ struct TagsTabView: View {
 
     @State private var tags: [HBTag] = []
     @State private var isLoading = false
+    @State private var loadError: String?
     @State private var showCreate = false
     @State private var isSearchActive = false
 
@@ -44,12 +45,13 @@ struct TagsTabView: View {
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.title2.weight(.semibold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(theme.current.onAccentColor)
                                     .frame(width: 56, height: 56)
                                     .background(theme.current.accentColor)
                                     .clipShape(Circle())
                                     .shadow(color: theme.current.accentColor.opacity(0.4), radius: 6, x: 0, y: 4)
                             }
+                            .accessibilityLabel("Add tag")
                             .padding()
                         }
                     }
@@ -72,6 +74,7 @@ struct TagsTabView: View {
                     } label: {
                         Image(systemName: "magnifyingglass")
                     }
+                    .accessibilityLabel("Search")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     // Direct list/tiles toggle — icon shows the mode you'd switch TO.
@@ -132,6 +135,13 @@ struct TagsTabView: View {
             }
         } else if tags.isEmpty && isLoading {
             ProgressView("Loading tags…")
+        } else if let loadError, tags.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 40)).foregroundStyle(.orange)
+                Text("Couldn't load tags").font(.title3.weight(.semibold))
+                Text(loadError).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                Button("Try again") { Task { await load() } }.buttonStyle(.glass)
+            }
         } else if tags.isEmpty {
             VStack(spacing: 12) {
                 Image(systemName: "tag").font(.system(size: 48)).foregroundStyle(.secondary)
@@ -205,6 +215,7 @@ struct TagsTabView: View {
         }
         guard let client = store.client else { return }
         isLoading = true
+        loadError = nil
         do {
             async let tagsTask = client.listTags()
             async let itemsTask = client.listItems(pageSize: 1000)
@@ -231,6 +242,10 @@ struct TagsTabView: View {
                 store.localDB.cacheTags(fetched)
             } else if !store.localDB.tags.isEmpty {
                 tags = sortedByName(store.localDB.tags)
+            } else {
+                // Both fetches failed and there's no cache — surface the error
+                // instead of pretending the library is empty.
+                loadError = error.localizedDescription
             }
         }
         isLoading = false
@@ -247,7 +262,7 @@ private struct TagTileCell: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 Circle()
-                    .fill(Color(hex: tag.color ?? ""))
+                    .fill(tagColor(tag.color, fallback: theme.current.accentColor))
                     .frame(width: 20, height: 20)
                     .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
                 Spacer()
@@ -285,7 +300,7 @@ private struct TagRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Circle()
-                .fill(Color(hex: tag.color ?? ""))
+                .fill(tagColor(tag.color, fallback: theme.current.accentColor))
                 .frame(width: 18, height: 18)
                 .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
 
@@ -328,6 +343,7 @@ struct TagDetailView: View {
     @State private var tag: HBTag? = nil
     @State private var items: [HBItem] = []
     @State private var isLoading = false
+    @State private var loadError: String? = nil
     @State private var showEdit = false
     @State private var showDelete = false
     @State private var thumbStore = ThumbnailStore()
@@ -345,6 +361,15 @@ struct TagDetailView: View {
 
                 if isLoading && items.isEmpty {
                     ProgressView().frame(maxWidth: .infinity).padding()
+                } else if let loadError, items.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle").font(.title3).foregroundStyle(.orange)
+                        Text(loadError)
+                            .font(.callout).foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("Try again") { Task { await load() } }.buttonStyle(.glass)
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 24)
                 } else if items.isEmpty {
                     Text("No items with this tag")
                         .font(.callout).foregroundStyle(.secondary)
@@ -367,13 +392,14 @@ struct TagDetailView: View {
             .padding(.bottom, 40)
         }
         .scrollIndicators(.hidden)
+        .refreshable { await load() }
         .background(theme.current.backgroundColor.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 7) {
                     Circle()
-                        .fill(Color(hex: tag?.color ?? initialColor ?? ""))
+                        .fill(tagColor(tag?.color ?? initialColor, fallback: theme.current.accentColor))
                         .frame(width: 14, height: 14)
                         .overlay(Circle().stroke(Color.primary.opacity(0.15), lineWidth: 0.5))
                     Text(tag?.name ?? initialName)
@@ -391,6 +417,7 @@ struct TagDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
+                .accessibilityLabel("More actions")
             }
         }
         .task { await load() }
@@ -427,11 +454,16 @@ struct TagDetailView: View {
         }
         guard let client = store.client else { return }
         isLoading = true
+        loadError = nil
         async let tagsTask = client.listTags()
         async let itemsTask = client.listItems(labelIds: [tagId], pageSize: 1000)
         if let allTags = try? await tagsTask { tag = allTags.first { $0.id == tagId } }
-        if let resp = try? await itemsTask {
+        do {
+            let resp = try await itemsTask
             items = resp.items.sorted { $0.name.lowercased() < $1.name.lowercased() }
+        } catch {
+            // Distinguish "couldn't load" from a genuinely empty tag.
+            if items.isEmpty { loadError = error.localizedDescription }
         }
         isLoading = false
     }
@@ -496,6 +528,7 @@ struct TagEditSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Close")
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 14)
@@ -508,7 +541,7 @@ struct TagEditSheet: View {
                             Circle()
                                 .fill(Color(hex: colorHex))
                                 .frame(width: 22, height: 22)
-                                .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
+                                .overlay(Circle().stroke(Color.primary.opacity(0.3), lineWidth: 1))
                             TextField("Tag name", text: $name)
                                 .font(.title3.weight(.semibold))
                                 .focused($nameFocused)
@@ -516,7 +549,7 @@ struct TagEditSheet: View {
                                 .submitLabel(.done)
                         }
                         .padding(.horizontal, 18)
-                        .frame(height: 56)
+                        .frame(minHeight: 56)
                         .glassEffect(in: RoundedRectangle(cornerRadius: 16))
 
                         VStack(alignment: .leading, spacing: 8) {
@@ -526,18 +559,24 @@ struct TagEditSheet: View {
                                 .padding(.horizontal, 4)
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 6), spacing: 8) {
                                 ForEach(HomeboxTagPalette, id: \.self) { hex in
-                                    Circle()
-                                        .fill(Color(hex: hex))
-                                        .frame(width: 32, height: 32)
-                                        .overlay(
-                                            Circle()
-                                                .stroke(colorHex == hex ? Color.white : Color.clear, lineWidth: 2)
-                                        )
-                                        .shadow(color: colorHex == hex ? Color(hex: hex).opacity(0.6) : Color.clear, radius: 4)
-                                        .onTapGesture {
-                                            colorHex = hex
-                                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                        }
+                                    Button {
+                                        colorHex = hex
+                                        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                    } label: {
+                                        Circle()
+                                            .fill(Color(hex: hex))
+                                            .frame(width: 32, height: 32)
+                                            .overlay(
+                                                Circle()
+                                                    .stroke(colorHex == hex ? Color.primary : Color.clear, lineWidth: 2)
+                                            )
+                                            .shadow(color: colorHex == hex ? Color(hex: hex).opacity(0.6) : Color.clear, radius: 4)
+                                            .frame(minWidth: 44, minHeight: 44)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(swatchName(for: hex))
+                                    .accessibilityAddTraits(colorHex == hex ? .isSelected : [])
                                 }
                             }
                             .padding(14)
@@ -586,6 +625,7 @@ struct TagEditSheet: View {
                     .padding(.vertical, 4)
                 }
                 .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
                 .scrollIndicators(.hidden)
                 .frame(maxHeight: .infinity)
 
@@ -594,6 +634,15 @@ struct TagEditSheet: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .padding(.bottom, 16)
+            }
+        }
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    nameFocused = false
+                    descriptionFocused = false
+                }
             }
         }
         .onAppear {
@@ -606,6 +655,25 @@ struct TagEditSheet: View {
     }
 
     private var isEditing: Bool { if case .edit = mode { return true } else { return false } }
+
+    /// VoiceOver names for the fixed Homebox palette swatches.
+    private func swatchName(for hex: String) -> String {
+        switch hex {
+        case "#ef4444": return "Red"
+        case "#f97316": return "Orange"
+        case "#f59e0b": return "Amber"
+        case "#eab308": return "Yellow"
+        case "#84cc16": return "Lime"
+        case "#10b981": return "Green"
+        case "#06b6d4": return "Cyan"
+        case "#3b82f6": return "Blue"
+        case "#6366f1": return "Indigo"
+        case "#8b5cf6": return "Purple"
+        case "#ec4899": return "Pink"
+        case "#71717a": return "Gray"
+        default:        return hex
+        }
+    }
 
     private var actionButtons: some View {
         Button {

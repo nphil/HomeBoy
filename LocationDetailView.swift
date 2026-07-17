@@ -11,7 +11,9 @@ struct LocationDetailView: View {
 
     @State private var detail: HBLocationDetail?
     @State private var items: [HBItem] = []
-    @State private var isLoading = false
+    // Starts true so the first frame (before .task fires) shows the spinner
+    // instead of the terminal "unavailable" state.
+    @State private var isLoading = true
     @State private var loadError: String?
     @State private var showEdit = false
     @State private var confirmDelete = false
@@ -32,6 +34,7 @@ struct LocationDetailView: View {
                 } label: {
                     Image(systemName: "ellipsis.circle").font(.title3)
                 }
+                .accessibilityLabel("More actions")
             }
         }
         .task { await load() }
@@ -69,11 +72,22 @@ struct LocationDetailView: View {
                 .padding(.bottom, 60)
             }
             .scrollIndicators(.hidden)
+            .refreshable { await load() }
         } else if let loadError {
             VStack(spacing: 10) {
                 Image(systemName: "exclamationmark.triangle").font(.system(size: 32)).foregroundStyle(.orange)
                 Text("Couldn't load").font(.title3.weight(.semibold))
                 Text(loadError).font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                Button("Try again") { Task { await load() } }.buttonStyle(.glass)
+            }
+        } else {
+            // Terminal state: load finished with no detail and no error — never
+            // leave a blank screen (or an infinite spinner) behind the nav bar.
+            VStack(spacing: 10) {
+                Image(systemName: "icloud.slash").font(.system(size: 32)).foregroundStyle(.secondary)
+                Text("Location unavailable offline").font(.title3.weight(.semibold))
+                Text("Location details need a server connection. Reconnect and try again.")
+                    .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
                 Button("Try again") { Task { await load() } }.buttonStyle(.glass)
             }
         }
@@ -153,7 +167,13 @@ struct LocationDetailView: View {
     }
 
     private func load() async {
-        guard let client = store.client else { return }
+        guard let client = store.client else {
+            // No client (offline session) — end the loading state with a
+            // message instead of spinning forever.
+            isLoading = false
+            loadError = "Location details aren't available offline."
+            return
+        }
         isLoading = true; loadError = nil
         do {
             async let d = client.getLocation(id: locationId)
