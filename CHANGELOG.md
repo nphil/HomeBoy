@@ -4,6 +4,14 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.37 — 2026-07-17
+
+### Themes
+- **30 new themes — 15 light + 15 dark** — replacing the old web-ported set. Curated, distinct palettes (Indigo Dawn, Porcelain Teal, Rosewater, Amber Grove, Meadow, Sky Harbor, Lavender Mist, Coral Reef, Sandstone, Sakura, Glacier, Olive Grove, Copper Slate, Cobalt, Graphite / Midnight Indigo, Obsidian Teal, Ember, Deep Forest, Midnight Ocean, Velvet Grape, Carbon Rose, Nordic Night, Espresso, Neon Noir, Abyss, Pitch Black, Aurora, Honey Amber, Steel), shared 1:1 with the iOS app so both platforms can match. Material You stays available.
+- Theme picker: scrollable with System / Light / Dark sections, two-tone swatches showing each theme's real background + primary, and a selection check that stays legible on light palettes.
+
+---
+
 ## v1.0.36 — 2026-07-17
 
 ### App icon
