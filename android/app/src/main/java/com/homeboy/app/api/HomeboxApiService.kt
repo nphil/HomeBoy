@@ -16,12 +16,20 @@ import retrofit2.http.*
  */
 interface HomeboxApiService {
 
-    // Auth — must be form-urlencoded, NOT JSON
+    // Auth — must be form-urlencoded, NOT JSON. stayLoggedIn=true gets a
+    // long-lived (7-day) token instead of a ~30-minute session token.
     @FormUrlEncoded
     @POST("v1/users/login")
     suspend fun login(
         @Field("username") email: String,
-        @Field("password") password: String
+        @Field("password") password: String,
+        @Field("stayLoggedIn") stayLoggedIn: Boolean = true
+    ): Response<HBAuthResponse>
+
+    /** Exchanges a still-valid token for a fresh one (sliding session). */
+    @GET("v1/users/refresh")
+    suspend fun refresh(
+        @Header("Authorization") token: String
     ): Response<HBAuthResponse>
 
     @GET("v1/users/self")

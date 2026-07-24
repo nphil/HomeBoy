@@ -19,7 +19,17 @@ import java.util.concurrent.TimeUnit
  */
 class HomeboxHttpException(val code: Int, message: String) : Exception(message)
 
-class HomeboxClient(baseUrl: String) {
+/**
+ * @param credentialsProvider blocking; returns the saved (email, password) for
+ *   automatic re-login when a token refresh fails, or null if none saved.
+ * @param onTokenRecovered blocking; called with the new raw token after a
+ *   successful refresh/re-login so the caller can persist it (prefs, SessionHolder).
+ */
+class HomeboxClient(
+    baseUrl: String,
+    private val credentialsProvider: (() -> Pair<String, String>?)? = null,
+    private val onTokenRecovered: ((String) -> Unit)? = null
+) {
 
     private val gson = GsonBuilder().create()
 
@@ -30,6 +40,23 @@ class HomeboxClient(baseUrl: String) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
+        // Self-healing auth: Homebox session tokens expire; on any 401 this
+        // refreshes (or re-logs-in) and transparently retries the request, so an
+        // expired token never surfaces as "valid authentication token required".
+        .authenticator { _, response ->
+            // Never recurse into auth endpoints, and give up after one retry.
+            val path = response.request.url.encodedPath
+            if (path.endsWith("/users/login") || path.endsWith("/users/refresh")) {
+                null
+            } else if (response.priorResponse != null) {
+                null
+            } else {
+                val failedToken = response.request.header("Authorization")
+                val fresh = recoverAuth(failedToken)
+                if (fresh.isNullOrBlank()) null
+                else response.request.newBuilder().header("Authorization", fresh).build()
+            }
+        }
         .apply {
             if (BuildConfig.DEBUG) {
                 addInterceptor(HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC })
@@ -51,6 +78,41 @@ class HomeboxClient(baseUrl: String) {
 
     // Raw token — no "Bearer " prefix per Homebox API spec
     private fun auth() = token
+
+    private val authRecoveryLock = Any()
+
+    /**
+     * Runs on an OkHttp worker thread when a request got 401. Returns a working
+     * token, or null when recovery is impossible (no creds / wrong password).
+     * Synchronized so parallel 401s trigger a single refresh, not a stampede.
+     */
+    private fun recoverAuth(failedToken: String?): String? = synchronized(authRecoveryLock) {
+        // Another thread already recovered while we waited for the lock.
+        if (token.isNotBlank() && token != failedToken) return token
+
+        return kotlinx.coroutines.runBlocking {
+            // 1) The cheap path: exchange a still-valid token for a fresh one.
+            val refreshed = try {
+                val r = api.refresh(token)
+                if (r.isSuccessful) r.body()?.token?.takeIf { it.isNotBlank() } else null
+            } catch (_: Exception) { null }
+
+            // 2) Token fully expired: re-login with the saved credentials.
+            val newToken = refreshed ?: run {
+                val (email, password) = credentialsProvider?.invoke() ?: return@run null
+                try {
+                    val r = api.login(email, password)
+                    if (r.isSuccessful) r.body()?.token?.takeIf { it.isNotBlank() } else null
+                } catch (_: Exception) { null }
+            }
+
+            if (newToken != null) {
+                token = newToken
+                try { onTokenRecovered?.invoke(newToken) } catch (_: Exception) {}
+            }
+            newToken
+        }
+    }
 
     private fun fail(op: String, resp: retrofit2.Response<*>): Nothing {
         val detail = try { resp.errorBody()?.string()?.take(200) } catch (_: Exception) { null }

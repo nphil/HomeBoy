@@ -41,6 +41,18 @@ class HomeboxRepository(
         const val MAX_REPLAY_ATTEMPTS = 8
     }
 
+    /** Builds a client whose 401s self-heal via token refresh / silent re-login. */
+    private fun buildClient(url: String): HomeboxClient = HomeboxClient(
+        url,
+        credentialsProvider = {
+            kotlinx.coroutines.runBlocking { prefs.getCredentials() }
+        },
+        onTokenRecovered = { newToken ->
+            kotlinx.coroutines.runBlocking { prefs.setToken(newToken) }
+            SessionHolder.token = newToken
+        }
+    )
+
     private suspend fun client(): HomeboxClient {
         val token = prefs.getToken()
         val url = prefs.getServerUrl()
@@ -52,7 +64,7 @@ class HomeboxRepository(
             syncSession(existing)
             return existing
         }
-        val c = HomeboxClient(url)
+        val c = buildClient(url)
         c.token = token
         c.tenant = tenantId
         _client = c
@@ -75,9 +87,11 @@ class HomeboxRepository(
         val url = serverUrl.trimEnd('/')
         prefs.setServerUrl(url)
         invalidate()
-        val c = HomeboxClient(url)
+        val c = buildClient(url)
         val resp = c.login(email, password)
         prefs.setToken(resp.token)
+        // Saved so an expired token can silently re-login instead of erroring.
+        prefs.setCredentials(email, password)
         c.token = resp.token
         _client = c
         syncSession(c)

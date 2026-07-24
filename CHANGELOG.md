@@ -4,6 +4,15 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.38 — 2026-07-17
+
+### Authentication
+- **Fixed recurring "valid authentication token required" errors.** Root cause: login never requested `stayLoggedIn`, so Homebox issued a ~30-minute session token that the app neither refreshed nor replaced — once it expired, every request failed until you manually logged in again (while the cloud icon correctly showed "connected", since the server was reachable).
+- Login now requests a long-lived (7-day) token, and auth is **self-healing**: any 401 automatically refreshes the token — or silently re-logs-in with your saved credentials if the token fully expired — and retries the request. You should never see that error again unless your password actually changed.
+- One-time note: log in once after installing this update so the app can save credentials for silent re-login. Logging out clears them.
+
+---
+
 ## v1.0.37 — 2026-07-17
 
 ### Themes

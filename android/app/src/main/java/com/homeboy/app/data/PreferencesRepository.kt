@@ -15,6 +15,10 @@ class PreferencesRepository(private val context: Context) {
     companion object {
         val KEY_SERVER_URL = stringPreferencesKey("server_url")
         val KEY_TOKEN = stringPreferencesKey("token")
+        // Saved so an expired token can silently re-login (self-hosted personal
+        // app; DataStore lives in app-sandboxed storage like every other secret here).
+        val KEY_LOGIN_EMAIL = stringPreferencesKey("login_email")
+        val KEY_LOGIN_PASSWORD = stringPreferencesKey("login_password")
         val KEY_TENANT = stringPreferencesKey("tenant")
         val KEY_TENANT_NAME = stringPreferencesKey("tenant_name")
         val KEY_THEME_INDEX = intPreferencesKey("theme_index")
@@ -138,6 +142,20 @@ class PreferencesRepository(private val context: Context) {
     suspend fun setServerUrl(url: String) = context.dataStore.edit { it[KEY_SERVER_URL] = url }
     suspend fun setToken(t: String) = context.dataStore.edit { it[KEY_TOKEN] = t }
 
+    suspend fun setCredentials(email: String, password: String) = context.dataStore.edit {
+        it[KEY_LOGIN_EMAIL] = email
+        it[KEY_LOGIN_PASSWORD] = password
+    }
+
+    /** Saved login for silent re-auth after token expiry; null when never saved. */
+    suspend fun getCredentials(): Pair<String, String>? {
+        val p = context.dataStore.data.first()
+        val email = p[KEY_LOGIN_EMAIL] ?: return null
+        val password = p[KEY_LOGIN_PASSWORD] ?: return null
+        if (email.isBlank() || password.isBlank()) return null
+        return email to password
+    }
+
     suspend fun setKeepLocation(v: Boolean) = context.dataStore.edit { it[KEY_KEEP_LOCATION] = v }
     suspend fun setKeepTags(v: Boolean) = context.dataStore.edit { it[KEY_KEEP_TAGS] = v }
     suspend fun setLastLocation(id: String?) = context.dataStore.edit {
@@ -176,6 +194,8 @@ class PreferencesRepository(private val context: Context) {
             it.remove(KEY_TOKEN)
             it.remove(KEY_TENANT)
             it.remove(KEY_TENANT_NAME)
+            it.remove(KEY_LOGIN_EMAIL)
+            it.remove(KEY_LOGIN_PASSWORD)
         }
     }
 }
