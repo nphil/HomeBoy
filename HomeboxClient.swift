@@ -412,7 +412,7 @@ struct HomeboxClient {
         return u
     }
 
-    private func request(_ path: String, method: String, body: Data? = nil, contentType: String = "application/json", query: [URLQueryItem] = []) async throws -> Data {
+    private func request(_ path: String, method: String, body: Data? = nil, contentType: String = "application/json", query: [URLQueryItem] = [], allowAuthRecovery: Bool = true) async throws -> Data {
         var req = URLRequest(url: try url(path, query: query))
         req.httpMethod = method
         req.httpBody = body
@@ -429,7 +429,22 @@ struct HomeboxClient {
             throw HBError.transport(error)
         }
         guard let http = resp as? HTTPURLResponse else { throw HBError.http(-1, "No HTTP response") }
-        if http.statusCode == 401 || http.statusCode == 403 { throw HBError.unauthorized }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            // Self-healing auth: Homebox tokens expire. On a 401 (token had been
+            // sent, first attempt only), refresh it — or silently re-login with the
+            // saved credentials — then retry this request once with the new token.
+            if http.statusCode == 401, allowAuthRecovery, let failedToken = token {
+                let fresh = await AuthRecovery.shared.recover(serverURL: serverURL, failedToken: failedToken)
+                if let fresh {
+                    var retry = self
+                    retry.token = fresh
+                    return try await retry.request(path, method: method, body: body,
+                                                   contentType: contentType, query: query,
+                                                   allowAuthRecovery: false)
+                }
+            }
+            throw HBError.unauthorized
+        }
         if !(200...299).contains(http.statusCode) {
             let body = String(data: data, encoding: .utf8) ?? ""
             throw HBError.http(http.statusCode, body)
@@ -773,4 +788,65 @@ struct HomeboxClient {
 
 private extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
+}
+
+// MARK: - Auth recovery
+
+extension Notification.Name {
+    /// Posted with userInfo["token"] after an expired token was silently replaced,
+    /// so HomeboxStore can adopt the new token for future `store.client` values.
+    static let authTokenRecovered = Notification.Name("homebox.authTokenRecovered")
+}
+
+/// Serializes token recovery so parallel 401s trigger a single refresh/re-login
+/// instead of a stampede. Keychain keys mirror HomeboxStore's.
+actor AuthRecovery {
+    static let shared = AuthRecovery()
+
+    static let tokenKey    = "homebox.token"
+    static let usernameKey = "homebox.login.username"
+    static let passwordKey = "homebox.login.password"
+
+    /// Returns a working token after the given one got a 401, or nil when
+    /// recovery is impossible (no saved credentials / password changed).
+    func recover(serverURL: URL, failedToken: String) async -> String? {
+        // Another request already recovered while we waited for the actor.
+        if let current = Keychain.get(Self.tokenKey), !current.isEmpty, current != failedToken {
+            return current
+        }
+
+        // 1) Cheap path: exchange the (possibly still-valid) token for a fresh one.
+        var newToken = await refresh(serverURL: serverURL, token: failedToken)
+
+        // 2) Token fully expired: silent re-login with the saved credentials.
+        if newToken == nil,
+           let username = Keychain.get(Self.usernameKey), !username.isEmpty,
+           let password = Keychain.get(Self.passwordKey), !password.isEmpty {
+            let resp = try? await HomeboxClient.login(serverURL: serverURL,
+                                                      username: username, password: password)
+            if let t = resp?.token, !t.isEmpty { newToken = t }
+        }
+
+        guard let newToken else { return nil }
+        Keychain.set(newToken, key: Self.tokenKey)
+        NotificationCenter.default.post(name: .authTokenRecovered, object: nil,
+                                        userInfo: ["token": newToken])
+        return newToken
+    }
+
+    /// `GET /api/v1/users/refresh` — raw URLSession so it can never recurse into
+    /// the client's own 401 handling.
+    private func refresh(serverURL: URL, token: String) async -> String? {
+        let url = serverURL.appendingPathComponent("api")
+            .appendingPathComponent("v1/users/refresh")
+        var req = URLRequest(url: url)
+        req.setValue(token, forHTTPHeaderField: "Authorization")
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse,
+              (200...299).contains(http.statusCode),
+              let decoded = try? JSONDecoder().decode(HBLoginResponse.self, from: data),
+              !decoded.token.isEmpty
+        else { return nil }
+        return decoded.token
+    }
 }

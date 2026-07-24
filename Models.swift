@@ -52,6 +52,7 @@ final class HomeboxStore: ObservableObject {
 
     let localDB = LocalDatabase()
     let syncEngine = SyncEngine()
+    private var authTokenObserver: NSObjectProtocol?
 
     @Published var isOfflineModeEnabled: Bool {
         didSet {
@@ -174,6 +175,18 @@ final class HomeboxStore: ObservableObject {
 
         refreshPendingCount()
 
+        // Adopt tokens replaced by AuthRecovery (silent refresh / re-login after a
+        // 401), so future `store.client` values carry the new token.
+        authTokenObserver = NotificationCenter.default.addObserver(
+            forName: .authTokenRecovered, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let newToken = note.userInfo?["token"] as? String else { return }
+            Task { @MainActor [weak self] in
+                guard let self, self.token != newToken else { return }
+                self.token = newToken
+            }
+        }
+
         // Hydrate groups + per-group stats from the last successful refresh so
         // the collections menu works offline.
         if let data = UserDefaults.standard.data(forKey: Keys.cachedGroups),
@@ -204,6 +217,10 @@ final class HomeboxStore: ObservableObject {
         let resp = try await HomeboxClient.login(serverURL: url, username: username, password: password)
         token        = resp.token
         savedUsername = username
+        // Saved (Keychain) so an expired token can silently re-login instead of
+        // surfacing "unauthorized" until the user logs in manually.
+        Keychain.set(username, key: AuthRecovery.usernameKey)
+        Keychain.set(password, key: AuthRecovery.passwordKey)
         // Clear stale group selection from previous logins
         activeGroupId = nil
         groups        = []
@@ -221,6 +238,8 @@ final class HomeboxStore: ObservableObject {
         groupName              = nil
         cachedGroupStats       = [:]
         isAuthenticatedOffline = false
+        Keychain.delete(AuthRecovery.usernameKey)
+        Keychain.delete(AuthRecovery.passwordKey)
     }
 
     func loginOffline() {
