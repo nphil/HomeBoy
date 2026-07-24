@@ -4,6 +4,15 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.128 — 2026-07-24
+
+### Performance — item list thumbnails
+- **Removed up to ~1000 redundant HTTP requests when browsing a large catalog.** To draw a row thumbnail the app was fetching each item's *full detail* just to discover its photo's attachment id — one request per item, throttled to 4 at a time. Homebox's list response has carried `imageId`/`thumbnailId` all along (the server eager-loads the primary photo for exactly this purpose); the iOS client simply never declared the fields, so the decoder silently dropped them. Thumbnails now resolve straight from the list payload with **zero** extra requests, and prefer the server's smaller generated thumbnail over the full-size photo.
+- **Photo-less items no longer re-fetch on every launch.** The "this item has no photo" result was cached in memory only, so every item without a photo re-requested its full detail on *every* cold start, forever. It's now persisted like any other result.
+- The old lazy resolution is kept as a fallback for the cases the list payload can't cover — photos that lost their `primary` flag, older servers, and photos queued offline — so nothing regresses if the server doesn't supply an id.
+
+---
+
 ## v1.0.127 — 2026-07-24
 
 ### iOS 27 readiness

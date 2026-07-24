@@ -203,7 +203,11 @@ final class LocalDatabase {
             location: location ?? old.location,
             parent: old.parent,
             labels: newTags ?? old.labels,
-            tags: old.tags
+            tags: old.tags,
+            // Forward the preview ids — dropping them here would blank the
+            // thumbnail after any offline edit until the next online refresh.
+            imageId: old.imageId,
+            thumbnailId: old.thumbnailId
         )
         persist(items, to: itemsURL)
     }
@@ -321,7 +325,11 @@ final class LocalDatabase {
             location: location,
             parent: nil,
             labels: nil,
-            tags: nil
+            tags: nil,
+            // Created offline — nothing is on the server yet, so any photo shows
+            // via the pendingphoto- path until the item syncs.
+            imageId: nil,
+            thumbnailId: nil
         )
     }
 

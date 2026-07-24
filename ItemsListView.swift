@@ -1077,7 +1077,7 @@ private struct ItemTileContent: View {
         }
         .task(id: item.id) {
             guard let client else { return }
-            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+            let attId = await thumbStore.load(item: item, client: client, localDB: localDB)
             if let attId { thumbState = .attachment(attId) } else { thumbState = .none }
         }
         .onReceive(NotificationCenter.default.publisher(for: .thumbnailInvalidated)) { note in
@@ -1085,7 +1085,7 @@ private struct ItemTileContent: View {
             thumbStore.invalidate(itemId: item.id)
             thumbState = .loading
             Task {
-                let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+                let attId = await thumbStore.load(item: item, client: client, localDB: localDB)
                 thumbState = attId.map { .attachment($0) } ?? ThumbState.none
             }
         }

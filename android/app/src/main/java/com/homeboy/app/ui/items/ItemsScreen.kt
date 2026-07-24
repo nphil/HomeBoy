@@ -770,8 +770,10 @@ private fun ItemThumbnail(
 
     val ctx = LocalContext.current
     val app = ctx.applicationContext as HomeboxApplication
-    // The entities list response doesn't include an image id, so fall back to
-    // resolving the item's primary photo lazily (cached per session).
+    // The entities list response DOES carry imageId/thumbnailId (Homebox eager-loads
+    // the primary photo attachment for exactly this reason), so previewAttachmentId
+    // usually resolves with zero requests. The lazy fallback below only runs when the
+    // server sent nothing — e.g. a photo that lost its `primary` flag.
     var attId by remember(item.id) { mutableStateOf(item.previewAttachmentId) }
     LaunchedEffect(item.id) {
         if (attId == null) attId = ThumbnailResolver.resolve(item.id, app.repository)

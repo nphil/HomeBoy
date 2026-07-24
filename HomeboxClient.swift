@@ -53,6 +53,15 @@ struct HBItem: Codable, Identifiable, Hashable {
     let parent: HBLocationSummary?
     let labels: [HBTag]?
     let tags: [HBTag]?
+    // Homebox's list DTO (EntitySummary/ItemSummary) has carried these since
+    // ~v0.17 — the list query eager-loads the primary photo attachment and its
+    // thumbnail edge precisely so clients don't have to fetch each item's detail
+    // just to draw a row thumbnail. We simply never declared them, so the decoder
+    // dropped them. Names must match the wire keys EXACTLY (the decoder uses no
+    // key strategy) and must NOT have default values, or the synthesized
+    // init(from:) skips them and they decode as nil forever.
+    let imageId: String?
+    let thumbnailId: String?
 
     var quantityInt: Int { Int(quantity ?? 1) }
 
@@ -60,6 +69,19 @@ struct HBItem: Codable, Identifiable, Hashable {
     /// [] = the API did include them and the item has none (genuinely no tags).
     var effectiveLabels: [HBTag]? { labels ?? tags }
     var effectiveLocation: HBLocationSummary? { location ?? parent }
+
+    /// Attachment id for this item's list thumbnail, straight from the list
+    /// payload — no extra request. Prefers the server-generated thumbnail over
+    /// the full-size photo, matching the official web client.
+    ///
+    /// nil does NOT mean "no photo": the server only populates these for a photo
+    /// flagged `primary`, so items whose photos lost that flag (e.g. the primary
+    /// was deleted while others remained) still need the lazy fallback.
+    var previewAttachmentId: String? {
+        let thumb = (thumbnailId?.isEmpty == false) ? thumbnailId : nil
+        let full  = (imageId?.isEmpty == false) ? imageId : nil
+        return thumb ?? full
+    }
 }
 
 struct HBItemListResponse: Codable {

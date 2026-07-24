@@ -504,6 +504,29 @@ class ThumbnailStore {
         return map
     }()
 
+    /// Items whose list-supplied preview id is known stale because the photo was
+    /// changed in-app. Detail screens don't reload the arrays backing other tabs,
+    /// so `item.previewAttachmentId` can outlive the edit — force those through
+    /// the authoritative lazy path instead.
+    private var distrustListPreview: Set<String> = []
+
+    /// Preferred entry point: resolves from the list payload with ZERO requests.
+    ///
+    /// Falls through to the lazy per-item resolver only when the server gave us
+    /// nothing — older servers, photos missing the `primary` flag, and photos
+    /// queued offline (which the server cannot know about yet).
+    func load(item: HBItem, client: HomeboxClient, localDB: LocalDatabase? = nil) async -> String? {
+        if !distrustListPreview.contains(item.id), let id = item.previewAttachmentId {
+            memCache[item.id] = id
+            if diskMap[item.id] != id {
+                diskMap[item.id] = id
+                persistDiskMap()
+            }
+            return id
+        }
+        return await load(itemId: item.id, client: client, localDB: localDB)
+    }
+
     func load(itemId: String, client: HomeboxClient, localDB: LocalDatabase? = nil) async -> String? {
         if let v = memCache[itemId] { return v.isEmpty ? nil : v }
         // Persisted id map resolves synchronously — known items never touch the
@@ -546,12 +569,27 @@ class ThumbnailStore {
 
         // Only remember "no photo" when the server actually answered. A failed
         // fetch (offline) is left uncached so the row refetches after reconnect.
-        if fetched { memCache[itemId] = "" }
+        //
+        // Persist the negative too: this was memory-only, so every photo-less
+        // item re-fetched its full detail on EVERY cold launch, forever. The read
+        // path above already treats "" as "no photo". Safe to persist now that
+        // the list payload supplies ids — a photo added elsewhere arrives via
+        // previewAttachmentId, which is checked before this cache.
+        if fetched {
+            memCache[itemId] = ""
+            if diskMap[itemId] != "" {
+                diskMap[itemId] = ""
+                persistDiskMap()
+            }
+        }
         return nil
     }
 
     /// Forget this store's resolved id for [itemId] so its next load re-resolves.
     func invalidate(itemId: String) {
+        // Also stop trusting the list payload's id for this item: the arrays
+        // backing other tabs won't be reloaded, so their copy is now stale.
+        distrustListPreview.insert(itemId)
         memCache[itemId] = nil
         if diskMap[itemId] != nil {
             diskMap[itemId] = nil
@@ -732,7 +770,7 @@ struct ItemListRowContent: View {
         .padding(.horizontal, 10).padding(.vertical, 8)
         .task(id: item.id) {
             guard let client else { return }
-            let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+            let attId = await thumbStore.load(item: item, client: client, localDB: localDB)
             if let attId { thumbState = .attachment(attId) } else { thumbState = .none }
         }
         .onReceive(NotificationCenter.default.publisher(for: .thumbnailInvalidated)) { note in
@@ -740,7 +778,7 @@ struct ItemListRowContent: View {
             thumbStore.invalidate(itemId: item.id)
             thumbState = .loading
             Task {
-                let attId = await thumbStore.load(itemId: item.id, client: client, localDB: localDB)
+                let attId = await thumbStore.load(item: item, client: client, localDB: localDB)
                 thumbState = attId.map { .attachment($0) } ?? ThumbState.none
             }
         }
