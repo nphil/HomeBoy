@@ -21,6 +21,14 @@
       ],
       "versions": [
         {
+          "version": "1.0.128",
+          "buildVersion": "1.0.128",
+          "date": "2026-07-24T21:28:10Z",
+          "localizedDescription": "Unsigned IPA \u2014 sideload with AltStore. Built from `fad0bd1` on 2026-07-24 21:28 UTC",
+          "downloadURL": "https://github.com/nphil/HomeBoy/releases/download/v1.0.128/HomeboxCatalog.ipa",
+          "size": 3937114
+        },
+        {
           "version": "1.0.127",
           "buildVersion": "1.0.127",
           "date": "2026-07-24T20:59:14Z",
