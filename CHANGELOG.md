@@ -4,6 +4,21 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.127 — 2026-07-24
+
+### iOS 27 readiness
+- **Pinned CI to the Xcode 26 / iOS 26 SDK.** The build previously selected whatever the newest Xcode on the runner was, so the linked SDK would have jumped to iOS 27 automatically — with no commit and an automatic release to sideloaded installs. Moving to the iOS 27 SDK is now a deliberate, launch-tested change.
+- **Declared the UIScene manifest** (`UIApplicationSupportsMultipleScenes: false`, a no-op on iOS 26) as insurance against iOS 27's scene life-cycle enforcement, which keys off the linked SDK.
+- Retired deprecated APIs ahead of the SDK bump: `MagnificationGesture` → `MagnifyGesture`, `UIAccessibility.post(.announcement)` → `AccessibilityNotification.Announcement`, `.foregroundColor` → `.foregroundStyle`, and the inert `UITableView`/`UITableViewCell` appearance overrides (SwiftUI `List` stopped being `UITableView`-backed in iOS 16).
+
+### Fixed
+- **"Save to Photos" now works.** The app was missing `NSPhotoLibraryAddUsageDescription`, so saving a photo from the full-screen viewer hit a permissions violation instead of prompting.
+
+### Performance
+- Row thumbnail placeholders are a static skeleton instead of a spinner. `LazyVStack` doesn't recycle rows, so a fast flick could leave dozens of display-linked animations running mid-scroll.
+
+---
+
 ## v1.0.38 — 2026-07-17
 
 ### Authentication

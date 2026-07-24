@@ -27,8 +27,15 @@
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>HomeBoy uses the camera to photograph items and to scan product barcodes and Homebox QR codes.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save an item's photo from HomeBoy into your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Pick a photo from your library to attach to an item in Homebox.</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+	</dict>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

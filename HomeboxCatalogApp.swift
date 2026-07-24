@@ -18,8 +18,11 @@ struct HomeboxCatalogApp: App {
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
 
-        UITableView.appearance().backgroundColor = .clear
-        UITableViewCell.appearance().backgroundColor = .clear
+        // NOTE: UITableView/UITableViewCell appearance overrides were removed —
+        // SwiftUI List stopped being UITableView-backed in iOS 16, so they had
+        // been inert for years while still exposing us to UIKit-internals churn.
+        // These two still have live backing classes; every List/Form/ScrollView
+        // also sets .scrollContentBackground(.hidden) declaratively.
         UIScrollView.appearance().backgroundColor = .clear
         UICollectionView.appearance().backgroundColor = .clear
     }
@@ -113,7 +116,7 @@ struct ContentView: View {
     private func showToast(_ message: String) {
         toastMessage = message
         // The toast is visual-only; make sure VoiceOver users hear it too.
-        UIAccessibility.post(notification: .announcement, argument: message)
+        AccessibilityNotification.Announcement(message).post()
         Task {
             try? await Task.sleep(for: .seconds(2.5))
             toastMessage = nil

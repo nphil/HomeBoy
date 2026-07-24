@@ -750,10 +750,10 @@ struct ItemListRowContent: View {
     private var thumbnailView: some View {
         switch thumbState {
         case .loading:
-            ZStack {
-                RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.10))
-                ProgressView().controlSize(.small)
-            }
+            // Static skeleton, deliberately NOT a ProgressView: LazyVStack doesn't
+            // recycle rows, so a fast flick could leave dozens of display-linked
+            // spinner animations running at once.
+            RoundedRectangle(cornerRadius: 9).fill(theme.current.accentColor.opacity(0.10))
         case .attachment(let attId):
             AuthImage(itemId: item.id, attachmentId: attId, client: client, localDB: localDB,
                       allowsFullScreen: false, targetPixelSize: 192)

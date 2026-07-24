@@ -28,9 +28,17 @@ jobs:
 
       - name: Select Xcode
         run: |
-          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
-          echo "Using: $LATEST"
-          sudo xcode-select -s "$LATEST"
+          # Pinned to match build.yml. The app links this xcframework, so building
+          # it with a different toolchain than the app is a subtle, hard-to-debug
+          # failure mode. Bump both workflows together, never one alone.
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26.x found on this runner. Installed Xcodes:" >&2
+            ls -d /Applications/Xcode_*.app || true
+            exit 1
+          fi
+          echo "Using: $XCODE"
+          sudo xcode-select -s "$XCODE"
           xcodebuild -version
 
       - name: Ensure CMake

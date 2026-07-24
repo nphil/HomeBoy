@@ -948,7 +948,13 @@ struct AuthImage: View {
             } else {
                 ZStack {
                     Color.gray.opacity(0.10)
-                    ProgressView()
+                    // Spinner only for large, user-awaited images (detail gallery).
+                    // Row thumbnails get a static skeleton: LazyVStack doesn't
+                    // recycle, so a flick could leave dozens of display-linked
+                    // animations running while scrolling.
+                    if (targetPixelSize ?? .greatestFiniteMagnitude) > 400 {
+                        ProgressView()
+                    }
                 }
             }
         }
@@ -1047,10 +1053,10 @@ struct FullScreenImageView: View {
                     .scaleEffect(scale)
                     .offset(offset)
                     .gesture(
-                        MagnificationGesture()
+                        MagnifyGesture()
                             .onChanged { value in
-                                let delta = value / lastScale
-                                lastScale = value
+                                let delta = value.magnification / lastScale
+                                lastScale = value.magnification
                                 scale = min(max(scale * delta, 1), 4)
                             }
                             .onEnded { _ in
@@ -1142,7 +1148,7 @@ struct FullScreenImageView: View {
 
     private func showLocalToast(_ message: String) {
         toastMessage = message
-        UIAccessibility.post(notification: .announcement, argument: message)
+        AccessibilityNotification.Announcement(message).post()
         withAnimation { showToast = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             withAnimation { showToast = false }

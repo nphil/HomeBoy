@@ -76,9 +76,25 @@ jobs:
 
       - name: Select Xcode
         run: |
-          LATEST=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
-          echo "Using: $LATEST"
-          sudo xcode-select -s "$LATEST"
+          # PINNED to Xcode 26.x (iOS 26 SDK) on purpose. Picking "newest installed"
+          # meant the linked SDK would silently jump to iOS 27 the day the runner
+          # image gained Xcode 27 — with no commit, no review, and an automatic
+          # release to sideloading users. The linked SDK is also what triggers
+          # Apple's UIScene life-cycle enforcement, so an SDK bump must be a
+          # deliberate, launch-tested change.
+          #
+          # To move to Xcode 27: widen this glob AND bump runs-on to macos-26 in
+          # the same commit, then install the resulting IPA and confirm it LAUNCHES
+          # on an iOS 27 device before merging.
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26.x found on this runner. Installed Xcodes:" >&2
+            ls -d /Applications/Xcode_*.app || true
+            echo "::error::Refusing to build against an unpinned SDK. See the comment in this step." >&2
+            exit 1
+          fi
+          echo "Using: $XCODE"
+          sudo xcode-select -s "$XCODE"
           xcodebuild -version
 
       - name: Install xcodegen

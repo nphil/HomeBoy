@@ -1148,7 +1148,7 @@ struct BulkEditSheet: View {
                                             .foregroundStyle(theme.current.accentColor)
                                         Text(item.name)
                                             .font(.callout)
-                                            .foregroundColor(.primary)
+                                            .foregroundStyle(.primary)
                                             .lineLimit(1)
                                         Spacer()
                                         if item.quantityInt > 1 {

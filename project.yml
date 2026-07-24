@@ -51,6 +51,19 @@ targets:
           NSAllowsArbitraryLoads: true
         NSCameraUsageDescription: "HomeBoy uses the camera to photograph items and to scan product barcodes and Homebox QR codes."
         NSPhotoLibraryUsageDescription: "Pick a photo from your library to attach to an item in Homebox."
+        # Required by the "Save to Photos" action in the full-screen photo viewer.
+        # Without it, saving hits a TCC violation instead of prompting.
+        NSPhotoLibraryAddUsageDescription: "Save an item's photo from HomeBoy into your photo library."
+        # Insurance for iOS 27's UIScene life-cycle enforcement, which keys off the
+        # linked SDK. This app uses the pure SwiftUI App/WindowGroup life cycle and
+        # should already be compliant, but xcodegen never emits this key while
+        # Xcode's own SwiftUI template does — so declare it explicitly.
+        # `false` is the documented default, making this a no-op on iOS 26.
+        # Deliberately NO UISceneConfigurations / UISceneDelegateClassName: naming a
+        # delegate class that doesn't exist in this repo would override the scene
+        # configuration SwiftUI installs for WindowGroup and break launch outright.
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.homeboxcatalog.app
