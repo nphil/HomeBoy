@@ -4,6 +4,13 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.131 — 2026-08-03
+
+### Fixed
+- **The search button now follows your theme (Tags tab).** The list/tiles toggle picked up the app-wide accent colour but the magnifying glass stayed grey, because it wasn't ours: `.searchable` contributes a *system* search item, and system-drawn bar chrome ignores SwiftUI's `.tint`. There's also no way to style it — `DefaultToolbarItem` is `ToolbarContent`, not a `View`, so no style modifier can reach it. The system item is now suppressed and replaced with a real button that drives the same search field and inherits the accent colour exactly like the toggle. Rolling out to Tags first; Items and Locations follow once it's confirmed on device.
+
+---
+
 ## v1.0.130 — 2026-07-24
 
 ### Fixed

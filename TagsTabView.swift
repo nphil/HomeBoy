@@ -68,9 +68,26 @@ struct TagsTabView: View {
                 // overflows into a "..." menu on iPhone. Connection state is
                 // global, so it's shown on the Items tab and in Settings.
                 //
-                // System-supplied search button (searchToolbarBehavior .minimize),
-                // pinned top-trailing. Adding our own would render two icons.
-                DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
+                // The SYSTEM search button cannot be themed: DefaultToolbarItem is
+                // ToolbarContent, not a View, so no style modifier reaches it, and
+                // system-drawn bar chrome ignores the app-wide .tint (set in
+                // HomeboxCatalogApp) that colours the toggle below. So we suppress
+                // it with .toolbar(removing: .search) — see below the stack — and
+                // draw our own, which drives the same isPresented binding.
+                //
+                // No explicit foregroundStyle: inheriting .tint is exactly how the
+                // toggle picks up the theme, and it lets Liquid Glass adapt the
+                // glyph for contrast against the bar's glass background.
+                //
+                // STAGED: Tags only for now. `.toolbar(removing:)` combined with
+                // `.searchable(isPresented:)` is undocumented, so this is proven on
+                // one tab before Items/Locations follow.
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { isSearchActive = true } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .accessibilityLabel("Search")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     // Direct list/tiles toggle — icon shows the mode you'd switch TO.
                     Button {
@@ -109,6 +126,10 @@ struct TagsTabView: View {
         .modifier(ConditionalSearchable(text: $globalSearchQuery,
                                         isPresented: $isSearchActive,
                                         prompt: "Search tags…"))
+        // Suppress the system-supplied search button (see the toolbar block).
+        // Placed next to .searchable because that's the modifier contributing
+        // the item being removed.
+        .toolbar(removing: .search)
         .floatingCardCover(isPresented: $showCreate, detentFraction: 0.55) {
             TagEditSheet(mode: .create, onSave: {
                 await load()
