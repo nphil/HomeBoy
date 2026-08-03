@@ -72,7 +72,7 @@ struct TagsTabView: View {
                 // ToolbarContent, not a View, so no style modifier reaches it, and
                 // system-drawn bar chrome ignores the app-wide .tint (set in
                 // HomeboxCatalogApp) that colours the toggle below. So we suppress
-                // it with .toolbar(removing: .search) — see below the stack — and
+                // it with .toolbar(removing: .search) — just below this block — and
                 // draw our own, which drives the same isPresented binding.
                 //
                 // No explicit foregroundStyle: inheriting .tint is exactly how the
@@ -100,6 +100,16 @@ struct TagsTabView: View {
                     .accessibilityLabel(viewMode == .list ? "Switch to tile view" : "Switch to list view")
                 }
             }
+            // Suppress the system search item contributed by .searchable, so our
+            // themed button above is the only magnifying glass.
+            //
+            // This MUST be inside the NavigationStack, next to the .toolbar that
+            // owns the bar. v1.0.131 applied it outside, alongside .searchable,
+            // and it silently did nothing: .searchable is explicitly supported on
+            // a NavigationStack, but toolbar preferences propagate up from the
+            // stack's root content, so a removal applied above the stack never
+            // reaches the bar. Result was two search icons and the "..." back.
+            .toolbar(removing: .search)
             .task { await load() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await load() }
@@ -126,10 +136,6 @@ struct TagsTabView: View {
         .modifier(ConditionalSearchable(text: $globalSearchQuery,
                                         isPresented: $isSearchActive,
                                         prompt: "Search tags…"))
-        // Suppress the system-supplied search button (see the toolbar block).
-        // Placed next to .searchable because that's the modifier contributing
-        // the item being removed.
-        .toolbar(removing: .search)
         .floatingCardCover(isPresented: $showCreate, detentFraction: 0.55) {
             TagEditSheet(mode: .create, onSave: {
                 await load()

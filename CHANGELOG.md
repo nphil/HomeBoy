@@ -4,6 +4,13 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.132 — 2026-08-03
+
+### Fixed
+- **Two search icons and a stray "..." on the Tags tab (regression in v1.0.131).** The modifier meant to suppress the system search button silently did nothing, because it was applied *outside* the `NavigationStack` alongside `.searchable`. `.searchable` is explicitly supported at that level, but toolbar preferences propagate up from the stack's root content, so a removal applied above the stack never reaches the bar. The system icon stayed, the new themed one took a slot next to it, and the third control pushed the list/tiles toggle back into an overflow menu. The removal now sits next to the toolbar that owns the bar.
+
+---
+
 ## v1.0.131 — 2026-08-03
 
 ### Fixed
