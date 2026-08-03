@@ -4,6 +4,13 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.133 — 2026-08-03
+
+### Reverted
+- **Tags is back to the standard search button.** Two releases tried to replace the system magnifying glass with a themed one, and `.toolbar(removing: .search)` failed to suppress the system item at either level — applied outside the `NavigationStack` (v1.0.131) or beside the `.toolbar` block that owns the bar (v1.0.132). Both shipped two search icons plus a "..." overflow that swallowed the list/tiles toggle. Tags now matches Items and Locations exactly: one system search button and the toggle. The search glyph stays monochrome — iOS 26 draws system bar chrome that way and there's no supported hook to tint it.
+
+---
+
 ## v1.0.132 — 2026-08-03
 
 ### Fixed

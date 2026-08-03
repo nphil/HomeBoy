@@ -68,26 +68,9 @@ struct TagsTabView: View {
                 // overflows into a "..." menu on iPhone. Connection state is
                 // global, so it's shown on the Items tab and in Settings.
                 //
-                // The SYSTEM search button cannot be themed: DefaultToolbarItem is
-                // ToolbarContent, not a View, so no style modifier reaches it, and
-                // system-drawn bar chrome ignores the app-wide .tint (set in
-                // HomeboxCatalogApp) that colours the toggle below. So we suppress
-                // it with .toolbar(removing: .search) — just below this block — and
-                // draw our own, which drives the same isPresented binding.
-                //
-                // No explicit foregroundStyle: inheriting .tint is exactly how the
-                // toggle picks up the theme, and it lets Liquid Glass adapt the
-                // glyph for contrast against the bar's glass background.
-                //
-                // STAGED: Tags only for now. `.toolbar(removing:)` combined with
-                // `.searchable(isPresented:)` is undocumented, so this is proven on
-                // one tab before Items/Locations follow.
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { isSearchActive = true } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    .accessibilityLabel("Search")
-                }
+                // System-supplied search button (searchToolbarBehavior .minimize),
+                // pinned top-trailing. Adding our own would render two icons.
+                DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {
                     // Direct list/tiles toggle — icon shows the mode you'd switch TO.
                     Button {
@@ -100,16 +83,6 @@ struct TagsTabView: View {
                     .accessibilityLabel(viewMode == .list ? "Switch to tile view" : "Switch to list view")
                 }
             }
-            // Suppress the system search item contributed by .searchable, so our
-            // themed button above is the only magnifying glass.
-            //
-            // This MUST be inside the NavigationStack, next to the .toolbar that
-            // owns the bar. v1.0.131 applied it outside, alongside .searchable,
-            // and it silently did nothing: .searchable is explicitly supported on
-            // a NavigationStack, but toolbar preferences propagate up from the
-            // stack's root content, so a removal applied above the stack never
-            // reaches the bar. Result was two search icons and the "..." back.
-            .toolbar(removing: .search)
             .task { await load() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await load() }
