@@ -4,6 +4,13 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.130 — 2026-07-24
+
+### Fixed
+- **Removed the leftover "..." button on Locations and Tags.** Those tabs still had three trailing toolbar controls (connection badge, search, list/tiles toggle) next to the wide group-name button, so iOS kept collapsing them into an overflow menu that appeared empty. Both tabs are now down to two controls — search and the list/tiles toggle — matching the Items tab, which never overflowed. The connection/sync badge remains on the Items tab and in Settings.
+
+---
+
 ## v1.0.129 — 2026-07-24
 
 ### Items / Locations / Tags — layout and search

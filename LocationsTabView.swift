@@ -60,11 +60,11 @@ struct LocationsTabView: View {
                         .environmentObject(theme)
                 }
                 if store.isAuthenticated {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        ConnectionStatusBadge()
-                            .environmentObject(store)
-                            .environmentObject(theme)
-                    }
+                    // Exactly TWO trailing controls. A third (the connection badge
+                    // used to live here) plus the wide group-name button on the
+                    // left overflows into a "..." menu on iPhone. Connection state
+                    // is global, so it's shown on the Items tab and in Settings.
+                    //
                     // System-supplied search button (searchToolbarBehavior .minimize),
                     // pinned top-trailing. Adding our own would render two icons.
                     DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
