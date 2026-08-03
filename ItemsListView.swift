@@ -79,7 +79,12 @@ struct ItemsListView: View {
     @State private var tileColumns = 2
 
     // Filters
-    @State private var showFilters = false
+    // No longer a toggle: the filter/sort chips surface automatically while
+    // searching, and stay put whenever a filter or non-default sort is applied
+    // so it's always possible to see and clear what's narrowing the list.
+    private var showFilters: Bool {
+        isSearchActive || !globalSearchQuery.isEmpty || hasActiveFilters || sortOption != .nameAZ
+    }
     @State private var filterLocationId: String?
     @State private var filterTagIds: Set<String> = []
     @State private var showLocationFilterPicker = false
@@ -117,6 +122,11 @@ struct ItemsListView: View {
         NavigationStack {
             listChrome(listPresentations(listEventHandlers(rootStack.toolbar { mainToolbar })))
         }
+        // Attached to the STACK, not to content inside it — see ConditionalSearchable.
+        // Inside the stack, iOS renders a permanently visible nav-bar drawer.
+        .modifier(ConditionalSearchable(text: $globalSearchQuery,
+                                        isPresented: $isSearchActive,
+                                        prompt: "Search items…"))
     }
 
     // The list's modifier chain is split into two helpers taking `some View` so
@@ -144,7 +154,6 @@ struct ItemsListView: View {
                 updateSemanticSearch(for: newQuery)
                 recomputeDisplay()
             }
-            .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search items…"))
             .onChange(of: store.activeGroupId) { _, _ in
                 // Collection switched — wipe local caches and re-fetch with the new tenant
                 allItems = []
@@ -334,27 +343,16 @@ struct ItemsListView: View {
                         .environmentObject(store)
                         .environmentObject(theme)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { isSearchActive = true } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    .accessibilityLabel("Search")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) { showFilters.toggle() }
-                    } label: {
-                        Image(systemName: (hasActiveFilters || showFilters)
-                              ? "line.3.horizontal.decrease.circle.fill"
-                              : "line.3.horizontal.decrease.circle")
-                    }
-                    .accessibilityLabel("Filters")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Select") { withAnimation { selectMode = true } }
-                        .disabled(allItems.isEmpty)
-                        .accessibilityLabel("Select items")
-                }
+                // The search button is supplied by the SYSTEM (searchToolbarBehavior
+                // .minimize) — pinned here so it lands top-trailing rather than in
+                // the bottom bar, which would collide with the tab bar. Adding our
+                // own magnifying-glass Button would render a second icon.
+                //
+                // The old Filters and Select buttons are gone: four trailing items
+                // made iOS collapse them into a "..." overflow. Filters/Sort now
+                // live in the chip row (shown while searching or while a filter is
+                // active) and Select is reachable by long-pressing a card.
+                DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
             }
         }
     }

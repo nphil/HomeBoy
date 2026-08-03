@@ -322,8 +322,28 @@ struct ConditionalSearchable: ViewModifier {
     let prompt: String
 
     func body(content: Content) -> some View {
-        // Always apply so the view tree never rebuilds on activation (prevents nav bar flash)
-        content.searchable(text: $text, isPresented: $isPresented, prompt: prompt)
+        // Two placement rules matter here, and getting either wrong brings back
+        // the always-visible search bar:
+        //
+        // 1. Apply this modifier to the NavigationStack ITSELF, never to content
+        //    inside it. Applied inside, iOS renders the legacy navigation-bar
+        //    drawer — a bar permanently pinned under the title.
+        // 2. `.searchToolbarBehavior` must come AFTER `.searchable`, and only
+        //    affects search that is rendered in the toolbar, hence
+        //    `placement: .toolbar`.
+        //
+        // `.minimize` collapses the field into a button that expands on tap —
+        // the system supplies that button, so views must NOT add their own
+        // magnifying-glass item or two will appear. (Note: `.minimize`, not
+        // `.minimized` — Apple's own doc sample shows a name that doesn't exist.)
+        //
+        // Kept unconditional despite the name: wrapping `.searchable` in an `if`
+        // changes structural identity, tearing down the subtree and breaking
+        // focus and animation.
+        content
+            .searchable(text: $text, isPresented: $isPresented,
+                        placement: .toolbar, prompt: prompt)
+            .searchToolbarBehavior(.minimize)
     }
 }
 

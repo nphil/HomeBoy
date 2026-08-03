@@ -65,14 +65,9 @@ struct LocationsTabView: View {
                             .environmentObject(store)
                             .environmentObject(theme)
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            isSearchActive = true
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                        }
-                        .accessibilityLabel("Search")
-                    }
+                    // System-supplied search button (searchToolbarBehavior .minimize),
+                    // pinned top-trailing. Adding our own would render two icons.
+                    DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
                     ToolbarItem(placement: .topBarTrailing) {
                         // Direct list/tiles toggle — icon shows the mode you'd switch TO.
                         Button {
@@ -121,7 +116,6 @@ struct LocationsTabView: View {
                 collapsedIds = []
                 didInitializeCollapse = false
             }
-            .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search locations…"))
             .navigationDestination(for: LocationDetailRoute.self) { route in
                 LocationDetailView(locationId: route.id,
                                    onChange: { Task { try? await store.refreshLocations() } })
@@ -135,6 +129,10 @@ struct LocationsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
+        // On the STACK, not inside it — see ConditionalSearchable.
+        .modifier(ConditionalSearchable(text: $globalSearchQuery,
+                                        isPresented: $isSearchActive,
+                                        prompt: "Search locations…"))
         .floatingCardCover(isPresented: $showCreate, detentFraction: 0.5) {
             CreateLocationSheet(onDismiss: {
                 showCreate = false

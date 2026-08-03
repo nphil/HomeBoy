@@ -4,6 +4,17 @@ All notable changes to HomeBoy Android are listed here. Versions are auto-assign
 
 ---
 
+## v1.0.129 — 2026-07-24
+
+### Items / Locations / Tags — layout and search
+- **Cards are all the same size now.** `lineLimit(2)` means "at most 2 lines", so a short name like "Aquarium Sand" produced a shorter card than "Aquarium Handheld Vacuum Pump", and optional lines (breadcrumb, tag description, sublocation count) collapsed to nothing when empty — leaving the grid ragged. Every text block now reserves its full height, and cards stretch to their row.
+- **No more persistent search bar.** The search field was anchored under the title on every tab. Root cause: `.searchable` was attached to content *inside* the `NavigationStack` instead of to the stack itself, which makes iOS fall back to the legacy always-visible drawer. Search now collapses into a toolbar button and expands cleanly when tapped.
+- **The "..." overflow is gone.** Four trailing toolbar items forced iOS to collapse them into an overflow menu. Each tab now shows just the connection badge and a search button (plus the list/tiles toggle on Locations and Tags).
+- **Filters and Sort moved to the chip row**, which appears while searching and stays visible whenever a filter or non-default sort is applied, so you can always see and clear what's narrowing the list. Multi-select is unchanged — long-press a card.
+- Tile loading placeholders are static skeletons instead of spinners, matching the list rows.
+
+---
+
 ## v1.0.128 — 2026-07-24
 
 ### Performance — item list thumbnails

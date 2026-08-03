@@ -68,14 +68,9 @@ struct TagsTabView: View {
                         .environmentObject(store)
                         .environmentObject(theme)
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        isSearchActive = true
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                    }
-                    .accessibilityLabel("Search")
-                }
+                // System-supplied search button (searchToolbarBehavior .minimize),
+                // pinned top-trailing. Adding our own would render two icons.
+                DefaultToolbarItem(kind: .search, placement: .topBarTrailing)
                 ToolbarItem(placement: .topBarTrailing) {
                     // Direct list/tiles toggle — icon shows the mode you'd switch TO.
                     Button {
@@ -88,7 +83,6 @@ struct TagsTabView: View {
                     .accessibilityLabel(viewMode == .list ? "Switch to tile view" : "Switch to list view")
                 }
             }
-            .modifier(ConditionalSearchable(text: $globalSearchQuery, isPresented: $isSearchActive, prompt: "Search tags…"))
             .task { await load() }
             .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
                 Task { await load() }
@@ -111,6 +105,10 @@ struct TagsTabView: View {
             }
             .toolbar(showCreate ? .hidden : .visible, for: .tabBar)
         }
+        // On the STACK, not inside it — see ConditionalSearchable.
+        .modifier(ConditionalSearchable(text: $globalSearchQuery,
+                                        isPresented: $isSearchActive,
+                                        prompt: "Search tags…"))
         .floatingCardCover(isPresented: $showCreate, detentFraction: 0.55) {
             TagEditSheet(mode: .create, onSave: {
                 await load()
