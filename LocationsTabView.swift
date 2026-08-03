@@ -225,6 +225,9 @@ struct LocationsTabView: View {
             ) {
                 ForEach(tileRows, id: \.id) { loc in
                     LocationTile(loc: loc, children: childrenByParent[loc.id] ?? [])
+                        // Stretch to the row's height so cards never look ragged.
+                        // (An expanded tile legitimately grows — that's user-driven.)
+                        .frame(maxHeight: .infinity, alignment: .top)
                 }
             }
             .padding(16)
@@ -448,27 +451,31 @@ private struct LocationTile: View {
                 .accessibilityLabel("Location details")
             }
 
+            // Reserve every line so all tiles match height regardless of whether
+            // a location has ancestors or sublocations.
             VStack(alignment: .leading, spacing: 3) {
                 Text(loc.name)
                     .font(.callout.weight(.semibold))
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !loc.ancestors.isEmpty {
-                    Text(loc.ancestors.joined(separator: " › "))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .monospaced()
-                }
-                if !children.isEmpty {
-                    HStack(spacing: 4) {
+                    .lineLimit(2, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+                Text(loc.ancestors.isEmpty ? " " : loc.ancestors.joined(separator: " › "))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1, reservesSpace: true)
+                    .monospaced()
+                HStack(spacing: 4) {
+                    if children.isEmpty {
+                        Text(" ")
+                    } else {
                         Text("\(children.count) sublocation\(children.count == 1 ? "" : "s")")
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                     }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
                 }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1, reservesSpace: true)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
         .contentShape(Rectangle())

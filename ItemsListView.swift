@@ -573,7 +573,7 @@ struct ItemsListView: View {
     private var tileView: some View {
         ScrollView {
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: tileColumns),
+                columns: Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top), count: tileColumns),
                 spacing: 10
             ) {
                 ForEach(displayItems) { item in
@@ -677,6 +677,9 @@ struct ItemsListView: View {
                 .strokeBorder(isSelected ? theme.current.accentColor.opacity(0.6) : theme.current.accentColor.opacity(0.18),
                               lineWidth: isSelected ? 2 : 1))
             .clipShape(RoundedRectangle(cornerRadius: 12))
+            // Belt-and-braces with the reserved text lines: stretch every card to
+            // its row's height so a row can never look ragged.
+            .frame(maxHeight: .infinity, alignment: .top)
             if selectMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? theme.current.accentColor : Color.secondary.opacity(0.5))
@@ -1066,13 +1069,23 @@ private struct ItemTileContent: View {
                     CountBadge(count: item.quantityInt).padding(5)
                 }
             }
+            // Every tile must be the SAME height, so the text block reserves a
+            // fixed number of lines rather than shrinking to fit. Without
+            // reservesSpace a one-line name (or a missing breadcrumb) yields a
+            // shorter card and the grid looks ragged.
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.name).font(nameFont).lineLimit(columns <= 3 ? 2 : 1)
-                    .fixedSize(horizontal: false, vertical: true)
-                if columns <= 3, let path = breadcrumb {
-                    Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(1).monospaced()
+                Text(item.name)
+                    .font(nameFont)
+                    .lineLimit(columns <= 3 ? 2 : 1, reservesSpace: true)
+                    .multilineTextAlignment(.leading)
+                if columns <= 3 {
+                    Text(breadcrumb ?? " ")
+                        .font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(1, reservesSpace: true)
+                        .monospaced()
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(namePad)
         }
         .task(id: item.id) {
@@ -1095,7 +1108,9 @@ private struct ItemTileContent: View {
     private var thumbnailView: some View {
         switch thumbState {
         case .loading:
-            ZStack { theme.current.accentColor.opacity(0.10); ProgressView().controlSize(.small) }
+            // Static skeleton — see ItemListRowContent: LazyVGrid doesn't recycle,
+            // so spinners accumulate during a fast flick.
+            theme.current.accentColor.opacity(0.10)
         case .attachment(let attId):
             AuthImage(itemId: item.id, attachmentId: attId, client: client, localDB: localDB,
                       allowsFullScreen: false, targetPixelSize: 400)

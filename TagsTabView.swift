@@ -185,6 +185,8 @@ struct TagsTabView: View {
                 ForEach(filteredTags) { tag in
                     NavigationLink(value: TagDetailRoute(id: tag.id, name: tag.name, color: tag.color)) {
                         TagTileCell(tag: tag)
+                            // Stretch to the row's height so cards never look ragged.
+                            .frame(maxHeight: .infinity, alignment: .top)
                     }
                     .buttonStyle(.plain)
                 }
@@ -270,17 +272,19 @@ private struct TagTileCell: View {
                     CountBadge(count: Int(count))
                 }
             }
+            // Reserve the full line count so every tile is the same height —
+            // otherwise a short name or a missing description shrinks the card
+            // and the grid looks ragged.
             Text(tag.name)
                 .font(.callout.weight(.semibold))
                 .foregroundStyle(.primary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            if let d = tag.description, !d.isEmpty {
-                Text(d)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
+                .lineLimit(2, reservesSpace: true)
+                .multilineTextAlignment(.leading)
+            Text((tag.description?.isEmpty == false ? tag.description! : " "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2, reservesSpace: true)
+                .multilineTextAlignment(.leading)
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
